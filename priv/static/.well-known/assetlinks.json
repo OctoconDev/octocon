@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.octocon.OctoconApp",
+      "sha256_cert_fingerprints": [
+        "F4:F7:2E:58:8A:08:17:0C:3E:09:74:43:5D:82:AB:50:85:E6:AE:D9:4F:06:D8:19:F3:8F:5B:A4:42:5C:A5:C1"
+      ]
+    }
+  }
+]

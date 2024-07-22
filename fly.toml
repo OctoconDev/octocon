@@ -1,0 +1,47 @@
+# fly.toml app configuration file generated for octo on 2024-03-01T05:53:04Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'octo'
+primary_region = 'iad'
+kill_signal = 'SIGTERM'
+swap_size_mb = 512
+
+[build]
+
+[deploy]
+  release_command = '/app/bin/migrate'
+
+[env]
+  RELEASE_COOKIE = 'octo-cookie'
+  PRIMARY_REGION = 'iad'
+  PRIMARY_NODE_COUNT = 1
+  PHX_HOST = 'octo.fly.dev'
+  PORT = '8080'
+
+[processes]
+  primary = "/app/bin/server"
+  auxiliary = "/app/bin/server"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['primary', 'auxiliary']
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 1000
+    soft_limit = 1000
+
+[mounts]
+  source = 'octo_mnesia'
+  destination = '/mnesia'
+  processes = ['primary']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 2
