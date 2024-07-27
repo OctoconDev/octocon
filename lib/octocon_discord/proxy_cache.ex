@@ -138,14 +138,18 @@ defmodule OctoconDiscord.ProxyCache do
   @doc """
   Invalidates the cache for a Discord user. Takes either a system identity or a Discord ID (binary).
   """
+  def invalidate(system_identity)
+
   def invalidate(system_identity) when is_tuple(system_identity) do
     discord_id = Accounts.id_from_system_identity(system_identity, :discord)
 
-    Persistence.delete_proxy_cache_item(discord_id)
+    if discord_id != nil do
+      Persistence.delete_proxy_cache_item(discord_id)
 
-    ClusterUtils.run_on_all_primary_nodes(fn ->
-      OctoconDiscord.ProxyCache.invalidate_internal(discord_id)
-    end)
+      ClusterUtils.run_on_all_primary_nodes(fn ->
+        OctoconDiscord.ProxyCache.invalidate_internal(discord_id)
+      end)
+    end
 
     :ok
   end

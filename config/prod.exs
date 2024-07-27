@@ -8,7 +8,7 @@ config :swoosh, local: false
 
 config :octocon, :nostrum_scope, :global
 
-config :mnesia, dir: "/mnesia"
+config :mnesia, dir: '/mnesia'
 
 # TODO: Do not print debug messages in production
 # config :logger, level: :info

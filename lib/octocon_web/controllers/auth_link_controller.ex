@@ -37,7 +37,7 @@ defmodule OctoconWeb.AuthLinkController do
 
       system_id when is_binary(system_id) ->
         Logger.info("Recovered ID: #{system_id}")
-        LinkTokenRegistry.delete(link_token)
+        Fly.RPC.rpc_primary(fn -> LinkTokenRegistry.delete(link_token) end)
 
         try_link_account_wrapper(provider, conn, system_id, auth_data)
     end

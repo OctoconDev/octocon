@@ -16,7 +16,7 @@ swap_size_mb = 512
 [env]
   RELEASE_COOKIE = 'octo-cookie'
   PRIMARY_REGION = 'iad'
-  PRIMARY_NODE_COUNT = 1
+  PRIMARY_NODE_COUNT = '1'
   PHX_HOST = 'octo.fly.dev'
   PORT = '8080'
 
@@ -41,7 +41,19 @@ swap_size_mb = 512
   destination = '/mnesia'
   processes = ['primary']
 
+[metrics]
+  port = 9001
+  path = '/'
+  processes = ['primary', 'auxiliary']
+
+[[vm]]
+  memory = '4gb'
+  cpu_kind = 'shared'
+  cpus = 2
+  processes = ['primary']
+
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 2
+  processes = ['auxiliary']

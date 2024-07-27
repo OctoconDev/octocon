@@ -42,8 +42,9 @@ defmodule Octocon.Application do
 
   defp global_children_start() do
     [
-      # Telemetry supervisor
+      # Telemetry
       OctoconWeb.Telemetry,
+      Octocon.PromEx,
       # Distribution
       # {Task, fn -> Node.connect(:"node1@127.0.0.1") end},
       {DNSCluster, query: Application.get_env(:octocon, :dns_cluster_query) || :ignore},
@@ -68,7 +69,8 @@ defmodule Octocon.Application do
   defp global_children_end() do
     [
       # Web endpoint
-      OctoconWeb.Endpoint
+      OctoconWeb.Endpoint,
+      {Bandit, plug: OctoconWeb.MetricsPlug, port: 9001}
     ]
   end
 

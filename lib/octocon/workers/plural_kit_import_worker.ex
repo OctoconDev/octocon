@@ -21,7 +21,7 @@ defmodule Octocon.Workers.PluralKitImportWorker do
       states: [:available, :scheduled, :executing, :retryable],
       period: :infinity
     ],
-    max_attempts: 3
+    max_attempts: 1
 
   require Logger
 

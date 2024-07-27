@@ -29,7 +29,7 @@ defmodule OctoconDiscord.Commands.Register do
            ) do
         {:ok, user} ->
           Utils.success_embed(
-            "You're registered! Your system ID is: **#{user.id}**\n\nCheck out our [online guide](https://octocon.app/docs/discord/getting-started) for details on how to get started!"
+            "You're registered! Your system ID is: **#{user.id}**\n\nCheck out the `/help` command to learn your way around our platform!\n\nSome tips on how to get started can be found in `/help` -> `FAQ` -> `How do I get started with the bot?`"
           )
 
         {:error, _} ->

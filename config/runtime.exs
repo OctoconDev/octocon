@@ -188,6 +188,15 @@ if config_env() == :prod do
          """))
       |> Base.decode64!()
 
+  config :octocon, Octocon.PromEx,
+    grafana: [
+      host: System.get_env("GRAFANA_HOST") || raise("environment variable GRAFANA_HOST is missing."),
+      auth_token: System.get_env("GRAFANA_TOKEN") || raise("environment variable GRAFANA_TOKEN is missing."),
+      upload_dashboards_on_start: false,
+      folder_name: "OTP",
+      annotate_app_lifecycle: true
+    ]
+
   # redirect_uri: System.get_env("GOOGLE_REDIRECT_URI")
 
   # ## SSL Support

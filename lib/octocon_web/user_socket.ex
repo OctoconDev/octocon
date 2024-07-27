@@ -42,6 +42,7 @@ defmodule OctoconWeb.UserChannel do
   alias OctoconWeb.SystemJSON
   alias OctoconWeb.System.TagJSON
 
+  @impl true
   def join("system:" <> system_id, %{"token" => token}, socket) do
     case Octocon.Auth.Guardian.resource_from_token(token) do
       {:ok, claim_id, _claims} when claim_id == system_id ->
@@ -82,6 +83,7 @@ defmodule OctoconWeb.UserChannel do
     }
   end
 
+  @impl true
   def handle_in(
         "endpoint",
         %{
@@ -101,6 +103,10 @@ defmodule OctoconWeb.UserChannel do
 
     {:reply, {:ok, response}, socket}
   end
+
+  @doc false
+  @impl true
+  def handle_info({:plug_conn, :sent}, socket), do: {:noreply, socket}
 
   defp encode_response(conn) do
     %{

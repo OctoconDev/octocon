@@ -419,14 +419,14 @@ defmodule OctoconDiscord.Commands.Alter do
               %{
                 name: "prefix",
                 type: :string,
-                max_length: 10,
+                max_length: 30,
                 description: "The prefix of the proxy to set.",
                 required: false
               },
               %{
                 name: "suffix",
                 type: :string,
-                max_length: 10,
+                max_length: 30,
                 description: "The suffix of the proxy to set.",
                 required: false
               }
@@ -447,14 +447,14 @@ defmodule OctoconDiscord.Commands.Alter do
               %{
                 name: "prefix",
                 type: :string,
-                max_length: 10,
+                max_length: 30,
                 description: "The prefix of the proxy to add.",
                 required: false
               },
               %{
                 name: "suffix",
                 type: :string,
-                max_length: 10,
+                max_length: 30,
                 description: "The suffix of the proxy to add.",
                 required: false
               }
@@ -475,14 +475,14 @@ defmodule OctoconDiscord.Commands.Alter do
               %{
                 name: "prefix",
                 type: :string,
-                max_length: 10,
+                max_length: 30,
                 description: "The prefix of the proxy to remove.",
                 required: false
               },
               %{
                 name: "suffix",
                 type: :string,
-                max_length: 10,
+                max_length: 30,
                 description: "The suffix of the proxy to remove.",
                 required: false
               }

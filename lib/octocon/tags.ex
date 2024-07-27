@@ -136,17 +136,17 @@ defmodule Octocon.Tags do
 
   def get_tags_guarded(system_identity, caller_identity) do
     where = unwrap_system_identity_where(system_identity)
-  
+
     query =
       Tag
       |> where(^where)
       |> select([t], t)
-  
+
     friendship_level = Friendships.get_friendship_level(system_identity, caller_identity)
-  
+
     tags = Repo.all(query)
     tag_map = Map.new(tags, &{&1.id, &1})
-  
+
     tags
     |> Enum.filter(fn tag -> is_tag_hierarchy_visible?(tag, friendship_level, tag_map) end)
     |> Enum.map(fn tag -> %{tag | alters: []} end)
@@ -170,10 +170,20 @@ defmodule Octocon.Tags do
   defp is_tag_hierarchy_visible?(tag, friendship_level, tag_map) do
     if Alters.can_view_entity?(friendship_level, tag.security_level) do
       case tag.parent_tag_id do
-        nil -> true
+        nil ->
+          true
+
         parent_tag_id ->
           parent_tag = Map.get(tag_map, parent_tag_id)
-          if parent_tag, do: is_tag_hierarchy_visible?(parent_tag, friendship_level, Map.delete(tag_map, parent_tag_id)), else: false
+
+          if parent_tag,
+            do:
+              is_tag_hierarchy_visible?(
+                parent_tag,
+                friendship_level,
+                Map.delete(tag_map, parent_tag_id)
+              ),
+            else: false
       end
     else
       false
@@ -225,7 +235,7 @@ defmodule Octocon.Tags do
         case get_tag(system_identity, parent_tag_id) do
           nil ->
             {:error, :not_found}
-          
+
           parent_tag when parent_tag.user_id != system_id ->
             {:error, :not_found}
 

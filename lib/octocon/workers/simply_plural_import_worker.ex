@@ -23,7 +23,7 @@ defmodule Octocon.Workers.SimplyPluralImportWorker do
       states: [:available, :scheduled, :executing, :retryable],
       period: :infinity
     ],
-    max_attempts: 3
+    max_attempts: 1
 
   alias OctoconWeb.Uploaders.Avatar
 

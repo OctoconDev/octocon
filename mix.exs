@@ -52,7 +52,7 @@ defmodule Octocon.MixProject do
       {:phoenix_live_dashboard, "~> 0.8.4"},
       {:swoosh, "~> 1.16"},
       {:finch, "~> 0.18"},
-      {:telemetry_metrics, "~> 1.0"},
+      {:telemetry_metrics, "~> 1.0", override: true},
       {:telemetry_poller, "~> 1.1"},
       {:gettext, "~> 0.24"},
       {:jason, "~> 1.4"},
@@ -101,7 +101,9 @@ defmodule Octocon.MixProject do
       {:horde, "~> 0.9.0"},
       {:highlander, "~> 0.2.1"},
       # Time-series data
-      {:timescale, "~> 0.1.1"}
+      {:timescale, "~> 0.1.1"},
+      # Metrics
+      {:prom_ex, "~> 1.9.0"}
     ]
   end
 

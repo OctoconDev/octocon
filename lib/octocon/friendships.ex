@@ -110,7 +110,9 @@ defmodule Octocon.Friendships do
           front.front.user_id == friendship.friend.id
         end)
         |> then(fn fronts ->
-          friendship_level = get_friendship({:system, friendship.friend.id}, user_identity).friendship.level
+          friendship_level =
+            get_friendship({:system, friendship.friend.id}, user_identity).friendship.level
+
           Fronts.currently_fronting_hoisted(
             {:system, friendship.friend.id},
             friendship_level,

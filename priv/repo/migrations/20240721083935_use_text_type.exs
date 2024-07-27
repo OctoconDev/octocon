@@ -13,7 +13,7 @@ defmodule Octocon.Repo.Local.Migrations.UseTextType do
       modify :description, :text
       modify :name, :text
     end
-    
+
     alter table(:alters) do
       modify :discord_proxies, {:array, :text}
     end
