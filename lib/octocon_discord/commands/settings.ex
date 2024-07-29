@@ -16,6 +16,7 @@ defmodule OctoconDiscord.Commands.Settings do
     "username" => &__MODULE__.username/2,
     "avatar" => &__MODULE__.Avatar.command/2,
     "system-tag" => &__MODULE__.system_tag/2,
+    "remove-system-tag" => &__MODULE__.remove_system_tag/2,
     "show-system-tag" => &__MODULE__.show_system_tag/2,
     "proxy-case-sensitivity" => &__MODULE__.proxy_case_sensitivity/2,
     "proxy-show-pronouns" => &__MODULE__.proxy_show_pronouns/2,
@@ -99,6 +100,16 @@ defmodule OctoconDiscord.Commands.Settings do
 
       {:error, _} ->
         Utils.error_embed("An unknown error occurred while changing your system tag.")
+    end
+  end
+
+  def remove_system_tag(%{system_identity: system_identity}, _options) do
+    case Accounts.set_system_tag(system_identity, nil) do
+      {:ok, _} ->
+        Utils.success_embed("Your system tag has been removed.")
+
+      {:error, _} ->
+        Utils.error_embed("An unknown error occurred while removing your system tag.")
     end
   end
 
@@ -292,6 +303,11 @@ defmodule OctoconDiscord.Commands.Settings do
             required: true
           }
         ]
+      },
+      %{
+        name: "remove-system-tag",
+        description: "Removes your system tag.",
+        type: :sub_command
       },
       %{
         name: "show-system-tag",
