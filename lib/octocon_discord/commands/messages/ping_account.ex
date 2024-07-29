@@ -1,15 +1,14 @@
-defmodule OctoconDiscord.Commands.Messages.DeleteProxiedMessage do
+defmodule OctoconDiscord.Commands.Messages.PingAccount do
   @moduledoc false
 
   @behaviour Nosedrum.ApplicationCommand
 
   alias OctoconDiscord.Utils
+
   alias Octocon.Messages
 
-  alias Nostrum.Api
-
   @impl true
-  def description, do: "Deletes a proxied message."
+  def description, do: "Pings the account associated with a proxied message."
 
   @impl true
   def command(interaction) do
@@ -19,10 +18,11 @@ defmodule OctoconDiscord.Commands.Messages.DeleteProxiedMessage do
           messages: messages
         }
       },
-      channel_id: channel_id,
       user: %{
         id: user_id
-      }
+      },
+      guild_id: guild_id,
+      channel_id: channel_id
     } = interaction
 
     [
@@ -44,19 +44,21 @@ defmodule OctoconDiscord.Commands.Messages.DeleteProxiedMessage do
           )
 
         message ->
-          try_delete_message(user_id, channel_id, message)
+          permalink = "https://discord.com/channels/#{guild_id}/#{channel_id}/#{message_id}"
+          [
+            content: "<@#{message.author_id}>",
+            embeds: [
+              %Nostrum.Struct.Embed{
+                color: Utils.hex_to_int("#0FBEAA"),
+                title: ":bell: You've been pinged!",
+                description: "<@#{user_id}> has pinged you from a [proxied message](#{permalink}).",
+              }
+            ],
+            ephemeral?: false
+          ]
       end
     else
       Utils.error_embed("You can only do this with messages proxied by Octocon.")
-    end
-  end
-
-  defp try_delete_message(user_id, channel_id, %Messages.Message{} = message) do
-    if message.author_id == to_string(user_id) do
-      Api.delete_message(channel_id, String.to_integer(message.message_id))
-      Utils.success_embed("Message deleted!")
-    else
-      Utils.error_embed("You can only delete your own messages.")
     end
   end
 

@@ -42,14 +42,14 @@ defmodule OctoconDiscord.Commands.Messages.WhoIsThis do
       case Messages.lookup_message(message_id) do
         nil ->
           Utils.error_embed(
-            "This message either:\n\n- Was not proxied by Octocon.\n-Is more than 6 months old."
+            "This message either:\n\n- Was not proxied by Octocon.\n- Is more than 6 months old."
           )
 
         message ->
           display_message_data(to_string(user_id), message)
       end
     else
-      Utils.error_embed("You can only look up messages proxied by Octocon.")
+      Utils.error_embed("You can only do this with messages proxied by Octocon.")
     end
   end
 

@@ -65,7 +65,7 @@ defmodule Octocon.Accounts.User do
     |> validate_length(:description, max: 3000)
     |> validate_length(:system_tag, max: 20)
     # Dear christ help me
-    |> validate_format(:username, ~r/^[a-zA-Z0-9]([a-zA-Z0-9_\-.]{3,14})[a-zA-Z0-9]$/)
+    |> validate_format(:username, ~r/^[a-zA-Z0-9]([a-zA-Z0-9_\-.]{3,22})[a-zA-Z0-9]$/)
     # Make username not able to look like a system id (primary key)
     |> validate_format(:username, ~r/^(?:(?![a-z]{7}).*)$/)
     |> validate_inclusion(:primary_front, 1..32_767)

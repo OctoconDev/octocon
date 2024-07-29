@@ -7,7 +7,6 @@ defmodule Octocon.Primary.Supervisor do
     children = [
       Octocon.MessageRepo,
       Octocon.Primary.NodeListener,
-      Octocon.Primary.MnesiaManager,
       Octocon.Primary.HordeRegistry,
       Octocon.Primary.HordeSupervisor
     ]

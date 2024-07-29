@@ -47,7 +47,7 @@ defmodule Octocon.Application do
       Octocon.PromEx,
       # Distribution
       # {Task, fn -> Node.connect(:"node1@127.0.0.1") end},
-      {DNSCluster, query: Application.get_env(:octocon, :dns_cluster_query) || :ignore},
+      {Octocon.DNSCluster, query: Application.get_env(:octocon, :dns_cluster_query) || :ignore},
       # Distribution
       {Fly.RPC, []},
       # Ecto (Postgres database) repositories
@@ -76,8 +76,6 @@ defmodule Octocon.Application do
 
   defp prod_primary_children() do
     if Application.get_env(:octocon, :env) == :prod do
-      Logger.info("Prod primary children registering")
-
       [
         Octocon.FCM
       ]
@@ -88,14 +86,13 @@ defmodule Octocon.Application do
 
   defp primary_children do
     if Fly.RPC.is_primary?() do
-      Logger.info("Primary children registering")
-
       if Application.get_env(:octocon, :env) == :prod do
         prod_primary_children()
       else
         []
       end ++
         [
+          {Task, fn -> :mnesia.start() end},
           Octocon.Primary.Supervisor,
           Octocon.Global.Supervisor,
           {Oban, Application.fetch_env!(:octocon, Oban)},

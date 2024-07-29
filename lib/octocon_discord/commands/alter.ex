@@ -88,9 +88,10 @@ defmodule OctoconDiscord.Commands.Alter do
     with_id_or_alias(options, fn alter_identity ->
       case Alters.get_alter_by_id(system_identity, alter_identity) do
         {:ok, alter} ->
+          show = Utils.get_show_option(options)
           [
             embeds: [Utils.alter_embed(alter)],
-            ephemeral?: true
+            ephemeral?: !show
           ]
 
         {:error, :no_alter_id} ->
@@ -314,7 +315,7 @@ defmodule OctoconDiscord.Commands.Alter do
             description: "The ID (or alias) of the alter to view.",
             required: true
           }
-        ]
+        ] |> Utils.add_show_option()
       },
       %{
         name: "list",

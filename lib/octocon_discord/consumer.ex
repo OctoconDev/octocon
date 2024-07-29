@@ -20,11 +20,12 @@ defmodule OctoconDiscord.Consumer do
     "danger" => Commands.Danger,
     "bot-info" => Commands.BotInfo,
     "friend" => Commands.Friend,
-    "reproxy" => Commands.Reproxy,
     "admin" => Commands.Admin,
     "front" => Commands.Front,
     "❓ Who is this?" => Commands.Messages.WhoIsThis,
-    "❌ Delete proxied message" => Commands.Messages.DeleteProxiedMessage
+    "🔔 Ping account" => Commands.Messages.PingAccount,
+    "❌ Delete proxied message" => Commands.Messages.DeleteProxiedMessage,
+    "🔄 Reproxy message" => Commands.Messages.Reproxy
   }
 
   @impl GenServer
@@ -35,11 +36,9 @@ defmodule OctoconDiscord.Consumer do
   end
 
   def handle_event({:READY, _data, _ws_state}) do
-    # This avoids Discord's per-second rate limit for registering commands
-    # We can't use Task because we likely don't have time to await this
-    # TODO: Only do this on shard 0
-    spawn(fn ->
-      Logger.info("Bulk-registering all slash commands (#{map_size(@commands)})...")
+    # Using :persistent_term here ensures we only do this once (when shard 0 inits)
+    unless :persistent_term.get({OctoconDiscord, :commands_registered}, false) do
+      Logger.info("Bulk-registering all application commands (#{map_size(@commands)})...")
 
       scope = Application.get_env(:octocon, :nostrum_scope)
 
@@ -48,18 +47,23 @@ defmodule OctoconDiscord.Consumer do
       end)
 
       case Nosedrum.Storage.Dispatcher.process_queue(scope) do
-        {:ok, _} -> Logger.info("Registered all commands!")
-        {:error, e} -> Logger.error("Failed to register all commands: #{e}")
+        {:ok, _} ->
+          Logger.info("Registered all commands!")
+          :persistent_term.put({OctoconDiscord, :commands_registered}, true)
+
+        {:error, e} ->
+          Logger.error("Failed to register all commands: #{e}")
       end
-    end)
+    end
 
     :ok
   end
 
   def handle_event({:INTERACTION_CREATE, interaction, _ws_state}) do
-    case interaction.type do
-      3 -> Components.dispatch(interaction)
-      _ -> Nosedrum.Storage.Dispatcher.handle_interaction(interaction)
+    if interaction.type in [3, 5] do
+      Components.dispatch(interaction)
+    else
+      Nosedrum.Storage.Dispatcher.handle_interaction(interaction)
     end
   rescue
     e ->

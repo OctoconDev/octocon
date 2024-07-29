@@ -36,13 +36,6 @@ defmodule OctoconDiscord.Supervisor do
          expiration: expiration(default: :timer.minutes(10))},
         id: :webhooks_cache
       ),
-      # User last message cache (each user's last message cached for 2 minutes)
-      Supervisor.child_spec(
-        {Cachex,
-         name: OctoconDiscord.Cache.LastMessage,
-         expiration: expiration(default: :timer.minutes(2))},
-        id: :last_message_cache
-      ),
       # Custom ETS-backed persistent caches
       OctoconDiscord.ProxyCache,
       OctoconDiscord.ChannelBlacklistManager,
@@ -53,6 +46,7 @@ defmodule OctoconDiscord.Supervisor do
       OctoconDiscord.Components.AlterPaginator,
       OctoconDiscord.Components.WipeAltersHandler,
       OctoconDiscord.Components.DeleteAccountHandler,
+      OctoconDiscord.Components.ReproxyHandler,
       # Application commands
       {Nosedrum.Storage.Dispatcher, name: Nosedrum.Storage.Dispatcher},
       Supervisor.child_spec({Task, fn -> init_shards() end}, id: :init_shards)

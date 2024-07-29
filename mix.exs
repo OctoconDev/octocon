@@ -5,7 +5,7 @@ defmodule Octocon.MixProject do
     [
       app: :octocon,
       version: "0.1.0",
-      elixir: "~> 1.14",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -50,12 +50,11 @@ defmodule Octocon.MixProject do
       {:ecto_psql_extras, "~> 0.8.0"},
       {:postgrex, "~> 0.18.0"},
       {:phoenix_live_dashboard, "~> 0.8.4"},
-      {:swoosh, "~> 1.16"},
       {:finch, "~> 0.18"},
       {:telemetry_metrics, "~> 1.0", override: true},
       {:telemetry_poller, "~> 1.1"},
-      {:gettext, "~> 0.24"},
       {:jason, "~> 1.4"},
+      {:dns_cluster, "~> 0.1.3"},
       # Use Bandit instead of Cowboy
       {:bandit, "~> 1.5.5"},
       {:websock_adapter, "~> 0.5.6"},
@@ -72,8 +71,9 @@ defmodule Octocon.MixProject do
       {:pigeon, "~> 2.0.0-rc.1"},
       # Discord
       {:certifi, "~> 2.13", override: true},
-      # {:nostrum, "0.9.1", runtime: false},
       {:nostrum, github: "Kraigie/nostrum", branch: "master", override: true, runtime: false},
+      # Use zstd for gateway compression
+      {:ezstd, "~> 1.1"},
       # {:nosedrum, "~> 0.6"},
       # {:nosedrum,
       # github: "jchristgit/nosedrum", branch: "master", override: true},
@@ -97,9 +97,7 @@ defmodule Octocon.MixProject do
       {:timex, "~> 3.7"},
       # Distribution
       {:fly_postgres, "~> 0.3.3"},
-      {:dns_cluster, "~> 0.1.3"},
       {:horde, "~> 0.9.0"},
-      {:highlander, "~> 0.2.1"},
       # Time-series data
       {:timescale, "~> 0.1.1"},
       # Metrics

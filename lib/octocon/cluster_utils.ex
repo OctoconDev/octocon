@@ -20,7 +20,7 @@ defmodule Octocon.ClusterUtils do
   @doc """
   Get a list of all primary nodes in the cluster.
 
-  If include_self is true, the current node will be included in the list if it is a primary node. Otherwise, the current node will be excluded.
+  If `include_self` is `true`, the current node will be included in the list if it is a primary node. Otherwise, the current node will be excluded.
   """
   def primary_nodes(include_self \\ false)
 

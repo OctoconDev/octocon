@@ -5,14 +5,16 @@ defmodule OctoconDiscord.Components do
     AlterPaginator,
     DeleteAccountHandler,
     WipeAltersHandler,
-    HelpHandler
+    HelpHandler,
+    ReproxyHandler
   }
 
   @dispatchers %{
     "alter" => &AlterPaginator.handle_interaction/3,
     "wipe-alters" => &WipeAltersHandler.handle_interaction/3,
     "delete-account" => &DeleteAccountHandler.handle_interaction/3,
-    "help" => &HelpHandler.handle_interaction/3
+    "help" => &HelpHandler.handle_interaction/3,
+    "reproxy" => &ReproxyHandler.handle_interaction/3
   }
 
   def dispatch(interaction) do

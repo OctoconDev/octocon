@@ -31,12 +31,10 @@ defmodule Octocon.Primary.NodeListener do
   def update_nodes() do
     nodes_incl_self = ClusterUtils.primary_nodes(true)
 
-    nodes = Enum.filter(nodes_incl_self, fn node -> node != Node.self() end)
+    # nodes = Enum.filter(nodes_incl_self, fn node -> node != Node.self() end)
 
     set_horde_members(Octocon.Primary.HordeRegistry, nodes_incl_self)
     set_horde_members(Octocon.Primary.HordeSupervisor, nodes_incl_self)
-
-    Octocon.Primary.MnesiaManager.update_nodes(nodes)
   end
 
   defp set_horde_members(name, nodes) do

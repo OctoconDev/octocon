@@ -72,24 +72,33 @@ defmodule OctoconDiscord.Utils do
     end
   end
 
-  def with_id_or_alias(options, callback) do
+  def parse_idalias(idalias, allow_nil \\ false) do
+    if idalias == nil or String.trim(idalias) == "" do
+      if allow_nil do
+        nil
+      else
+        {:error, "You must provide an alter ID (or alias) to use this command."}
+      end
+    else
+      cond do
+        alter_id_valid?(idalias) -> {:id, parse_id!(idalias)}
+        true -> validate_alias(idalias)
+      end
+    end
+  end
+
+  def with_id_or_alias(options_or_idalias, callback, allow_nil \\ false) 
+
+  def with_id_or_alias(options, callback, allow_nil) when is_list(options) do
     idalias = get_command_option(options, "id")
 
-    result =
-      cond do
-        idalias == nil ->
-          {:error, "You must provide an alter ID (or alias) to this command."}
+    with_id_or_alias(idalias, callback, allow_nil)
+  end
 
-        alter_id_valid?(idalias) ->
-          {:id, parse_id!(idalias)}
-
-        true ->
-          validate_alias(idalias)
-      end
-
-    case result do
+  def with_id_or_alias(idalias, callback, allow_nil) when is_binary(idalias) do
+    case parse_idalias(idalias, allow_nil) do
       {:error, error} -> error_embed(error)
-      _ -> callback.(result)
+      result -> callback.(result)
     end
   end
 
@@ -368,7 +377,25 @@ defmodule OctoconDiscord.Utils do
         end
 
       true ->
-        error_embed("An unknown error occurred. Code: `cond-1`")
+        error_embed("An unknown error occurred.")
+    end
+  end
+
+  def add_show_option(options) do
+    options ++ [
+      %{
+        name: "show",
+        description: "Show this message to the entire channel instead of just you.",
+        type: :boolean,
+        required: false
+      }
+    ] 
+  end
+
+  def get_show_option(options) do
+    case get_command_option(options, "show") do
+      nil -> false
+      value -> value
     end
   end
 

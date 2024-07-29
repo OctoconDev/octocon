@@ -54,7 +54,6 @@ defmodule OctoconDiscord.Components.HelpHandler do
     friend_cancel: Pages.CommandList.Friend.Cancel,
     friend_trust: Pages.CommandList.Friend.Trust,
     friend_untrust: Pages.CommandList.Friend.Untrust,
-    reproxy: Pages.CommandList.Reproxy,
     autoproxy: Pages.CommandList.Autoproxy,
     admin_root: Pages.CommandList.Admin,
     admin_channel_blacklist: Pages.CommandList.Admin.ChannelBlacklist,

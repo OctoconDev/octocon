@@ -39,12 +39,6 @@ defmodule OctoconDiscord.Components.HelpHandler.Pages.CommandList do
       nav_page: "friend_root"
     },
     %{
-      name: "reproxy",
-      description: "Reproxy your last message as another alter",
-      category: false,
-      nav_page: "reproxy"
-    },
-    %{
       name: "autoproxy",
       description: "Manage your autoproxy settings",
       category: false,

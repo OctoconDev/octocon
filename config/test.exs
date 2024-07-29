@@ -20,12 +20,6 @@ config :octocon, OctoconWeb.Endpoint,
   secret_key_base: "kDwC9vMAvvat7jUYEZ3F5WFhr9RnAci7dSyh3RhdNKpTmDamfB10TFC+npVP5FHh",
   server: false
 
-# In test we don't send emails.
-config :octocon, Octocon.Mailer, adapter: Swoosh.Adapters.Test
-
-# Disable swoosh api client as it is only required for production adapters.
-config :swoosh, :api_client, false
-
 # Print only warnings and errors during test
 config :logger, level: :warning
 

@@ -1,14 +1,8 @@
 import Config
 
-# Configures Swoosh API Client
-config :swoosh, api_client: Swoosh.ApiClient.Finch, finch_name: Octocon.Finch
-
-# Disable Swoosh Local Memory Storage
-config :swoosh, local: false
-
 config :octocon, :nostrum_scope, :global
 
-config :mnesia, dir: '/mnesia'
+config :mnesia, dir: ~c"/mnesia"
 
 # TODO: Do not print debug messages in production
 # config :logger, level: :info
