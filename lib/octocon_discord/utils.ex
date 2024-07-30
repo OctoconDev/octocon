@@ -92,7 +92,7 @@ defmodule OctoconDiscord.Utils do
   def with_id_or_alias(options, callback, allow_nil) when is_list(options) do
     idalias = get_command_option(options, "id")
 
-    with_id_or_alias(idalias, callback, allow_nil)
+    with_id_or_alias(to_string(idalias), callback, allow_nil)
   end
 
   def with_id_or_alias(idalias, callback, allow_nil) when is_binary(idalias) do
