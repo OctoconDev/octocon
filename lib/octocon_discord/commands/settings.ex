@@ -14,6 +14,7 @@ defmodule OctoconDiscord.Commands.Settings do
 
   @subcommands %{
     "username" => &__MODULE__.username/2,
+    "remove-username" => &__MODULE__.remove_username/2,
     "avatar" => &__MODULE__.Avatar.command/2,
     "system-tag" => &__MODULE__.system_tag/2,
     "remove-system-tag" => &__MODULE__.remove_system_tag/2,
@@ -78,6 +79,18 @@ defmodule OctoconDiscord.Commands.Settings do
             "The username `#{username}` is invalid. It must satisfy the following criteria:\n\n- Between 5-16 characters\n- Only contains letters, numbers, dashes, and underscores\n- Does not start or end with a symbol\n- Does not consist of seven lowercase letters in a row (like a system ID)"
           )
       end
+    end
+  end
+
+  def remove_username(%{system_identity: system_identity}, _options) do
+    user = Accounts.get_user!(system_identity)
+
+    case Accounts.update_user(user, %{username: nil}) do
+      {:ok, _} ->
+        Utils.success_embed("Your username has been removed.")
+
+      {:error, _} ->
+        Utils.error_embed("An unknown error occurred while removing your username.")
     end
   end
 
@@ -249,6 +262,11 @@ defmodule OctoconDiscord.Commands.Settings do
             required: true
           }
         ]
+      },
+      %{
+        name: "remove-username",
+        description: "Removes your system's username.",
+        type: :sub_command
       },
       %{
         name: "avatar",
