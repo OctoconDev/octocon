@@ -23,14 +23,15 @@ defmodule OctoconDiscord.Commands.System do
 
   @impl true
   def command(interaction) do
-    %{data: %{resolved: resolved}, user: %{id: discord_id}} = interaction
+    %{data: %{resolved: resolved, options: [%{name: name, options: options}]}, user: %{id: discord_id}} = interaction
     discord_id = to_string(discord_id)
 
-    Utils.ensure_registered(discord_id, fn ->
-      %{data: %{options: [%{name: name, options: options}]}} = interaction
+    cb = fn -> @subcommands[name].(%{resolved: resolved, discord_id: discord_id}, options) end
 
-      @subcommands[name].(%{resolved: resolved, discord_id: discord_id}, options)
-    end)
+    case name do
+      "view" -> cb.()
+      _ -> Utils.ensure_registered(discord_id, cb)
+    end
   end
 
   def me(%{discord_id: discord_id}, _options) do
