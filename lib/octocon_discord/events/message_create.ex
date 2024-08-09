@@ -106,27 +106,37 @@ defmodule OctoconDiscord.Events.MessageCreate do
                     :ok
 
                   %{alter: %{id: alter_id}} ->
-                    send_proxy_message(%{
-                      webhook: webhook,
-                      message: message,
-                      alter: {system_id, alter_id},
-                      proxy_data:
-                        Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns]),
-                      thread_id: thread_id,
-                      server_settings: server_settings
-                    }, false)
+                    send_proxy_message(
+                      %{
+                        webhook: webhook,
+                        message: message,
+                        alter: {system_id, alter_id},
+                        proxy_data:
+                          Map.take(proxy_data, [
+                            :system_tag,
+                            :show_system_tag,
+                            :show_proxy_pronouns
+                          ]),
+                        thread_id: thread_id,
+                        server_settings: server_settings
+                      },
+                      false
+                    )
                 end
 
               alter_id ->
-                send_proxy_message(%{
-                  webhook: webhook,
-                  message: message,
-                  alter: {system_id, alter_id},
-                  proxy_data:
-                    Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns]),
-                  thread_id: thread_id,
-                  server_settings: server_settings
-                }, false)
+                send_proxy_message(
+                  %{
+                    webhook: webhook,
+                    message: message,
+                    alter: {system_id, alter_id},
+                    proxy_data:
+                      Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns]),
+                    thread_id: thread_id,
+                    server_settings: server_settings
+                  },
+                  false
+                )
             end
 
           {:latch, :ready} ->
@@ -136,15 +146,18 @@ defmodule OctoconDiscord.Events.MessageCreate do
           {:latch, alter_id} ->
             system_id = proxy_data.system_id
 
-            send_proxy_message(%{
-              webhook: webhook,
-              message: message,
-              alter: {system_id, alter_id},
-              proxy_data:
-                Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns]),
-              thread_id: thread_id,
-              server_settings: server_settings
-            }, false)
+            send_proxy_message(
+              %{
+                webhook: webhook,
+                message: message,
+                alter: {system_id, alter_id},
+                proxy_data:
+                  Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns]),
+                thread_id: thread_id,
+                server_settings: server_settings
+              },
+              false
+            )
         end
 
       {new_message, data} ->
@@ -158,15 +171,18 @@ defmodule OctoconDiscord.Events.MessageCreate do
         end
 
         unless new_message == "" do
-          send_proxy_message(%{
-            webhook: webhook,
-            message: %Nostrum.Struct.Message{message | content: new_message},
-            alter: data,
-            proxy_data:
-              Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns]),
-            thread_id: thread_id,
-            server_settings: server_settings
-          }, false)
+          send_proxy_message(
+            %{
+              webhook: webhook,
+              message: %Nostrum.Struct.Message{message | content: new_message},
+              alter: data,
+              proxy_data:
+                Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns]),
+              thread_id: thread_id,
+              server_settings: server_settings
+            },
+            false
+          )
         end
     end
   end

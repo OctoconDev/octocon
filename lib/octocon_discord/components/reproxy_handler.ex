@@ -77,95 +77,123 @@ defmodule OctoconDiscord.Components.ReproxyHandler do
     Api.create_interaction_response(interaction, a)
   end
 
-  defp try_reproxy_message(%{
-    raw_message: raw_message,
-    db_message: db_message
-  } = data, %{text: text, alter: idalias}) do
+  defp try_reproxy_message(
+         %{
+           raw_message: raw_message,
+           db_message: db_message
+         } = data,
+         %{text: text, alter: idalias}
+       ) do
     system_id = db_message.system_id
 
-    new_content = cond do
-      String.trim(text) == "" -> raw_message.content
-      true -> text
-    end
+    new_content =
+      cond do
+        String.trim(text) == "" -> raw_message.content
+        true -> text
+      end
 
-    Utils.with_id_or_alias(idalias, fn
-      nil ->
-        alter_id = db_message.alter_id
+    Utils.with_id_or_alias(
+      idalias,
+      fn
+        nil ->
+          alter_id = db_message.alter_id
 
-        edit_message(data, %{
-          system_id: system_id,
-          alter_id: alter_id,
-          text: new_content
-        })
-      alter_identity ->
-        alter_id = Alters.resolve_alter({:system, system_id}, alter_identity)
-        if alter_id == false do
-          Utils.error_embed("You don't have an alter with ID or alias `#{alter_identity}`.")
-        else
-          reproxy_message(data, %{
+          edit_message(data, %{
             system_id: system_id,
             alter_id: alter_id,
             text: new_content
           })
-        end
-    end, true)
+
+        alter_identity ->
+          alter_id = Alters.resolve_alter({:system, system_id}, alter_identity)
+
+          if alter_id == false do
+            Utils.error_embed("You don't have an alter with ID or alias `#{alter_identity}`.")
+          else
+            reproxy_message(data, %{
+              system_id: system_id,
+              alter_id: alter_id,
+              text: new_content
+            })
+          end
+      end,
+      true
+    )
   end
-  
-  defp edit_message(%{
-    user_id: user_id,
-    raw_message: raw_message
-  }, %{
-    system_id: system_id,
-    alter_id: alter_id,
-    text: text
-  }) do
+
+  defp edit_message(
+         %{
+           user_id: user_id,
+           raw_message: raw_message
+         },
+         %{
+           system_id: system_id,
+           alter_id: alter_id,
+           text: text
+         }
+       ) do
     case with_proxy_prerequisites(user_id, raw_message, fn %{
-      message: message,
-      webhook: webhook,
-      proxy_data: proxy_data,
-      thread_id: thread_id,
-      server_settings: server_settings
-    } ->
-      send_proxy_message(%{
-        webhook: webhook,
-        message: %{message | content: text, author: %{message.author | id: user_id}},
-        alter: {system_id, alter_id},
-        proxy_data: proxy_data,
-        thread_id: thread_id,
-        server_settings: server_settings
-      }, true, fn id, token, data ->
-        NostrumShim.edit_webhook_message(id, token, message.id, Map.put(data, :embeds, raw_message.embeds))
-      end)
-    end) do
+                                                             message: message,
+                                                             webhook: webhook,
+                                                             proxy_data: proxy_data,
+                                                             thread_id: thread_id,
+                                                             server_settings: server_settings
+                                                           } ->
+           send_proxy_message(
+             %{
+               webhook: webhook,
+               message: %{message | content: text, author: %{message.author | id: user_id}},
+               alter: {system_id, alter_id},
+               proxy_data: proxy_data,
+               thread_id: thread_id,
+               server_settings: server_settings
+             },
+             true,
+             fn id, token, data ->
+               NostrumShim.edit_webhook_message(
+                 id,
+                 token,
+                 message.id,
+                 Map.put(data, :embeds, raw_message.embeds)
+               )
+             end
+           )
+         end) do
       :no_proxy -> Utils.error_embed("Failed to reproxy the message.")
       :ok -> Utils.success_embed("Message reproxied!")
     end
   end
 
-  defp reproxy_message(%{
-    user_id: user_id,
-    raw_message: raw_message
-  }, %{
-    system_id: system_id,
-    alter_id: alter_id,
-    text: text
-  }) do
+  defp reproxy_message(
+         %{
+           user_id: user_id,
+           raw_message: raw_message
+         },
+         %{
+           system_id: system_id,
+           alter_id: alter_id,
+           text: text
+         }
+       ) do
     case with_proxy_prerequisites(user_id, raw_message, fn %{
-      message: message,
-      webhook: webhook,
-      proxy_data: proxy_data,
-      thread_id: thread_id,
-      server_settings: server_settings
-    } ->
-      send_proxy_message(%{
-        webhook: webhook,
-        message: %{message | content: text, author: %{message.author | id: user_id}},
-        alter: {system_id, alter_id},
-        proxy_data: proxy_data,
-        thread_id: thread_id,
-        server_settings: server_settings
-      }, false)
-    end) do
+                                                             message: message,
+                                                             webhook: webhook,
+                                                             proxy_data: proxy_data,
+                                                             thread_id: thread_id,
+                                                             server_settings: server_settings
+                                                           } ->
+           send_proxy_message(
+             %{
+               webhook: webhook,
+               message: %{message | content: text, author: %{message.author | id: user_id}},
+               alter: {system_id, alter_id},
+               proxy_data: proxy_data,
+               thread_id: thread_id,
+               server_settings: server_settings
+             },
+             false
+           )
+         end) do
       :no_proxy -> Utils.error_embed("Failed to reproxy the message.")
       :ok -> Utils.success_embed("Message reproxied!")
     end

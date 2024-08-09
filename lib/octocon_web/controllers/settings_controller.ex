@@ -134,6 +134,13 @@ defmodule OctoconWeb.SettingsController do
           attrs
         end
       end)
+      |> then(fn attrs ->
+        if Map.has_key?(params, "locked") do
+          Map.put(attrs, :locked, params["locked"])
+        else
+          attrs
+        end
+      end)
 
     case Accounts.edit_field({:system, system_id}, id, attrs) do
       {:ok, _} ->

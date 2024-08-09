@@ -122,4 +122,80 @@ defmodule OctoconWeb.AlterJournalController do
       end
     end
   end
+
+  def lock(conn, %{"journal_id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_alter_journal_entry({:system, system_id}, journal_id, %{locked: true}) do
+      {:ok, _entry} ->
+        send_resp(conn, :no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
+
+  def unlock(conn, %{"journal_id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_alter_journal_entry({:system, system_id}, journal_id, %{locked: false}) do
+      {:ok, _entry} ->
+        send_resp(conn, :no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
+
+  def pin(conn, %{"journal_id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_alter_journal_entry({:system, system_id}, journal_id, %{pinned: true}) do
+      {:ok, _entry} ->
+        send_resp(conn, :no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
+
+  def unpin(conn, %{"journal_id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_alter_journal_entry({:system, system_id}, journal_id, %{pinned: false}) do
+      {:ok, _entry} ->
+        send_resp(conn, :no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
 end

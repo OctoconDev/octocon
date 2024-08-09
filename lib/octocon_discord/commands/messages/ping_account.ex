@@ -45,13 +45,15 @@ defmodule OctoconDiscord.Commands.Messages.PingAccount do
 
         message ->
           permalink = "https://discord.com/channels/#{guild_id}/#{channel_id}/#{message_id}"
+
           [
             content: "<@#{message.author_id}>",
             embeds: [
               %Nostrum.Struct.Embed{
                 color: Utils.hex_to_int("#0FBEAA"),
                 title: ":bell: You've been pinged!",
-                description: "<@#{user_id}> has pinged you from a [proxied message](#{permalink}).",
+                description:
+                  "<@#{user_id}> has pinged you from a [proxied message](#{permalink})."
               }
             ],
             ephemeral?: false

@@ -32,6 +32,8 @@ defmodule Octocon.Alters do
 
   @bare_fields [:id, :name, :avatar_url, :pronouns, :color, :security_level]
 
+  def bare_fields, do: @bare_fields
+
   defp unwrap_system_identity_where(system_identity, extra \\ []) do
     case system_identity do
       {:system, system_id} ->

@@ -87,7 +87,7 @@ defmodule OctoconDiscord.Utils do
     end
   end
 
-  def with_id_or_alias(options_or_idalias, callback, allow_nil \\ false) 
+  def with_id_or_alias(options_or_idalias, callback, allow_nil \\ false)
 
   def with_id_or_alias(options, callback, allow_nil) when is_list(options) do
     idalias = get_command_option(options, "id")
@@ -382,14 +382,15 @@ defmodule OctoconDiscord.Utils do
   end
 
   def add_show_option(options) do
-    options ++ [
-      %{
-        name: "show",
-        description: "Show this message to the entire channel instead of just you.",
-        type: :boolean,
-        required: false
-      }
-    ] 
+    options ++
+      [
+        %{
+          name: "show",
+          description: "Show this message to the entire channel instead of just you.",
+          type: :boolean,
+          required: false
+        }
+      ]
   end
 
   def get_show_option(options) do

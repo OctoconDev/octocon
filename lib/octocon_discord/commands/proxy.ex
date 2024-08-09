@@ -65,6 +65,7 @@ defmodule OctoconDiscord.Proxy do
                   thread_id: thread_id,
                   server_settings: server_settings
                 })
+
                 :ok
 
               # Check whether this user has proxying disabled in this guild (this is handled by ServerSettingsManager)
@@ -79,6 +80,7 @@ defmodule OctoconDiscord.Proxy do
                     thread_id: thread_id,
                     server_settings: server_settings
                   })
+
                   :ok
                 end
             end
@@ -88,20 +90,21 @@ defmodule OctoconDiscord.Proxy do
   end
 
   # Sends a proxied message to Discord
-  def send_proxy_message(%{
-        webhook: webhook,
-        message: message,
-        alter: {system_id, alter_id},
-        proxy_data: %{
-          system_tag: system_tag,
-          show_system_tag: show_system_tag,
-          show_proxy_pronouns: show_proxy_pronouns
+  def send_proxy_message(
+        %{
+          webhook: webhook,
+          message: message,
+          alter: {system_id, alter_id},
+          proxy_data: %{
+            system_tag: system_tag,
+            show_system_tag: show_system_tag,
+            show_proxy_pronouns: show_proxy_pronouns
+          },
+          thread_id: thread_id,
+          server_settings: server_settings
         },
-        thread_id: thread_id,
-        server_settings: server_settings,
-      },
-      is_reproxy,
-      proxy_fun \\ fn id, token, data -> Nostrum.Api.execute_webhook(id, token, data, true) end
+        is_reproxy,
+        proxy_fun \\ fn id, token, data -> Nostrum.Api.execute_webhook(id, token, data, true) end
       ) do
     {:ok, alter} =
       Alters.get_alter_by_id({:system, system_id}, {:id, alter_id}, [
@@ -171,36 +174,48 @@ defmodule OctoconDiscord.Proxy do
     case message.attachments do
       [] ->
         # If we have no attachments, we're done
-        send_proxy_message_raw(%{
-          webhook: webhook,
-          message: message,
-          webhook_data: webhook_data,
-          server_settings: server_settings,
-          context: context
-        }, is_reproxy, proxy_fun)
+        send_proxy_message_raw(
+          %{
+            webhook: webhook,
+            message: message,
+            webhook_data: webhook_data,
+            server_settings: server_settings,
+            context: context
+          },
+          is_reproxy,
+          proxy_fun
+        )
 
       files ->
         # Otherwise, we need to download the files and send them along with the message
-        send_proxy_message_with_files(%{
-          webhook: webhook,
-          message: message,
-          webhook_data: webhook_data,
-          files: files,
-          server_settings: server_settings,
-          context: context
-        }, is_reproxy, proxy_fun)
+        send_proxy_message_with_files(
+          %{
+            webhook: webhook,
+            message: message,
+            webhook_data: webhook_data,
+            files: files,
+            server_settings: server_settings,
+            context: context
+          },
+          is_reproxy,
+          proxy_fun
+        )
     end
   end
 
   # Sends a proxied message to Discord with files
-  defp send_proxy_message_with_files(%{
-         webhook: webhook,
-         message: message,
-         webhook_data: webhook_data,
-         files: files,
-         server_settings: server_settings,
-         context: context
-       }, is_reproxy, proxy_fun) do
+  defp send_proxy_message_with_files(
+         %{
+           webhook: webhook,
+           message: message,
+           webhook_data: webhook_data,
+           files: files,
+           server_settings: server_settings,
+           context: context
+         },
+         is_reproxy,
+         proxy_fun
+       ) do
     attachments =
       files
       |> Stream.filter(fn file -> file.size < 20_000_000 end)
@@ -246,23 +261,31 @@ defmodule OctoconDiscord.Proxy do
       )
 
     # Delegate to `send_proxy_message_raw` with the updated webhook data
-    send_proxy_message_raw(%{
-      webhook: webhook,
-      message: message,
-      webhook_data: webhook_data,
-      server_settings: server_settings,
-      context: context
-    }, is_reproxy, proxy_fun)
+    send_proxy_message_raw(
+      %{
+        webhook: webhook,
+        message: message,
+        webhook_data: webhook_data,
+        server_settings: server_settings,
+        context: context
+      },
+      is_reproxy,
+      proxy_fun
+    )
   end
 
   # Sends a proxied message to Discord with the given webhook data
-  defp send_proxy_message_raw(%{
-         webhook: webhook,
-         message: message,
-         webhook_data: webhook_data,
-         server_settings: server_settings,
-         context: context
-       }, is_reproxy, proxy_fun) do
+  defp send_proxy_message_raw(
+         %{
+           webhook: webhook,
+           message: message,
+           webhook_data: webhook_data,
+           server_settings: server_settings,
+           context: context
+         },
+         is_reproxy,
+         proxy_fun
+       ) do
     webhook_task =
       Task.async(fn ->
         result_message = proxy_fun.(webhook.id, webhook.token, webhook_data)
@@ -275,11 +298,11 @@ defmodule OctoconDiscord.Proxy do
                   context
                   |> Map.put(:message_id, to_string(message_id))
                   |> Map.put(:timestamp, Nostrum.Snowflake.creation_time(message_id))
-  
+
                 # Log the message in Timescale
                 Messages.insert_message(attrs)
               end)
-  
+
               spawn(fn ->
                 log_proxy_message(
                   message,

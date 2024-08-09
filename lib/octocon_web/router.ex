@@ -43,6 +43,12 @@ defmodule OctoconWeb.Router do
           get "/", AlterJournalController, :show
           patch "/", AlterJournalController, :update
           delete "/", AlterJournalController, :delete
+
+          post "/lock", AlterJournalController, :lock
+          post "/unlock", AlterJournalController, :unlock
+
+          post "/pin", AlterJournalController, :pin
+          post "/unpin", AlterJournalController, :unpin
         end
 
         scope "/:id" do
@@ -131,6 +137,12 @@ defmodule OctoconWeb.Router do
         patch "/", GlobalJournalController, :update
         delete "/", GlobalJournalController, :delete
 
+        post "/lock", GlobalJournalController, :lock
+        post "/unlock", GlobalJournalController, :unlock
+
+        post "/pin", GlobalJournalController, :pin
+        post "/unpin", GlobalJournalController, :unpin
+
         scope "/alter" do
           post "/", GlobalJournalController, :attach_alter
           delete "/", GlobalJournalController, :detach_alter
@@ -188,6 +200,7 @@ defmodule OctoconWeb.Router do
       end
 
       get "/fronting", System.FrontingController, :index
+      get "/batch", SystemController, :batch
     end
   end
 

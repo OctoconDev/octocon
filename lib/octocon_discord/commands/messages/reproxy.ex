@@ -14,17 +14,15 @@ defmodule OctoconDiscord.Commands.Messages.Reproxy do
   def description, do: "Reproxies a message."
 
   @impl true
-  def command(
-        %{
-          data: %{
-            resolved: %Nostrum.Struct.ApplicationCommandInteractionDataResolved{
-              messages: messages
-            }
-          },
-          user: %{id: user_id},
-          guild_id: guild_id
-        }
-      ) do
+  def command(%{
+        data: %{
+          resolved: %Nostrum.Struct.ApplicationCommandInteractionDataResolved{
+            messages: messages
+          }
+        },
+        user: %{id: user_id},
+        guild_id: guild_id
+      }) do
     [
       {message_id,
        %Nostrum.Struct.Message{
@@ -44,7 +42,11 @@ defmodule OctoconDiscord.Commands.Messages.Reproxy do
           )
 
         db_message ->
-          try_reproxy_message(user_id, %Nostrum.Struct.Message{raw_message | guild_id: guild_id}, db_message)
+          try_reproxy_message(
+            user_id,
+            %Nostrum.Struct.Message{raw_message | guild_id: guild_id},
+            db_message
+          )
       end
     else
       Utils.error_embed("You can only do this with messages proxied by Octocon.")

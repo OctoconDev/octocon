@@ -144,50 +144,9 @@ defmodule Octocon.Tags do
 
     friendship_level = Friendships.get_friendship_level(system_identity, caller_identity)
 
-    tags = Repo.all(query)
-    tag_map = Map.new(tags, &{&1.id, &1})
-
-    tags
-    |> Enum.filter(fn tag -> is_tag_hierarchy_visible?(tag, friendship_level, tag_map) end)
+    Repo.all(query)
+    |> Enum.filter(fn tag -> Alters.can_view_entity?(friendship_level, tag.security_level) end)
     |> Enum.map(fn tag -> %{tag | alters: []} end)
-  end
-
-  # Old implementation
-  # defp is_tag_hierarchy_visible?(tag, friendship_level, tag_map) do
-  #   if Alters.can_view_entity?(friendship_level, tag.security_level) do
-  #     case tag.parent_tag_id do
-  #       nil -> true
-  #       parent_tag_id ->
-  #         parent_tag = Map.get(tag_map, parent_tag_id)
-  #         if parent_tag, do: is_tag_hierarchy_visible?(parent_tag,friendship_level, tag_map), else: false
-  #     end
-  #   else
-  #     false
-  #   end
-  # end
-
-  # New implementation: prevent infinite recursion
-  defp is_tag_hierarchy_visible?(tag, friendship_level, tag_map) do
-    if Alters.can_view_entity?(friendship_level, tag.security_level) do
-      case tag.parent_tag_id do
-        nil ->
-          true
-
-        parent_tag_id ->
-          parent_tag = Map.get(tag_map, parent_tag_id)
-
-          if parent_tag,
-            do:
-              is_tag_hierarchy_visible?(
-                parent_tag,
-                friendship_level,
-                Map.delete(tag_map, parent_tag_id)
-              ),
-            else: false
-      end
-    else
-      false
-    end
   end
 
   def create_tag(system_identity, name) do

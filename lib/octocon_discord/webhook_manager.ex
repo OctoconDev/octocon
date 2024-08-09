@@ -3,8 +3,19 @@ defmodule OctoconDiscord.WebhookManager do
   alias Nostrum.Api
 
   @proxy_name "Octocon Proxy"
+  @timeout :timer.seconds(5)
 
   def get_webhook(channel_id) do
+    task = Task.async(fn -> do_fetch(channel_id) end)
+
+    Task.await(task, @timeout)
+    # case Cachex.fetch!(OctoconDiscord.Cache.Webhooks, channel_id) do
+    #   %{id: _, token: _} = result -> result
+    #   _ -> nil
+    # end
+  end
+
+  defp do_fetch(channel_id) do
     case Cachex.fetch!(OctoconDiscord.Cache.Webhooks, channel_id) do
       %{id: _, token: _} = result -> result
       _ -> nil

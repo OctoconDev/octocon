@@ -16,6 +16,14 @@ defmodule OctoconWeb.SystemJSON do
     %{map | fields: map.fields |> Enum.map(&Map.drop(&1, [:__struct__, :__meta__]))}
   end
 
+  def batch(%{friendship: friendship, tags: tags, alters: alters}) do
+    %{data: %{
+      friendship: friendship,
+      tags: tags,
+      alters: alters
+    }}
+  end
+
   defp data(nil), do: nil
 
   defp data(%{

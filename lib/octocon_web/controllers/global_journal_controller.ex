@@ -110,6 +110,90 @@ defmodule OctoconWeb.GlobalJournalController do
     end
   end
 
+  def lock(conn, %{"id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_global_journal_entry({:system, system_id}, journal_id, %{locked: true}) do
+      {:ok, _entry} ->
+        conn
+        |> put_status(:no_content)
+        |> send_resp(:no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
+
+  def unlock(conn, %{"id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_global_journal_entry({:system, system_id}, journal_id, %{locked: false}) do
+      {:ok, _entry} ->
+        conn
+        |> put_status(:no_content)
+        |> send_resp(:no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
+
+  def pin(conn, %{"id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_global_journal_entry({:system, system_id}, journal_id, %{pinned: true}) do
+      {:ok, _entry} ->
+        conn
+        |> put_status(:no_content)
+        |> send_resp(:no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
+
+  def unpin(conn, %{"id" => journal_id}) do
+    system_id = conn.private[:guardian_default_resource]
+
+    case Journals.update_global_journal_entry({:system, system_id}, journal_id, %{pinned: false}) do
+      {:ok, _entry} ->
+        conn
+        |> put_status(:no_content)
+        |> send_resp(:no_content, "")
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Journal entry not found.", code: "journal_entry_not_found"})
+
+      _ ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "An unknown error occurred.", code: "unknown_error"})
+    end
+  end
+
   def attach_alter(conn, %{"id" => journal_id, "alter_id" => alter_id})
       when is_integer(alter_id) do
     system_id = conn.private[:guardian_default_resource]

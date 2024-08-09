@@ -17,6 +17,7 @@ defmodule Octocon.Accounts.Field do
   embedded_schema do
     field :name, :string
     field :type, Ecto.Enum, values: [text: 0, number: 1, boolean: 2], default: :text
+    field :locked, :boolean, default: false
 
     field :security_level, Ecto.Enum,
       values: [public: 0, friends_only: 1, trusted_only: 2, private: 3],
@@ -32,7 +33,7 @@ defmodule Octocon.Accounts.Field do
 
   def changeset(%__MODULE__{} = field, attrs) do
     field
-    |> cast(attrs, [:name, :type, :security_level])
+    |> cast(attrs, [:name, :type, :security_level, :locked])
     |> validate_required([:name, :type, :security_level])
     |> validate_length(:name, min: 1, max: 100)
     |> validate_inclusion(:type, [:text, :number, :boolean])

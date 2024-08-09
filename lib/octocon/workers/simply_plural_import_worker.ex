@@ -176,7 +176,7 @@ defmodule Octocon.Workers.SimplyPluralImportWorker do
         id: id,
         name: default_if_empty(alter["name"], 80, "Unnamed alter"),
         pronouns: default_if_empty(alter["pronouns"], 50),
-        description: default_if_empty(alter["desc"], 2000),
+        description: default_if_empty(alter["desc"], 3000),
         color: parse_color(alter["color"]),
         alias: nil,
         fields: [],

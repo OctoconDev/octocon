@@ -22,6 +22,8 @@ defmodule Octocon.Journals.AlterJournalEntry do
     field :title, :string
     field :content, :string
     field :color, :string
+    field :pinned, :boolean, default: false
+    field :locked, :boolean, default: false
 
     belongs_to :user, Octocon.Accounts.User,
       foreign_key: :user_id,
@@ -39,7 +41,7 @@ defmodule Octocon.Journals.AlterJournalEntry do
   """
   def changeset(alter_journal_entry, attrs) do
     alter_journal_entry
-    |> cast(attrs, [:title, :content, :color])
+    |> cast(attrs, [:title, :content, :color, :pinned, :locked])
     |> validate_length(:title, max: 100)
     |> validate_length(:content, max: 20_000)
     |> validate_format(:color, ~r/^#[0-9a-fA-F]{6}$/)

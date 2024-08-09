@@ -43,20 +43,31 @@ defmodule OctoconWeb.UserChannel do
   alias OctoconWeb.System.TagJSON
 
   @impl true
-  def join("system:" <> system_id, %{"token" => token}, socket) do
-    case Octocon.Auth.Guardian.resource_from_token(token) do
-      {:ok, claim_id, _claims} when claim_id == system_id ->
-        Process.send_after(socket.transport_pid, :garbage_collect, :timer.seconds(1))
-        {:ok, generate_init_data(system_id), socket}
+  def join("system:" <> system_id, %{"token" => token} = params, socket) do
+    # Only allow 2 socket joins per second to avoid abuse (especially from misconfigured Phoenix clients)
+    # TODO: Check token first?
+    case Hammer.check_rate("socket:#{system_id}", :timer.seconds(1), 2) do
+      {:allow, _count} ->
+        case Octocon.Auth.Guardian.resource_from_token(token) do
+          {:ok, claim_id, _claims} when claim_id == system_id ->
+            Process.send_after(socket.transport_pid, :garbage_collect, :timer.seconds(1))
+
+            # TODO: Remove option once stable in prod?
+            use_bare = Map.has_key?(params, "bare")
+            {:ok, generate_init_data(system_id, use_bare), socket}
+
+          _ ->
+            {:error, %{reason: "unauthorized"}}
+        end
 
       _ ->
-        {:error, %{reason: "unauthorized"}}
+        {:error, %{reason: "rate_limited"}}
     end
   rescue
     _ -> {:error, %{reason: "internal_error"}}
   end
 
-  defp generate_init_data(system_id) do
+  defp generate_init_data(system_id, use_bare) do
     identity = {:system, system_id}
 
     system =
@@ -64,8 +75,13 @@ defmodule OctoconWeb.UserChannel do
       |> SystemJSON.data_me()
 
     alters =
-      Alters.get_alters_by_id(identity)
-      |> Enum.map(&AlterJSON.data_me/1)
+      if(use_bare) do
+        Alters.get_alters_by_id(identity, Alters.bare_fields())
+        |> Enum.map(&AlterJSON.data_me/1)
+      else
+        Alters.get_alters_by_id(identity)
+        |> Enum.map(&AlterJSON.data_me/1)
+      end
 
     fronts =
       Fronts.currently_fronting(identity)

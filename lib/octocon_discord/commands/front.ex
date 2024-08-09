@@ -189,14 +189,20 @@ defmodule OctoconDiscord.Commands.Front do
           Utils.success_embed("Set alter as primary front.")
         else
           should_front = Utils.get_command_option(options, "add-to-front") || false
+
           if should_front do
-            add(%{system_identity: system_identity}, [%Nostrum.Struct.ApplicationCommandInteractionDataOption{
-              name: "set-primary",
-              value: true,
-              type: 5
-            } | options])
+            add(%{system_identity: system_identity}, [
+              %Nostrum.Struct.ApplicationCommandInteractionDataOption{
+                name: "set-primary",
+                value: true,
+                type: 5
+              }
+              | options
+            ])
           else
-            Utils.error_embed("That alter is not currently fronting.\n\n-# Hint: rerun this command with the `add-to-front` option to add the alter to front *and* set them as primary in one go!")
+            Utils.error_embed(
+              "That alter is not currently fronting.\n\n-# Hint: rerun this command with the `add-to-front` option to add the alter to front *and* set them as primary in one go!"
+            )
           end
         end
       else
