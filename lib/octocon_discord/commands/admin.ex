@@ -253,7 +253,7 @@ defmodule OctoconDiscord.Commands.Admin do
     guild = Utils.get_cached_guild(guild_id)
     permissions = Nostrum.Struct.Guild.Member.guild_permissions(member, guild)
 
-    if Enum.member?(permissions, :manage_server) or Enum.member?(permissions, :administrator) do
+    if Enum.member?(permissions, :manage_guild) or Enum.member?(permissions, :administrator) do
       callback.()
     else
       Utils.error_embed("You don't have permission to do that.")
