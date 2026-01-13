@@ -20,7 +20,7 @@ defmodule OctoconDiscord.Components.HelpHandler.Pages.CommandList.Admin.LogChann
         Removes the log channel for this server.
         ### Usage
         ```
-        /admin log-channel remove
+        /admin channel-blacklist remove
         ```
         """
       }
