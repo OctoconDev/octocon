@@ -42,6 +42,7 @@ defmodule OctoconDiscord.Supervisor do
       # Custom ETS-backed persistent caches
       OctoconDiscord.ProxyCache,
       OctoconDiscord.ChannelBlacklistManager,
+      OctoconDiscord.RoleLockManager,
       # Gateway events
       Supervisor.child_spec({Task, fn -> start_unique_consumer() end}, id: :start_unique_consumer),
       # Component handlers

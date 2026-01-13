@@ -61,6 +61,7 @@ defmodule OctoconDiscord.Components.HelpHandler do
     admin_view_settings: Pages.CommandList.Admin.ViewSettings,
     admin_force_system_tags: Pages.CommandList.Admin.ForceSystemTags,
     admin_log_channel: Pages.CommandList.Admin.LogChannel,
+    admin_role_lock: Pages.CommandList.Admin.RoleLock,
     danger_root: Pages.CommandList.Danger,
     danger_wipe_alters: Pages.CommandList.Danger.WipeAlters,
     danger_delete_account: Pages.CommandList.Danger.DeleteAccount,

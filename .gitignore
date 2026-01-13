@@ -34,3 +34,6 @@ basic.conf
 
 # Dev config (contains secrets)
 /config/dev.exs
+
+# ignore mac Desktop Services Stores
+.DS_Store

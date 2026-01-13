@@ -12,6 +12,7 @@ defmodule Octocon.ServerSettings.ServerSettingsData do
   @primary_key false
   embedded_schema do
     field :log_channel, :string
+    field :role_lock, :string
     field :force_system_tags, :boolean, default: false
 
     field :proxy_disabled_users, {:array, :string}, default: []
@@ -22,7 +23,7 @@ defmodule Octocon.ServerSettings.ServerSettingsData do
   """
   def changeset(data, attrs \\ %{}) do
     data
-    |> cast(attrs, [:log_channel, :force_system_tags, :proxy_disabled_users])
+    |> cast(attrs, [:log_channel, :role_lock, :force_system_tags, :proxy_disabled_users])
     |> validate_required([:force_system_tags])
   end
 end

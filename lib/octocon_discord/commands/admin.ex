@@ -11,6 +11,7 @@ defmodule OctoconDiscord.Commands.Admin do
   @subcommands %{
     "channel-blacklist" => &__MODULE__.channel_blacklist/2,
     "log-channel" => &__MODULE__.log_channel/2,
+    "role-lock" => &__MODULE__.role_lock/2,
     "view-settings" => &__MODULE__.view_settings/2,
     "force-system-tags" => &__MODULE__.force_system_tags/2
   }
@@ -24,6 +25,11 @@ defmodule OctoconDiscord.Commands.Admin do
   @log_channel_subcommands %{
     "set" => &__MODULE__.log_channel_set/2,
     "remove" => &__MODULE__.log_channel_remove/2
+  }
+
+  @role_lock_subcommands %{
+    "set" => &__MODULE__.role_lock_set/2,
+    "remove" => &__MODULE__.role_lock_remove/2
   }
 
   @impl true
@@ -165,6 +171,61 @@ defmodule OctoconDiscord.Commands.Admin do
 
         _ ->
           Utils.error_embed("An error occurred while removing the log channel.")
+      end
+    end)
+  end
+
+  def role_lock(context, options) do
+    subcommand = hd(options)
+
+    @role_lock_subcommands[subcommand.name].(
+      context,
+      subcommand.options
+    )
+  end
+
+  def role_lock_set(%{guild_id: guild_id} = context, options, skip \\ false) do
+    callback = fn ->
+      role = Utils.get_command_option(options, "role")
+
+      case RoleLockManager.edit_settings(to_string(guild_id), %{
+             role_lock: to_string(role)
+           }) do
+        :ok ->
+          Utils.success_embed("Set <@&{role}> as this server's log channel.")
+
+        {:error, :not_found} ->
+          case ServerSettingsManager.create_settings(to_string(guild_id)) do
+            :ok ->
+              role_lock_set(context, options)
+
+            _ ->
+              Utils.error_embed("An error occurred while setting the locked role.")
+          end
+
+        _ ->
+          Utils.error_embed("An error occurred while setting the locked role.")
+      end
+    end
+
+    if skip do
+      callback.()
+    else
+      ensure_permissions(context, callback)
+    end
+  end
+
+  def role_lock_remove(%{guild_id: guild_id} = context, _options) do
+    ensure_permissions(context, fn ->
+      case RoleLockManager.edit_settings(to_string(guild_id), %{role_lock: nil}) do
+        :ok ->
+          Utils.success_embed("Removed the role lock for this server.")
+
+        {:error, :not_found} ->
+          Utils.error_embed("This server has no role lock set.")
+
+        _ ->
+          Utils.error_embed("An error occurred while removing the role lock.")
       end
     end)
   end

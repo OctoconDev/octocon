@@ -18,6 +18,11 @@ defmodule OctoconDiscord.Components.HelpHandler.Pages.CommandList.Admin do
       nav_page: "admin_log_channel"
     },
     %{
+      name: "role-lock",
+      description: "Manages a role lock for this server",
+      nav_page: "admin_role_lock"
+    },
+    %{
       name: "force-system-tags",
       description: "Toggles whether system tags are forced on this server",
       nav_page: "admin_force_system_tags"

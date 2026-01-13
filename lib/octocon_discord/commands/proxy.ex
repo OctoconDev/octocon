@@ -12,6 +12,7 @@ defmodule OctoconDiscord.Proxy do
 
   alias OctoconDiscord.{
     ChannelBlacklistManager,
+    RoleLockManager,
     ProxyCache,
     ServerSettingsManager,
     Utils
@@ -63,50 +64,57 @@ defmodule OctoconDiscord.Proxy do
       {:ok, proxy_data} ->
         {channel_id, parent_id, thread_id} = check_thread(message)
 
-        # Fast path: if the channel is blacklisted, don't bother checking anything else
+        # Fast path 1: if the channel is blacklisted, don't bother checking anything else
         unless ChannelBlacklistManager.is_blacklisted?(
                  to_string(channel_id),
                  to_string(parent_id)
                ) do
-          webhook = OctoconDiscord.WebhookManager.get_webhook(channel_id)
+          # Fast path 2: Check Role Lock
+          # If a lock exists and the user does NOT have the role, stop here.
+          if has_required_role?(to_string(message.guild_id), message.member) do
+            webhook = OctoconDiscord.WebhookManager.get_webhook(channel_id)
 
-          if webhook == nil do
-            :no_proxy
-          else
-            settings_template = %Octocon.Accounts.ServerSettings{
-              guild_id: to_string(message.guild_id)
-            }
-
-            server_proxy_settings =
-              proxy_data.settings.server_settings
-              |> Map.get(to_string(message.guild_id), nil)
-              |> case do
-                nil ->
-                  settings_template
-
-                server_settings ->
-                  settings_template
-                  |> Map.merge(server_settings)
-              end
-
-            if server_proxy_settings.proxying_disabled do
+            if webhook == nil do
               :no_proxy
             else
-              server_settings = ServerSettingsManager.get_settings(message.guild_id)
+              settings_template = %Octocon.Accounts.ServerSettings{
+                guild_id: to_string(message.guild_id)
+              }
 
-              fun.(%{
-                message: message,
-                webhook: webhook,
-                proxy_data:
-                  proxy_data
-                  |> Map.put(
-                    :settings,
-                    Map.merge(proxy_data.settings, %{server_settings: server_proxy_settings})
-                  ),
-                thread_id: thread_id,
-                server_settings: server_settings
-              })
+              server_proxy_settings =
+                proxy_data.settings.server_settings
+                |> Map.get(to_string(message.guild_id), nil)
+                |> case do
+                  nil ->
+                    settings_template
+
+                  server_settings ->
+                    settings_template
+                    |> Map.merge(server_settings)
+                end
+
+              if server_proxy_settings.proxying_disabled do
+                :no_proxy
+              else
+                server_settings = ServerSettingsManager.get_settings(message.guild_id)
+
+                fun.(%{
+                  message: message,
+                  webhook: webhook,
+                  proxy_data:
+                    proxy_data
+                    |> Map.put(
+                      :settings,
+                      Map.merge(proxy_data.settings, %{server_settings: server_proxy_settings})
+                    ),
+                  thread_id: thread_id,
+                  server_settings: server_settings
+                })
+              end
             end
+          else
+            # Role lock active and user missing role
+            :no_proxy
           end
         end
     end
@@ -492,5 +500,27 @@ defmodule OctoconDiscord.Proxy do
         "[Reply to:](https://discord.com/channels/#{message.guild_id}/#{reply.channel_id}/#{reply.id}) #{truncated_content}",
       color: Utils.hex_to_int(color)
     }
+  end
+
+  # Helpers
+
+  # Returns true if NO lock is set, OR if a lock is set and the user HAS the role.
+  defp has_required_role?(guild_id, member) do
+    case RoleLockManager.get_lock(guild_id) do
+      nil ->
+        # No lock exists, so they are allowed
+        true
+
+      required_role_id ->
+        # Lock exists, check if user has it.
+        required_role_int = String.to_integer(required_role_id)
+
+        if member && member.roles do
+          required_role_int in member.roles
+        else
+          # If we can't read the member/roles, we default to blocking them for safety
+          false
+        end
+    end
   end
 end
