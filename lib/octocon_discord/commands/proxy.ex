@@ -504,7 +504,7 @@ defmodule OctoconDiscord.Proxy do
 
   # Helpers
 
-  # Returns true if NO lock is set, OR if a lock is set and the user HAS the role.
+  # Returns true if no lock is set, or if a lock is set and the user has the role.
   defp has_required_role?(guild_id, member) do
     case RoleLockManager.get_lock(guild_id) do
       nil ->
