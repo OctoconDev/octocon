@@ -31,3 +31,11 @@ services:
         limits:
           cpus: "1.0"
           memory: 4000M
+  scylla:
+    image: scylladb/scylla:5.1
+    ports:
+      - "9042:9042"
+    restart: always
+    command: --smp 1 --memory 1G --overprovisioned 1 --developer-mode 1
+    volumes:
+      - ./scylla_data:/var/lib/scylla

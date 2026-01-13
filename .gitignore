@@ -37,3 +37,6 @@ basic.conf
 
 # ignore mac Desktop Services Stores
 .DS_Store
+
+# ignore scylla_data files
+scylla_data/*

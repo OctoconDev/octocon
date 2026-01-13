@@ -5,6 +5,7 @@ defmodule OctoconDiscord.Commands.Admin do
 
   alias OctoconDiscord.ServerSettingsManager
   alias OctoconDiscord.ChannelBlacklistManager
+  alias OctoconDiscord.RoleLockManager
 
   alias OctoconDiscord.Utils
 
@@ -185,43 +186,26 @@ defmodule OctoconDiscord.Commands.Admin do
   end
 
   def role_lock_set(%{guild_id: guild_id} = context, options, skip \\ false) do
-    callback = fn ->
+    ensure_permissions(context, fn ->
       role = Utils.get_command_option(options, "role")
 
-      case RoleLockManager.edit_settings(to_string(guild_id), %{
-             role_lock: to_string(role)
-           }) do
+      case RoleLockManager.set(to_string(guild_id), to_string(role)) do
         :ok ->
-          Utils.success_embed("Set <@&{role}> as this server's log channel.")
-
-        {:error, :not_found} ->
-          case ServerSettingsManager.create_settings(to_string(guild_id)) do
-            :ok ->
-              role_lock_set(context, options)
-
-            _ ->
-              Utils.error_embed("An error occurred while setting the locked role.")
-          end
+          Utils.success_embed("Set <@&#{role}> as this server's required proxy role.")
 
         _ ->
           Utils.error_embed("An error occurred while setting the locked role.")
       end
-    end
-
-    if skip do
-      callback.()
-    else
-      ensure_permissions(context, callback)
-    end
+    end)
   end
 
   def role_lock_remove(%{guild_id: guild_id} = context, _options) do
     ensure_permissions(context, fn ->
-      case RoleLockManager.edit_settings(to_string(guild_id), %{role_lock: nil}) do
+      case RoleLockManager.remove(to_string(guild_id)) do
         :ok ->
           Utils.success_embed("Removed the role lock for this server.")
 
-        {:error, :not_found} ->
+        {:error, :not_rolelocked} ->
           Utils.error_embed("This server has no role lock set.")
 
         _ ->
@@ -275,6 +259,7 @@ defmodule OctoconDiscord.Commands.Admin do
         settings ->
           log_channel = settings.log_channel
           force_system_tags = settings.force_system_tags
+          role_lock = RoleLockManager.get_lock(to_string(guild_id))
 
           [
             embeds: [
@@ -292,6 +277,15 @@ defmodule OctoconDiscord.Commands.Admin do
                       case log_channel do
                         nil -> "None"
                         channel -> "<##{channel}>"
+                      end,
+                    inline: true
+                  },
+                  %Nostrum.Struct.Embed.Field{
+                    name: "Role Lock",
+                    value:
+                      case role_lock do
+                         nil -> "None"
+                         role_id -> "<@&#{role_id}>"
                       end,
                     inline: true
                   }
@@ -386,6 +380,31 @@ defmodule OctoconDiscord.Commands.Admin do
           %{
             name: "remove",
             description: "Removes the log channel for this server.",
+            type: :sub_command
+          }
+        ]
+      },
+      %{
+        name: "role-lock",
+        description: "Manages the proxy role lock for this server.",
+        type: :sub_command_group,
+        options: [
+          %{
+            name: "set",
+            description: "Sets the role required to use the proxy.",
+            type: :sub_command,
+            options: [
+              %{
+                name: "role",
+                type: :role,
+                description: "The role to require.",
+                required: true
+              }
+            ]
+          },
+          %{
+            name: "remove",
+            description: "Removes the role lock requirement.",
             type: :sub_command
           }
         ]

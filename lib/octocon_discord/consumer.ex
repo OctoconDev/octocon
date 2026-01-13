@@ -52,12 +52,13 @@ defmodule OctoconDiscord.Consumer do
         Nosedrum.Storage.Dispatcher.queue_command(name, module)
       end)
 
+      Logger.info("Registering commands for scope: #{inspect(scope)}")
       case Nosedrum.Storage.Dispatcher.process_queue(scope) do
         {:ok, _} ->
           Logger.info("Registered all commands!")
 
         {:error, e} ->
-          Logger.error("Failed to register all commands: #{e}")
+          Logger.error("Failed to register all commands: #{inspect(e)}")
       end
     end
 

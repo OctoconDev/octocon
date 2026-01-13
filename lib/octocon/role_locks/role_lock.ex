@@ -8,7 +8,6 @@ defmodule Octocon.RoleLocks.RoleLock do
   @primary_key {:guild_id, :string, autogenerate: false}
 
   schema "role_locks" do
-    field :guild_id, :string
     field :role_id, :string
 
     timestamps()
