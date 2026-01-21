@@ -3,6 +3,8 @@ defmodule OctoconDiscord.Commands.Alter do
 
   @behaviour Nosedrum.ApplicationCommand
 
+  import Octocon.Utils.Alter, only: [upload_avatar: 3]
+
   import OctoconDiscord.Utils, only: [with_id_or_alias: 2]
 
   alias OctoconDiscord.Components.AlterPaginator
@@ -47,19 +49,65 @@ defmodule OctoconDiscord.Commands.Alter do
     end)
   end
 
-  def create(%{system_identity: system_identity}, options) do
+  def create(%{resolved: resolved, system_identity: system_identity}, options) do
     name = Utils.get_command_option(options, "name")
+    alter_alias = Utils.get_command_option(options, "alias")
+    avatar_id = Utils.get_command_option(options, "avatar")
 
-    case Alters.create_alter(system_identity, %{name: name}) do
-      {:ok, id, _} ->
-        Utils.success_embed(
-          "Successfully created alter **#{name}**! Their ID is **#{id}**. You can view their profile with `/alter view #{id}`.\n\n**Note:** This alter is currently private. You can change this with `/alter security #{id}`."
-        )
+    attachment_validation =
+      cond do
+        !avatar_id ->
+          {:ok, nil}
 
-      {:error, _} ->
-        Utils.error_embed(
-          "Whoops! An unknown error occurred while creating the alter. Please try again."
-        )
+        resolved.attachments[avatar_id].height == nil or resolved.attachments[avatar_id].width == nil ->
+          {:error, "That file doesn't appear to be a valid image. Please provide an image under 20 MB."}
+
+        resolved.attachments[avatar_id].size > 20_000_000 ->
+          {:error, "The image you provided is too large. Please provide an image that is less than 20 MB."}
+
+        true ->
+          {:ok, resolved.attachments[avatar_id]}
+      end
+
+    case attachment_validation do
+      {:error, reason} ->
+        Utils.error_embed(reason)
+
+      {:ok, attachment} ->
+        if alter_alias && Alters.alias_taken?(system_identity, alter_alias) do
+          Utils.error_embed("You already have an alter with the alias **#{alter_alias}**.")
+        else
+          case Alters.create_alter(system_identity, %{name: name, alias: alter_alias}) do
+            {:ok, alter_id, _} ->
+              avatar_status =
+                if attachment do
+                  case upload_avatar(system_identity, {:id, alter_id}, attachment.url) do
+                    :ok -> :uploaded
+                    _ -> :failed
+                  end
+                else
+                  :none
+                end
+
+              base_msg = "Successfully created alter **#{name}**! Their ID is **#{alter_id}**."
+
+              alias_msg = if(alter_alias, do: "\n**Alias:** #{alter_alias}", else: "")
+
+              avatar_msg =
+                case avatar_status do
+                  :uploaded -> "\n**Avatar:** Successfully set!"
+                  :failed -> "\n**Avatar:** Failed to upload image."
+                  :none -> ""
+                end
+
+              footer_msg = "\n\nUse `/alter view #{alter_id}` to see their profile."
+
+              Utils.success_embed(base_msg <> alias_msg <> avatar_msg <> footer_msg)
+
+            {:error, _} ->
+              Utils.error_embed("Whoops! An unknown error occurred while creating the alter. Please try again.")
+          end
+        end
     end
   end
 
@@ -302,6 +350,19 @@ defmodule OctoconDiscord.Commands.Alter do
             type: :string,
             max_length: 80,
             description: "The name of the alter to create.",
+            required: true
+          },
+          %{
+            name: "alias",
+            type: :string,
+            max_length: 80,
+            description: "An alias for the alter to reference it.",
+            required: false
+          },
+          %{
+            name: "avatar",
+            type: :attachment,
+            description: "The avatar to give to the alter.",
             required: false
           }
         ]
