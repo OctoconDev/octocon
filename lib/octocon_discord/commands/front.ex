@@ -22,10 +22,10 @@ defmodule OctoconDiscord.Commands.Front do
     "remove-main" => &__MODULE__.remove_main/2
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Manages which alters are in front."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{data: %{resolved: resolved}, user: %{id: discord_id}} = interaction
     discord_id = to_string(discord_id)
@@ -182,7 +182,7 @@ defmodule OctoconDiscord.Commands.Front do
       alter_id = Alters.resolve_alter(system_identity, alter_identity)
 
       if alter_id != false do
-        if Fronts.is_fronting?(system_identity, alter_identity) do
+        if Fronts.fronting?(system_identity, alter_identity) do
           Accounts.set_primary_front(system_identity, alter_id)
 
           Utils.success_embed("The alter with ID **#{alter_id}** is now set as main front.")
@@ -221,10 +221,10 @@ defmodule OctoconDiscord.Commands.Front do
     Utils.success_embed("Removed main front.")
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

@@ -100,7 +100,7 @@ defmodule Octocon.Accounts do
   def region_for_user(system_identity) do
     case get_user_registry(system_identity) do
       nil -> nil
-      %UserRegistry{region: region} -> String.to_atom(region)
+      %UserRegistry{region: region} -> String.to_existing_atom(region)
     end
   end
 
@@ -902,6 +902,10 @@ defmodule Octocon.Accounts do
     spawn(fn ->
       OctoconWeb.Endpoint.broadcast!("system:#{user.id}", "alters_wiped", %{})
     end)
+
+    :ok
+  rescue
+    e -> {:error, e}
   end
 
   @doc """

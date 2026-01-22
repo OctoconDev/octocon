@@ -1,3 +1,4 @@
+# credo:disable-for-this-file
 defmodule OctoconDiscord.Commands.Messages.Reproxy.NostrumShim do
   @moduledoc """
   Fixes Nostrum bug where `/messages` is left out of the path for PATCH requests by shimming part of Nostrum.Api's private API.

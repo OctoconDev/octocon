@@ -2,8 +2,8 @@ defmodule OctoconDiscord.Components.HelpHandler.Pages do
   defmacro __using__(_opts) do
     quote do
       alias OctoconDiscord.{
-        Utils,
-        Emojis
+        Emojis,
+        Utils
       }
 
       alias Nostrum.Struct.{
@@ -11,9 +11,7 @@ defmodule OctoconDiscord.Components.HelpHandler.Pages do
         Emoji
       }
 
-      alias Nostrum.Struct.Component.{
-        Button
-      }
+      alias Nostrum.Struct.Component.Button
 
       def map_emoji(%Nostrum.Struct.Emoji{id: id, name: name}) do
         %{id: id, name: name}

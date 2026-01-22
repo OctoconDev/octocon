@@ -4,9 +4,9 @@ defmodule Octocon.Utils.Alter do
   """
 
   alias Octocon.{
+    Accounts,
     Alters,
-    Utils,
-    Accounts
+    Utils
   }
 
   alias OctoconWeb.Uploaders.Avatar

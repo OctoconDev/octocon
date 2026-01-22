@@ -20,7 +20,7 @@ defmodule Octocon.Primary.HordeSupervisor do
   end
 
   # Only nodes in the primary group should be part of the supervisor
-  defp members() do
+  defp members do
     nodes =
       ClusterUtils.primary_nodes(true)
       |> Enum.map(fn node -> {__MODULE__, node} end)

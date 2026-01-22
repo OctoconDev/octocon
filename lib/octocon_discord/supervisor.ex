@@ -14,7 +14,7 @@ defmodule OctoconDiscord.Supervisor do
     Supervisor.start_link(__MODULE__, [], name: __MODULE__)
   end
 
-  @impl true
+  @impl Supervisor
   def init([]) do
     children = [
       Nostrum.Application,
@@ -77,7 +77,7 @@ defmodule OctoconDiscord.Supervisor do
     end
   end
 
-  def start_unique_consumer() do
+  def start_unique_consumer do
     Logger.info("Starting unique consumer")
 
     Horde.DynamicSupervisor.start_child(
@@ -86,7 +86,7 @@ defmodule OctoconDiscord.Supervisor do
     )
   end
 
-  defp start_status_updater() do
+  defp start_status_updater do
     Logger.info("Starting status updater")
 
     Horde.DynamicSupervisor.start_child(

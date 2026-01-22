@@ -44,6 +44,7 @@ defmodule OctoconWeb.DummyConnAdapter do
         query_params: query_params || %Plug.Conn.Unfetched{aspect: :query_params},
         body_params: body_params || %Plug.Conn.Unfetched{aspect: :body_params},
         params: params || %Plug.Conn.Unfetched{aspect: :params},
+        # credo:disable-for-next-line
         scheme: (uri.scheme || "http") |> String.downcase() |> String.to_atom()
     }
   end
@@ -184,7 +185,7 @@ defmodule OctoconWeb.DummyConnAdapter do
 
   @already_sent {:plug_conn, :sent}
 
-  defp maybe_flush() do
+  defp maybe_flush do
     receive do
       @already_sent -> :ok
     after

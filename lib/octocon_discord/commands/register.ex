@@ -6,10 +6,10 @@ defmodule OctoconDiscord.Commands.Register do
   alias Octocon.Accounts
   alias OctoconDiscord.Utils
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Creates a system under your Discord account."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{
       id: discord_id
@@ -40,9 +40,9 @@ defmodule OctoconDiscord.Commands.Register do
     end
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  # @impl true
+  # @impl Nosedrum.ApplicationCommand
   # def options, do: []
 end

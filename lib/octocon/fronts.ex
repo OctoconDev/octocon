@@ -12,12 +12,20 @@ defmodule Octocon.Fronts do
     Repo
   }
 
-  alias Octocon.Accounts
-  alias Octocon.Alters
-  alias Octocon.Alters.Alter
-  alias Octocon.Friendships
+  alias Octocon.{
+    Accounts,
+    Alters,
+    Alters.Alter,
+    Friendships
+  }
 
-  alias Octocon.Fronts.{CurrentFront, Front, FrontByAlter, FrontByEndTime, FrontByTime}
+  alias Octocon.Fronts.{
+    CurrentFront,
+    Front,
+    FrontByAlter,
+    FrontByEndTime,
+    FrontByTime
+  }
 
   def get_by_id(system_identity, id) do
     system_id = Accounts.id_from_system_identity(system_identity, :system)
@@ -171,7 +179,7 @@ defmodule Octocon.Fronts do
     end
   end
 
-  def is_fronting?(system_identity, alter_identity) do
+  def fronting?(system_identity, alter_identity) do
     system_id = Accounts.id_from_system_identity(system_identity, :system)
     alter_id = Alters.resolve_alter({:system, system_id}, alter_identity)
 
@@ -359,7 +367,7 @@ defmodule Octocon.Fronts do
       alter_id == false ->
         {:error, :no_alter}
 
-      is_fronting?({:system, system_id}, {:id, alter_id}) ->
+      fronting?({:system, system_id}, {:id, alter_id}) ->
         {:error, :already_fronting}
 
       true ->
@@ -503,7 +511,7 @@ defmodule Octocon.Fronts do
       alter_id == false ->
         {:error, :no_alter}
 
-      is_fronting?({:system, system_id}, {:id, alter_id}) ->
+      fronting?({:system, system_id}, {:id, alter_id}) ->
         {:error, :already_fronting}
 
       true ->

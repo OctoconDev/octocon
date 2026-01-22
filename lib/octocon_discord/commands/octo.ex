@@ -14,10 +14,10 @@ defmodule OctoconDiscord.Commands.Octo do
 
   alias OctoconDiscord.Utils
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Displays an all-in-one interface to interact with Octocon."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{guild_id: guild_id, user: %{id: discord_id}} = interaction
     guild_id = to_string(guild_id)
@@ -33,15 +33,13 @@ defmodule OctoconDiscord.Commands.Octo do
         system_identity: system_identity
       }
 
-      IO.inspect(context)
-
       Utils.success_embed("Test")
     end)
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options, do: []
 end

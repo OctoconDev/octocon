@@ -10,15 +10,16 @@ defmodule Octocon.Friendships do
   @query_concurrency 10
 
   import Ecto.Query, warn: false
-  alias Octocon.Alters.Alter
-  alias Octocon.Repo
 
-  alias Octocon.Accounts
-
-  alias Octocon.Friendships.Friendship
-  alias Octocon.Fronts
-
-  alias Octocon.Fronts.CurrentFront
+  alias Octocon.{
+    Accounts,
+    Alters.Alter,
+    Friendships.Friendship,
+    Friendships.Request,
+    Fronts,
+    Fronts.CurrentFront,
+    Repo
+  }
 
   @doc """
   Returns the friendship status between two users with the given identities, or `nil` if no friendship exists.
@@ -292,8 +293,6 @@ defmodule Octocon.Friendships do
     Friendship.changeset(friendship, attrs)
   end
 
-  alias Octocon.Friendships.Request
-
   @doc """
   Returns the friend request between two users with the given identities, or `nil` if no request exists.
   """
@@ -417,9 +416,7 @@ defmodule Octocon.Friendships do
     user_id = Accounts.id_from_system_identity(user_identity, :system)
     friend_id = Accounts.id_from_system_identity(friend_identity, :system)
 
-    if not friendship_exists?(user_identity, friend_identity) do
-      {:error, :not_friends}
-    else
+    if friendship_exists?(user_identity, friend_identity) do
       from(
         f in Friendship,
         where: f.user_id == ^user_id and f.friend_id == ^friend_id
@@ -445,6 +442,8 @@ defmodule Octocon.Friendships do
       end)
 
       :ok
+    else
+      {:error, :not_friends}
     end
   end
 

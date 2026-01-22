@@ -3,8 +3,8 @@ defmodule OctoconWeb.System.AlterController do
 
   import OctoconWeb.Utils.Systems
 
-  alias Octocon.Utils.Alter, as: AlterUtils
   alias Octocon.Alters
+  alias Octocon.Utils.Alter, as: AlterUtils
 
   action_fallback OctoconWeb.FallbackController
 

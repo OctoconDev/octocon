@@ -4,9 +4,7 @@ defmodule OctoconDiscord.Components.HelpHandler do
 
   alias Nostrum.Api
 
-  alias OctoconDiscord.{
-    Utils
-  }
+  alias OctoconDiscord.Utils
 
   alias OctoconDiscord.Components.HelpHandler.Pages
 
@@ -171,7 +169,7 @@ defmodule OctoconDiscord.Components.HelpHandler do
     :ets.delete(@table, uid)
   end
 
-  @impl true
+  @impl GenServer
   def init([]) do
     :ets.new(@table, [
       :set,
@@ -185,7 +183,7 @@ defmodule OctoconDiscord.Components.HelpHandler do
     {:ok, %{}}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:drop, uid}, state) do
     :ets.delete(@table, uid)
     {:noreply, state}

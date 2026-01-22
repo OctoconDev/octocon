@@ -8,7 +8,7 @@ defmodule Octocon.ClusterUtils do
   @doc """
   Check if the current node is a primary node.
   """
-  def is_primary?, do: NodeTracker.is_primary?()
+  def primary?, do: NodeTracker.primary?()
 
   def current_db_region do
     Application.get_env(:octocon, :current_db_region)
@@ -28,7 +28,7 @@ defmodule Octocon.ClusterUtils do
   def primary_nodes(true) do
     other_nodes = primary_nodes(false)
 
-    if is_primary?() do
+    if primary?() do
       [Node.self() | other_nodes]
     else
       other_nodes
@@ -41,7 +41,7 @@ defmodule Octocon.ClusterUtils do
   """
   def run_on_all_primary_nodes(fun) do
     # If we are a primary node, run the function locally as well
-    if NodeTracker.is_primary?() do
+    if NodeTracker.primary?() do
       fun.()
     end
 
@@ -56,7 +56,15 @@ defmodule Octocon.ClusterUtils do
   end
 
   def run_on_sidecar(fun, opts \\ []) do
-    NodeTracker.rpc_group(:sidecar, fun, opts)
+    if NodeTracker.sidecar_exists?() do
+      NodeTracker.rpc_group(:sidecar, fun, opts)
+    else
+      if :force_sidecar in opts do
+        raise "No sidecar node available"
+      end
+
+      fun.()
+    end
   end
 
   def run_on_primary(fun, opts \\ []) do
@@ -76,7 +84,7 @@ defmodule Octocon.ClusterUtils do
 
   def check_primary(node) do
     Octocon.RPC.NodeTracker.rpc(node, fn ->
-      NodeTracker.is_primary?()
+      NodeTracker.primary?()
     end)
   end
 end

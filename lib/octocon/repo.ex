@@ -4,6 +4,7 @@ defmodule Octocon.Repo.Macros do
   alias Octocon.UserRegistryCache
 
   defmacro create_global_shim(verb_string) do
+    # credo:disable-for-lines:2
     verb = String.to_atom(verb_string)
     func_name = String.to_atom("#{verb}_global")
 
@@ -22,6 +23,7 @@ defmodule Octocon.Repo.Macros do
   end
 
   defmacro create_nam_nt_shim(verb_string) do
+    # credo:disable-for-lines:2
     verb = String.to_atom(verb_string)
     func_name = String.to_atom("#{verb}_nam_nt")
 
@@ -40,6 +42,7 @@ defmodule Octocon.Repo.Macros do
   end
 
   defmacro create_regional_shim(verb_string) do
+    # credo:disable-for-lines:2
     verb = String.to_atom(verb_string)
     func_name = String.to_atom("#{verb}_regional")
 

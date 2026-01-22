@@ -44,7 +44,7 @@ defmodule Octocon.Global.LinkTokenRegistry do
     GenServer.call(@via, {:delete, link_token})
   end
 
-  @impl true
+  @impl GenServer
   def init([]) do
     :ets.new(@table, [
       :named_table,
@@ -61,7 +61,7 @@ defmodule Octocon.Global.LinkTokenRegistry do
     {:ok, %{}}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:put, system_id}, _, state) do
     link_token = Ecto.UUID.generate()
 
@@ -85,7 +85,7 @@ defmodule Octocon.Global.LinkTokenRegistry do
     {:reply, link_token, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:get, link_token}, _, state) do
     case :ets.lookup(@table, link_token) do
       [] ->
@@ -96,7 +96,7 @@ defmodule Octocon.Global.LinkTokenRegistry do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:delete, link_token}, _, state) do
     case :ets.lookup(@table, link_token) do
       [] ->
@@ -110,7 +110,7 @@ defmodule Octocon.Global.LinkTokenRegistry do
     {:reply, :ok, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:flush, link_token, system_id}, state) do
     Logger.debug("Flushing link token: #{link_token}")
 

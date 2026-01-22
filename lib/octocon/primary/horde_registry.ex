@@ -16,7 +16,7 @@ defmodule Octocon.Primary.HordeRegistry do
   end
 
   # Only nodes marked as primary should be part of the registry
-  defp members() do
+  defp members do
     nodes =
       ClusterUtils.primary_nodes(true)
       |> Enum.map(fn node -> {__MODULE__, node} end)

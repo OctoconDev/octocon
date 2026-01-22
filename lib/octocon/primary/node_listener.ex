@@ -28,7 +28,7 @@ defmodule Octocon.Primary.NodeListener do
     {:noreply, state}
   end
 
-  def update_nodes() do
+  def update_nodes do
     nodes_incl_self = ClusterUtils.primary_nodes(true)
 
     # nodes = Enum.filter(nodes_incl_self, fn node -> node != Node.self() end)

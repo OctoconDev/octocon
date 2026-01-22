@@ -56,7 +56,7 @@ defmodule Octocon.PromEx do
 
   alias PromEx.Plugins
 
-  @impl true
+  @impl PromEx
   def plugins do
     [
       # PromEx built-in plugins
@@ -68,7 +68,7 @@ defmodule Octocon.PromEx do
     ]
   end
 
-  @impl true
+  @impl PromEx
   def dashboard_assigns do
     [
       datasource_id: "prometheus_on_fly",
@@ -76,7 +76,7 @@ defmodule Octocon.PromEx do
     ]
   end
 
-  @impl true
+  @impl PromEx
   def dashboards do
     [
       # PromEx built in Grafana dashboards

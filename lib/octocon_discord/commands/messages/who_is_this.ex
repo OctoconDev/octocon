@@ -11,10 +11,10 @@ defmodule OctoconDiscord.Commands.Messages.WhoIsThis do
     Messages
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Displays information about a proxied message."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{
       data: %{
@@ -101,6 +101,6 @@ defmodule OctoconDiscord.Commands.Messages.WhoIsThis do
     end
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :message
 end

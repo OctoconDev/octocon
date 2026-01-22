@@ -2,8 +2,10 @@ defmodule OctoconDiscord.ProxyCache do
   use GenServer
   require Logger
 
-  alias Octocon.Accounts
-  alias Octocon.ClusterUtils
+  alias Octocon.{
+    Accounts,
+    ClusterUtils
+  }
 
   @table :discord_proxy_cache
 
@@ -14,7 +16,7 @@ defmodule OctoconDiscord.ProxyCache do
   end
 
   def get(discord_id, require_proxies \\ true) when is_binary(discord_id) do
-    unless Octocon.RPC.NodeTracker.is_primary?() do
+    unless Octocon.RPC.NodeTracker.primary?() do
       raise "ProxyCache should only be called on the primary region"
     end
 
@@ -189,7 +191,7 @@ defmodule OctoconDiscord.ProxyCache do
 
   # Server
 
-  @impl true
+  @impl GenServer
   def init([]) do
     :ets.new(@table, [
       :set,
@@ -203,33 +205,13 @@ defmodule OctoconDiscord.ProxyCache do
     {:ok, []}
   end
 
-  # @impl true
-  # def handle_continue(:init_dump, state) do
-  #   send(__MODULE__, :dump)
-  #   {:noreply, state}
-  # end
-
-  @impl true
+  @impl GenServer
   def handle_info({:evict_proxies, discord_id}, state) do
     evict_proxies(discord_id)
     {:noreply, state}
   end
 
-  # @impl true
-  # def handle_info(:dump, state) do
-  #   Logger.debug("Dumping proxy cache")
-
-  #   :ets.tab2list(@table)
-  #   # Remove proxies
-  #   |> Enum.map(fn {discord_id, data} -> {discord_id, %{data | proxies: nil}} end)
-  #   |> :erlang.term_to_binary()
-  #   |> Persistence.set_pc_items()
-
-  #   Process.send_after(__MODULE__, :dump, :timer.minutes(5))
-  #   {:noreply, state}
-  # end
-
-  @impl true
+  @impl GenServer
   def handle_info(_, state) do
     {:noreply, state}
   end

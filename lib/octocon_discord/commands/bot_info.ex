@@ -13,10 +13,10 @@ defmodule OctoconDiscord.Commands.BotInfo do
     Alters
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Views the Octocon bot's metrics."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     spawn(fn ->
       process_count = :erlang.system_info(:process_count)
@@ -152,9 +152,9 @@ defmodule OctoconDiscord.Commands.BotInfo do
     ]
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options, do: []
 end

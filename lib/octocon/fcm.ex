@@ -8,13 +8,15 @@ defmodule Octocon.FCM do
 
   import Ecto.Query, warn: false
 
-  alias Octocon.Accounts
-  alias Octocon.Alters
-  alias Octocon.Alters.Alter
-  alias Octocon.Friendships.Friendship
-  alias Octocon.NotificationTokens
-  alias Octocon.NotificationTokens.NotificationToken
-  alias Octocon.Repo
+  alias Octocon.{
+    Accounts,
+    Alters,
+    Alters.Alter,
+    Friendships.Friendship,
+    NotificationTokens,
+    NotificationTokens.NotificationToken,
+    Repo
+  }
 
   @size_limit 500
 

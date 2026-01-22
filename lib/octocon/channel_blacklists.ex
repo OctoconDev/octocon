@@ -38,7 +38,7 @@ defmodule Octocon.ChannelBlacklists do
 
   This should always be backed by a `OctoconDiscord.ChannelBlacklistManager` cache, as it is a latency-sensitive operation.
   """
-  def is_channel_blacklisted?(channel_id) do
+  def channel_blacklisted?(channel_id) do
     from(c in ChannelBlacklist, where: c.channel_id == ^to_string(channel_id))
     |> Repo.all_regional(@region_specifier)
     |> case do

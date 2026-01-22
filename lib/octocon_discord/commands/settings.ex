@@ -32,10 +32,10 @@ defmodule OctoconDiscord.Commands.Settings do
     "import-sp" => &__MODULE__.import_sp/2
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Modifies your system's settings."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{data: %{resolved: resolved}, guild_id: guild_id, user: %{id: discord_id}} = interaction
     discord_id = to_string(discord_id)
@@ -285,10 +285,10 @@ defmodule OctoconDiscord.Commands.Settings do
     )
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

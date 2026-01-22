@@ -9,12 +9,12 @@ defmodule OctoconWeb.SystemController do
     Tags
   }
 
-  alias OctoconWeb.System.{
-    TagJSON,
-    AlterJSON
-  }
-
   alias OctoconWeb.FriendJSON
+
+  alias OctoconWeb.System.{
+    AlterJSON,
+    TagJSON
+  }
 
   action_fallback OctoconWeb.FallbackController
 

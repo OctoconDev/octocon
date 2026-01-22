@@ -5,17 +5,17 @@ defmodule OctoconDiscord.Commands.Help do
 
   alias OctoconDiscord.Components.HelpHandler
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Displays an interactive guide on how to use the Octocon bot."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(_interaction) do
     HelpHandler.handle_init()
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  # @impl true
+  # @impl Nosedrum.ApplicationCommand
   # def options, do: []
 end

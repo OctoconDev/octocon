@@ -14,6 +14,7 @@ defmodule OctoconWeb.WaffleTransformation do
 
     ensure_executable_exists!(program)
 
+    # credo:disable-for-next-line
     result = System.cmd(program, args, stderr_to_stdout: true)
 
     case result do

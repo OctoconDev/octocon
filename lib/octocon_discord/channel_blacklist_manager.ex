@@ -50,13 +50,13 @@ defmodule OctoconDiscord.ChannelBlacklistManager do
   @doc """
   Checks if a channel is blacklisted.
   """
-  def is_blacklisted?(channel_id, parent_id)
+  def blacklisted?(channel_id, parent_id)
 
-  def is_blacklisted?(channel_id, nil) when is_binary(channel_id) do
+  def blacklisted?(channel_id, nil) when is_binary(channel_id) do
     :ets.lookup(@table, channel_id) != []
   end
 
-  def is_blacklisted?(channel_id, parent_id)
+  def blacklisted?(channel_id, parent_id)
       when is_binary(channel_id) and is_binary(parent_id) do
     :ets.lookup(@table, channel_id) != [] or :ets.lookup(@table, parent_id) != []
   end
@@ -71,7 +71,7 @@ defmodule OctoconDiscord.ChannelBlacklistManager do
   # Server
 
   @doc false
-  @impl true
+  @impl GenServer
   def init([]) do
     :ets.new(@table, [
       :set,
@@ -85,7 +85,7 @@ defmodule OctoconDiscord.ChannelBlacklistManager do
     {:ok, [], {:continue, :load_blacklists}}
   end
 
-  @impl true
+  @impl GenServer
   def handle_continue(:load_blacklists, state) do
     # TODO: Replace this with actual waiting
     Process.sleep(:timer.seconds(5))
@@ -101,7 +101,7 @@ defmodule OctoconDiscord.ChannelBlacklistManager do
     {:noreply, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info(_, state) do
     {:noreply, state}
   end

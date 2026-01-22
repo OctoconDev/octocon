@@ -133,7 +133,6 @@ defmodule OctoconDiscord.Events.MessageCreate do
            server_settings: server_settings
          } = context
        ) do
-
     case proxy_data.settings.global_autoproxy_mode do
       :off ->
         # Autoproxy disabled, ignore
@@ -189,7 +188,6 @@ defmodule OctoconDiscord.Events.MessageCreate do
            server_settings: server_settings
          } = context
        ) do
-
     case proxy_data.settings.server_settings.autoproxy_mode do
       :off ->
         # Autoproxy disabled, ignore
@@ -210,17 +208,17 @@ defmodule OctoconDiscord.Events.MessageCreate do
 
             try do
               send_proxy_message(
-              %{
-                webhook: webhook,
-                message: message,
-                alter: {system_id, alter_id},
-                # Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns])
-                proxy_data: proxy_data,
-                thread_id: thread_id,
-                server_settings: server_settings
-              },
-              false
-            )
+                %{
+                  webhook: webhook,
+                  message: message,
+                  alter: {system_id, alter_id},
+                  # Map.take(proxy_data, [:system_tag, :show_system_tag, :show_proxy_pronouns])
+                  proxy_data: proxy_data,
+                  thread_id: thread_id,
+                  server_settings: server_settings
+                },
+                false
+              )
             rescue
               e in OctoconDiscord.Proxy.InvalidAlterError ->
                 Logger.debug(e.message)

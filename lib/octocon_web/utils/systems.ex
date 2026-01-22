@@ -4,9 +4,11 @@ defmodule OctoconWeb.Utils.Systems do
   import Phoenix.Controller, only: [json: 2]
   import Plug.Conn
 
-  alias Octocon.Accounts
-  alias Octocon.Accounts.User
-  alias Octocon.Friendships
+  alias Octocon.{
+    Accounts,
+    Accounts.User,
+    Friendships
+  }
 
   @spec parse_system(Plug.Conn.t(), String.t()) ::
           {:noreply, Plug.Conn.t()} | {:self, User.t()} | {:other, User.t()}

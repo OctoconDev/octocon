@@ -47,7 +47,7 @@ defmodule OctoconWeb.UserChannel do
   alias OctoconWeb.System.TagJSON
   alias OctoconWeb.SystemJSON
 
-  @impl true
+  @impl Phoenix.Channel
   def join("system:" <> system_id, %{"token" => token} = params, socket) do
     # Only allow 2 socket joins per second to avoid abuse (especially from misconfigured Phoenix clients)
 
@@ -193,7 +193,7 @@ defmodule OctoconWeb.UserChannel do
     end)
   end
 
-  @impl true
+  @impl Phoenix.Channel
   def handle_in(
         "endpoint",
         %{
@@ -215,14 +215,11 @@ defmodule OctoconWeb.UserChannel do
   end
 
   @doc false
-  @impl true
+  @impl Phoenix.Channel
   def handle_info({:plug_conn, :sent}, socket), do: {:noreply, socket}
 
-  @impl true
+  @impl Phoenix.Channel
   def handle_info({:send_batched_init, init_data}, socket) do
-    IO.inspect(socket, label: "Batched init socket")
-    IO.inspect(init_data["system"].id, label: "Batched init system ID")
-
     if init_data do
       send_batched_init(socket, init_data)
     end

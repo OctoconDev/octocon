@@ -7,10 +7,10 @@ defmodule OctoconDiscord.Commands.Messages.PingAccount do
 
   alias Octocon.Messages
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Pings the account associated with a proxied message."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{
       data: %{
@@ -64,6 +64,6 @@ defmodule OctoconDiscord.Commands.Messages.PingAccount do
     end
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :message
 end

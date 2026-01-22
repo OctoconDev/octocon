@@ -90,6 +90,7 @@ defmodule Octocon.Alters do
   end
 
   def resolve_alter_id_dumb(system_identity, {:id, alter_id}), do: alter_id
+
   def resolve_alter_id_dumb(system_identity, {:alias, aliaz}) do
     where = unwrap_system_identity_where(system_identity, alias: aliaz)
 

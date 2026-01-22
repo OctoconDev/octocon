@@ -21,10 +21,10 @@ defmodule OctoconDiscord.Commands.Friend do
     "untrust" => &__MODULE__.untrust/2
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Manages your friends."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{data: %{resolved: resolved}, user: %{id: discord_id}} = interaction
     discord_id = to_string(discord_id)
@@ -344,10 +344,10 @@ defmodule OctoconDiscord.Commands.Friend do
     end
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

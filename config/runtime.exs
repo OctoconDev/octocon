@@ -1,5 +1,10 @@
 import Config
 
+tailscale_api_authkey = System.get_env("TAILSCALE_API_AUTHKEY")
+
+config :octocon, :use_tailscale, tailscale_api_authkey != nil and tailscale_api_authkey != ""
+config :octocon, tailscale_api_authkey: tailscale_api_authkey
+
 if config_env() == :prod do
   node_group =
     case System.get_env("FLY_PROCESS_GROUP") do
@@ -235,13 +240,6 @@ if config_env() == :prod do
       System.get_env("ENCRYPTION_PEPPER") ||
         raise("""
         environment variable ENCRYPTION_PEPPER is missing.
-        """)
-
-  config :octocon,
-    tailscale_api_authkey:
-      System.get_env("TAILSCALE_API_AUTHKEY") ||
-        raise("""
-        environment variable TAILSCALE_API_AUTHKEY is missing.
         """)
 
   config :octocon,

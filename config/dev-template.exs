@@ -2,7 +2,8 @@ import Config
 
 config :octocon, :primary_node_count, 1
 
-# Discord channel scope
+# Discord channel scope to push slash commands to
+# In development, make this equal to the ID of a test server you control
 config :octocon, :nostrum_scope, 1_234_567_89_123_456_789
 
 # For development, we disable any cache and enable
@@ -62,11 +63,10 @@ config :phoenix, :plug_init_mode, :runtime
 config :octocon, Octocon.Repo,
   nodes: ["scylla-nam"],
   load_balancing:
-    {Xandra.Cluster.LoadBalancingPolicy.DCAwareRoundRobin,
-      [local_data_center: "nam"]},
-    refresh_topology_interval: :timer.minutes(1),
-    sync_connect: :infinity,
-    pool_size: 10
+    {Xandra.Cluster.LoadBalancingPolicy.DCAwareRoundRobin, [local_data_center: "nam"]},
+  refresh_topology_interval: :timer.minutes(1),
+  sync_connect: :infinity,
+  pool_size: 10
 
 config :octocon, Octocon.MessageRepo,
   username: "postgres",
@@ -79,10 +79,26 @@ config :octocon, Octocon.MessageRepo,
   pool_size: 10
 
 # Discord token
-config :nostrum,
-  token: "TODO"
+config :nostrum, token: "TODO"
 
+node_group =
+  case System.get_env("NODE_GROUP") do
+    "primary" ->
+      :primary
+
+    "auxiliary" ->
+      :auxiliary
+
+    "sidecar" ->
+      :sidecar
+
+    _ ->
+      :primary
+  end
+
+config :octocon, :node_group, node_group
 config :octocon, :current_db_region, "nam"
+config :octocon, :use_tailscale, false
 
 # Discord auth
 config :ueberauth, Ueberauth.Strategy.Discord.OAuth,

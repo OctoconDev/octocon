@@ -27,7 +27,7 @@ defmodule OctoconDiscord.ConsumerSupervisor do
     Supervisor.init(children, strategy: :one_for_one)
   end
 
-  def get_consumer_pid() do
+  def get_consumer_pid do
     case Horde.Registry.lookup(Octocon.Primary.HordeRegistry, __MODULE__) do
       [] ->
         :error

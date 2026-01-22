@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euxo pipefail
-docker compose -f docker-compose.dev.yml run --rm octocon-app mix setup
 
+docker compose -f docker-compose.dev.yml exec octocon-app mix setup

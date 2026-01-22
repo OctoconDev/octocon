@@ -29,17 +29,17 @@ defmodule OctoconDiscord.StatusUpdater do
     GenServer.call(@via, :start)
   end
 
-  @impl true
+  @impl GenServer
   def init([]) do
     {:ok, :stopped}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:start, _, :started) do
     {:reply, :already_started, :started}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:start, _, :stopped) do
     Logger.info("Starting OctoconDiscord.StatusUpdater loop")
 
@@ -48,7 +48,7 @@ defmodule OctoconDiscord.StatusUpdater do
     {:reply, :ok, :started}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info(:update, state) do
     update_status()
     Process.send_after(self(), :update, @interval)
@@ -56,7 +56,7 @@ defmodule OctoconDiscord.StatusUpdater do
     {:noreply, state}
   end
 
-  defp update_status() do
+  defp update_status do
     Logger.info("Updating Discord status...")
 
     guild_count = :mnesia.table_info(Nostrum.Cache.GuildCache.Mnesia.table(), :size)

@@ -7,9 +7,8 @@ defmodule OctoconDiscord.Components.ReproxyHandler do
   alias Nostrum.Api
 
   alias Octocon.Alters
-
-  alias OctoconDiscord.Utils
   alias OctoconDiscord.Commands.Messages.Reproxy.NostrumShim
+  alias OctoconDiscord.Utils
 
   @table :reproxy_handler
 
@@ -232,6 +231,7 @@ defmodule OctoconDiscord.Components.ReproxyHandler do
     components
     |> Stream.map(&List.first(&1.components))
     |> Stream.map(fn %{custom_id: id, value: value} ->
+      # credo:disable-for-next-line
       {String.to_atom(id), value}
     end)
     |> Enum.into(%{})

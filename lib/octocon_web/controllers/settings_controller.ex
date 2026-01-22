@@ -1,13 +1,17 @@
 defmodule OctoconWeb.SettingsController do
   use OctoconWeb, :controller
 
-  alias Octocon.Accounts
-  alias Octocon.NotificationTokens
+  alias Octocon.{
+    Accounts,
+    NotificationTokens
+  }
 
   alias Octocon.Utils.User, as: UserUtils
 
-  alias Octocon.Workers.PluralKitImportWorker
-  alias Octocon.Workers.SimplyPluralImportWorker
+  alias Octocon.Workers.{
+    PluralKitImportWorker,
+    SimplyPluralImportWorker
+  }
 
   def reset_encryption(conn, %{}) do
     system_id = conn.private[:guardian_default_resource]
@@ -548,7 +552,7 @@ defmodule OctoconWeb.SettingsController do
     system_id = conn.private[:guardian_default_resource]
 
     case Accounts.wipe_alters({:system, system_id}) do
-      {:ok, _} ->
+      :ok ->
         send_resp(conn, :no_content, "")
 
       {:error, _} ->

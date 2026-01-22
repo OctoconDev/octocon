@@ -4,13 +4,15 @@ defmodule Octocon.NotificationTokens do
   """
 
   import Ecto.Query, warn: false
-  alias Octocon.Accounts
-  alias Octocon.Alters
-  alias Octocon.Alters.Alter
-  alias Octocon.Friendships.Friendship
-  alias Octocon.Repo
 
-  alias Octocon.NotificationTokens.NotificationToken
+  alias Octocon.{
+    Accounts,
+    Alters,
+    Alters.Alter,
+    Friendships.Friendship,
+    NotificationTokens.NotificationToken,
+    Repo
+  }
 
   @doc """
   Gets a single notification_token.

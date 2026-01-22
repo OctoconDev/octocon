@@ -24,7 +24,7 @@ defmodule Octocon.Application do
 
   require Logger
 
-  @impl true
+  @impl Application
   def start(_type, _args) do
     group = Octocon.RPC.NodeTracker.current_group()
     Logger.warning("Starting node of type: #{group}")
@@ -44,30 +44,20 @@ defmodule Octocon.Application do
 
   # Tell Phoenix to update the endpoint configuration
   # whenever the application is updated.
-  @impl true
+  @impl Application
   def config_change(changed, _new, removed) do
     OctoconWeb.Endpoint.config_change(changed, removed)
     :ok
   end
 
-  defp global_children() do
-    topologies = [
-      tailscale: [
-        strategy: Cluster.Strategy.Tailscale,
-        config: [
-          tag: "beam",
-          appname: "octo"
-        ]
-      ]
-    ]
-
+  defp global_children do
     [
       # Telemetry
       OctoconWeb.Telemetry,
       Octocon.PromEx,
 
       # Distribution
-      {Cluster.Supervisor, [topologies, [name: Octocon.ClusterSupervisor]]},
+      generate_libcluster_child(),
       Octocon.RPC.NodeTracker,
       Supervisor.child_spec(
         {Cachex,
@@ -115,4 +105,48 @@ defmodule Octocon.Application do
   end
 
   defp group_children(_), do: []
+
+  defp generate_libcluster_child do
+    node_list = Application.get_env(:octocon, :node_list, nil)
+    use_tailscale = Application.get_env(:octocon, :use_tailscale, false)
+
+    topologies =
+      cond do
+        use_tailscale ->
+          [
+            tailscale: [
+              strategy: Cluster.Strategy.Tailscale,
+              config: [
+                tag: "beam",
+                appname: "octo"
+              ]
+            ]
+          ]
+
+        node_list != nil && node_list != [] ->
+          [
+            static: [
+              strategy: Cluster.Strategy.Epmd,
+              config: [hosts: node_list]
+            ]
+          ]
+
+        true ->
+          nil
+      end
+
+    if topologies != nil do
+      [
+        {Cluster.Supervisor, [topologies, [name: Octocon.ClusterSupervisor]]}
+      ]
+    else
+      Logger.warning("No clustering strategy configured, running as a single node!")
+
+      Logger.warning(
+        "Sidecar requests will also be executed locally. This may severely impact performance/latency."
+      )
+
+      []
+    end
+  end
 end

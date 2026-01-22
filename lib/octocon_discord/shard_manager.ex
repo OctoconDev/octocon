@@ -29,21 +29,21 @@ defmodule OctoconDiscord.ShardManager do
     end
   end
 
-  @impl true
+  @impl GenServer
   def init(init_arg) do
     Logger.info("Starting ShardManager with ID #{inspect(init_arg)}")
     Process.flag(:trap_exit, true)
     {:ok, init_arg, {:continue, :connect_shards}}
   end
 
-  @impl true
+  @impl GenServer
   def handle_continue(:connect_shards, state) do
     connect_shards(state)
 
     {:noreply, state}
   end
 
-  @impl true
+  @impl GenServer
   def terminate(_reason, {id, _, _, _} = state) do
     # TODO: Shard handoff à la https://github.com/ElixirSeattle/tanx/tree/master/apps/tanx/lib/tanx/game/manager.ex (https://www.youtube.com/watch?v=nLApFANtkHs)
     Logger.info("Terminating ShardManager with ID #{id}")
@@ -52,7 +52,7 @@ defmodule OctoconDiscord.ShardManager do
     :ok
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:EXIT, _pid, reason}, state) do
     {:stop, reason, state}
   end

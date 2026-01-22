@@ -15,11 +15,11 @@ defmodule OctoconDiscord.Commands.Danger do
     "delete-account" => &__MODULE__.delete_account/2
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description,
     do: "Danger zone! These commands are irreversible and should be used with caution."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{data: %{resolved: resolved}, user: %{id: discord_id}} = interaction
     discord_id = to_string(discord_id)
@@ -46,10 +46,10 @@ defmodule OctoconDiscord.Commands.Danger do
     Utils.success_embed("Check your DMs!")
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

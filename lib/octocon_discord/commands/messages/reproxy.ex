@@ -6,10 +6,10 @@ defmodule OctoconDiscord.Commands.Messages.Reproxy do
   alias Octocon.Messages
   alias OctoconDiscord.Utils
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Reproxies a message."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(%{
         data: %{
           resolved: %Nostrum.Struct.ApplicationCommandInteractionDataResolved{
@@ -57,9 +57,9 @@ defmodule OctoconDiscord.Commands.Messages.Reproxy do
     end
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :message
 
-  # @impl true
+  # @impl Nosedrum.ApplicationCommand
   # def options, do: []
 end

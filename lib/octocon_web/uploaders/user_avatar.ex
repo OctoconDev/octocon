@@ -37,13 +37,6 @@ defmodule OctoconWeb.Uploaders.UserAvatar do
     else
       _ -> {:error, "Error creating thumbnail"}
     end
-
-    # OctoconWeb.WaffleTransformation.apply(
-    #   :convert,
-    #   file,
-    #   ~w(-strip -thumbnail 500x500^ -gravity center -extent 500x500 -background none -alpha on -quality 90 -limit area 25MB -limit disk 150MB),
-    #   :webp
-    # )
   end
 
   # Override the persisted filenames:

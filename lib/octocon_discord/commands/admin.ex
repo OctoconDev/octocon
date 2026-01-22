@@ -3,10 +3,11 @@ defmodule OctoconDiscord.Commands.Admin do
 
   @behaviour Nosedrum.ApplicationCommand
 
-  alias OctoconDiscord.ServerSettingsManager
-  alias OctoconDiscord.ChannelBlacklistManager
-
-  alias OctoconDiscord.Utils
+  alias OctoconDiscord.{
+    ChannelBlacklistManager,
+    ServerSettingsManager,
+    Utils
+  }
 
   @subcommands %{
     "channel-blacklist" => &__MODULE__.channel_blacklist/2,
@@ -26,10 +27,10 @@ defmodule OctoconDiscord.Commands.Admin do
     "remove" => &__MODULE__.log_channel_remove/2
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Manages this server's settings."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{
       data: %{
@@ -260,10 +261,10 @@ defmodule OctoconDiscord.Commands.Admin do
     end
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

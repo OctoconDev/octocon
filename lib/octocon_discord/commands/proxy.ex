@@ -68,7 +68,7 @@ defmodule OctoconDiscord.Proxy do
         {channel_id, parent_id, thread_id} = check_thread(message)
 
         # Fast path: if the channel is blacklisted, don't bother checking anything else
-        unless ChannelBlacklistManager.is_blacklisted?(
+        unless ChannelBlacklistManager.blacklisted?(
                  to_string(channel_id),
                  to_string(parent_id)
                ) do

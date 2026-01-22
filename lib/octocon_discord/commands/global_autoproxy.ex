@@ -3,9 +3,12 @@ defmodule OctoconDiscord.Commands.GlobalAutoproxy do
 
   @behaviour Nosedrum.ApplicationCommand
 
-  alias OctoconDiscord.ProxyCache
   alias Octocon.Accounts
-  alias OctoconDiscord.Utils
+
+  alias OctoconDiscord.{
+    ProxyCache,
+    Utils
+  }
 
   @autoproxy_descriptions %{
     off: "Global autoproxying is now disabled.",
@@ -15,10 +18,10 @@ defmodule OctoconDiscord.Commands.GlobalAutoproxy do
       "You will now automatically proxy as the last alter to send a message. *This will take effect the next time you proxy.*"
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Changes your global autoproxy settings."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{user: %{id: discord_id}} = interaction
     discord_id = to_string(discord_id)
@@ -57,10 +60,10 @@ defmodule OctoconDiscord.Commands.GlobalAutoproxy do
     end)
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

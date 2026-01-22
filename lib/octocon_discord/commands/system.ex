@@ -18,10 +18,10 @@ defmodule OctoconDiscord.Commands.System do
     "fronting" => &__MODULE__.fronting/2
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Views information about your or another user's system."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{
       data: %{resolved: resolved, options: [%{name: name, options: options}]},
@@ -144,10 +144,10 @@ defmodule OctoconDiscord.Commands.System do
     end)
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

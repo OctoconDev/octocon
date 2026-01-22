@@ -165,7 +165,7 @@ defmodule OctoconWeb.System.FrontingController do
         |> json(%{error: "Invalid alter ID.", code: "invalid_alter_id"})
 
       is_number(alter_id) ->
-        if Fronts.is_fronting?({:system, system_id}, {:id, alter_id}) do
+        if Fronts.fronting?({:system, system_id}, {:id, alter_id}) do
           Accounts.set_primary_front({:system, system_id}, alter_id)
           send_resp(conn, :no_content, "")
         else

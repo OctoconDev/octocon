@@ -31,10 +31,10 @@ defmodule OctoconDiscord.Commands.Alter do
     "proxy" => &__MODULE__.Proxy.command/2
   }
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Manages your system's alters."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{data: %{resolved: resolved}, user: %{id: discord_id}} = interaction
     discord_id = to_string(discord_id)
@@ -265,7 +265,7 @@ defmodule OctoconDiscord.Commands.Alter do
           end
         end
 
-        if(Map.has_key?(to_update, :color)) do
+        if Map.has_key?(to_update, :color) do
           case Utils.validate_hex_color(to_update[:color]) do
             :error ->
               throw("Invalid color. Please provide a valid hex code.")
@@ -334,10 +334,10 @@ defmodule OctoconDiscord.Commands.Alter do
     Utils.error_embed("This command is not yet implemented.")
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :slash
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def options,
     do: [
       %{

@@ -51,10 +51,9 @@ defmodule OctoconDiscord.Components.HelpHandler.Pages.Faq do
 
   # Joining this at compile-time avoids unnecessary work at runtime
   @questions_joined @questions
-                    |> Enum.map(fn %{name: name, emoji: emoji} ->
+                    |> Enum.map_join("\n", fn %{name: name, emoji: emoji} ->
                       "### #{emoji} #{name}"
                     end)
-                    |> Enum.join("\n")
 
   def embeds do
     [

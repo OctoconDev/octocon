@@ -16,7 +16,7 @@ defmodule OctoconDiscord.Emojis do
   def faq, do: %Emoji{name: "faq", id: 1_255_765_434_872_107_018}
   def slashcommand, do: %Emoji{name: "slashcommand", id: 1_255_764_957_375_758_388}
   def folder, do: %Emoji{name: "folder", id: 1_255_840_880_980_529_152}
-  def backarrow, do: %Emoji{name: "backarrow", id: 1256_277_935_778_828_448}
+  def backarrow, do: %Emoji{name: "backarrow", id: 1_256_277_935_778_828_448}
 
   def component_emoji(%Emoji{name: name, id: id}) do
     %{name: name, id: id}

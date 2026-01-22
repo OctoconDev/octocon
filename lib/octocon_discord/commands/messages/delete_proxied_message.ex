@@ -3,15 +3,15 @@ defmodule OctoconDiscord.Commands.Messages.DeleteProxiedMessage do
 
   @behaviour Nosedrum.ApplicationCommand
 
-  alias OctoconDiscord.Utils
   alias Octocon.Messages
+  alias OctoconDiscord.Utils
 
   alias Nostrum.Api
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def description, do: "Deletes a proxied message."
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def command(interaction) do
     %{
       data: %{
@@ -60,6 +60,6 @@ defmodule OctoconDiscord.Commands.Messages.DeleteProxiedMessage do
     end
   end
 
-  @impl true
+  @impl Nosedrum.ApplicationCommand
   def type, do: :message
 end

@@ -21,11 +21,13 @@ defmodule Octocon.RPC.NodeTracker do
   def auxiliary_nodes, do: group_nodes(:auxiliary)
   def sidecar_nodes, do: group_nodes(:sidecar)
 
+  def sidecar_exists?, do: sidecar_nodes() != []
+
   def current_group do
     Application.get_env(:octocon, :node_group)
   end
 
-  def is_primary?(), do: current_group() == :primary
+  def primary?, do: current_group() == :primary
 
   @doc """
   Asks a node what group it is in.
@@ -102,25 +104,21 @@ defmodule Octocon.RPC.NodeTracker do
   end
 
   defp erpc_call(node, {mod, func, args}, timeout) do
-    try do
-      {:ok, :erpc.call(node, mod, func, args, timeout)}
-    catch
-      :throw, value -> {:error, {:throw, value}}
-      :exit, reason -> {:error, {:exit, reason}}
-      :error, {:erpc, reason} -> {:error, {:erpc, reason}}
-      :error, {exception, reason, stack} -> {:error, {exception, reason, stack}}
-    end
+    {:ok, :erpc.call(node, mod, func, args, timeout)}
+  catch
+    :throw, value -> {:error, {:throw, value}}
+    :exit, reason -> {:error, {:exit, reason}}
+    :error, {:erpc, reason} -> {:error, {:erpc, reason}}
+    :error, {exception, reason, stack} -> {:error, {exception, reason, stack}}
   end
 
   defp erpc_call(node, func, timeout) when is_function(func, 0) do
-    try do
-      {:ok, :erpc.call(node, func, timeout)}
-    catch
-      :throw, value -> {:error, {:throw, value}}
-      :exit, reason -> {:error, {:exit, reason}}
-      :error, {:erpc, reason} -> {:error, {:erpc, reason}}
-      :error, {exception, reason, stack} -> {:error, {exception, reason, stack}}
-    end
+    {:ok, :erpc.call(node, func, timeout)}
+  catch
+    :throw, value -> {:error, {:throw, value}}
+    :exit, reason -> {:error, {:exit, reason}}
+    :error, {:erpc, reason} -> {:error, {:erpc, reason}}
+    :error, {exception, reason, stack} -> {:error, {exception, reason, stack}}
   end
 
   ## RPC calls run on local node

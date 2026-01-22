@@ -31,13 +31,13 @@ defmodule Octocon.Global.FrontNotifier do
     GenServer.call(@via, {:set, system_id, alter_id})
   end
 
-  @impl true
+  @impl GenServer
   def init([]) do
     Process.send_after(self(), :flush, :timer.seconds(5))
     {:ok, %{}}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:remove, system_id, alter_id}, _, state) do
     ensured = ensure_exists(system_id, state)
 
@@ -53,7 +53,7 @@ defmodule Octocon.Global.FrontNotifier do
      }}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:add, system_id, alter_id}, _, state) do
     ensured = ensure_exists(system_id, state)
 
@@ -69,7 +69,7 @@ defmodule Octocon.Global.FrontNotifier do
      }}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:set, system_id, alter_id}, _, state) do
     {:reply, :ok,
      Map.put(state, system_id, {
@@ -78,7 +78,7 @@ defmodule Octocon.Global.FrontNotifier do
      })}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info(:flush, state) do
     current_time = get_time()
 
