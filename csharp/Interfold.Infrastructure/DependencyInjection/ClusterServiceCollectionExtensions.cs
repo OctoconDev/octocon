@@ -1,7 +1,9 @@
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Secrets;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Infrastructure.Coordination;
@@ -32,8 +34,43 @@ public static partial class ServiceCollectionExtensions
         // single global channel + one worker is the simplest correct shape.
         services.AddSingleton<IImportJobQueue, InProcessImportJobQueue>();
 
-        // FCM push notification service — NullFCMService until real Firebase integration is configured.
-        services.AddSingleton<IFCMService, NullFCMService>();
+        // FCM push notification service — both implementations are registered as their
+        // concrete types so either can be selected at IFCMService resolution time
+        // without conditional wiring.
+        services.AddSingleton<NullFCMService>();
+        services.AddSingleton<FirebaseFCMService>();
+
+        // The factory decides which concrete class to hand out based on runtime state:
+        //   1. Auxiliary / sidecar nodes never send — always the no-op.
+        //   2. Primary nodes promote to FirebaseFCMService ONLY when the
+        //      fcm:service_account_json row is seeded. An empty / missing row means the
+        //      deployment hasn't wired Firebase and we keep behaving exactly as we did
+        //      before this refactor (Debug-level no-op logging).
+        //
+        // Blocking GetAwaiter().GetResult() on ISecretsStore.GetAsync is acceptable here
+        // because IFCMService only resolves lazily off FrontNotifierBackgroundService
+        // (primary-only, off the request path) AFTER SecretsBootstrapService has already
+        // patched the store. ISecretsStore.GetAsync is a single indexed Postgres row
+        // read; the blocking call happens exactly once per process at DI-resolve time.
+        services.AddSingleton<IFCMService>(sp =>
+        {
+            if (role != NodeGroup.Primary)
+                return sp.GetRequiredService<NullFCMService>();
+
+            var secrets = sp.GetRequiredService<ISecretsStore>();
+            var serviceAccountJson = secrets
+                .GetAsync("fcm:service_account_json", CancellationToken.None)
+                .GetAwaiter().GetResult();
+
+            if (string.IsNullOrWhiteSpace(serviceAccountJson))
+            {
+                sp.GetRequiredService<ILogger<FirebaseFCMService>>().LogInformation(
+                    "[fcm] internal.secrets:fcm:service_account_json not seeded — using NullFCMService (push disabled).");
+                return sp.GetRequiredService<NullFCMService>();
+            }
+
+            return sp.GetRequiredService<FirebaseFCMService>();
+        });
 
         // Singleton task owner — primary owns tasks, auxiliary/sidecar do not.
         ISingletonTaskOwner taskOwner = role == NodeGroup.Primary

@@ -464,6 +464,15 @@ internal static class ConfigPhase
             // comma-separated list validated against ValidUpdateServices.
             ("Update service whitelist (blank=all)", () => c.Update.Services.Length == 0 ? "<all>" : string.Join(",", c.Update.Services),
                                                 () => c.Update.Services = PromptUpdateServices(console, c.Update.Services)),
+
+            // --- Firebase ---
+            // Single row that opens a three-way wizard (auto-detect from folder / configure
+            // per-file / clear all). The stored state is the four *Path fields on
+            // FirebaseSection; this row's Show summarises how many of them are set so the
+            // operator can see the section's state without opening the wizard. See
+            // PromptFirebase / FirebaseFolderScanner for the wizard's dispatch.
+            ("Firebase push notifications",     () => ShowFirebaseState(c.Firebase),
+                                                () => PromptFirebase(console, c.Firebase)),
         };
 
         // Section boundaries for the menu's grouped layout. Each row is (0-based index of the
@@ -497,6 +506,10 @@ internal static class ConfigPhase
             // Updates section: five new rows under the backup group; the same
             // reasoning applies (opt-in feature, low interaction rate).
             (41, "Updates"),
+            // Firebase: single opt-in row whose Edit opens the auto-detect / per-file
+            // wizard. Kept in its own trailing section so the row's four-file surface
+            // reads as a distinct feature rather than "one more Update knob".
+            (47, "Firebase"),
         };
 
         // Sentinels: -1 = "Confirm and save" (commits the form and returns). The 0..fields.Count-1
@@ -519,11 +532,11 @@ internal static class ConfigPhase
                 .Title(
                     "[bold]Configure interfold.bootstrap.json[/]\n" +
                     "[grey]Use arrow keys to navigate, Enter to edit, choose [green]Confirm and save[/] when done.[/]")
-                // Default Spectre page size is 10; the form has 47 fields + 10 headers + 1 confirm
-                // = 58 rows. Sizing the page to fit them all means no scrolling on a 60+ row
+                // Default Spectre page size is 10; the form has 48 fields + 11 headers + 1 confirm
+                // = 60 rows. Sizing the page to fit them all means no scrolling on a 60+ row
                 // terminal; smaller TTYs still paginate cleanly with the MoreChoicesText hint
                 // below. Operators on a 24-row TTY will scroll but every row is reachable.
-                .PageSize(58)
+                .PageSize(60)
                 .MoreChoicesText("[grey](move up/down to reveal more)[/]")
                 // Markup.Escape on the value because some fields legitimately contain markup-like
                 // characters (e.g. ApiImage's `ghcr.io/...:latest` is safe but a future operator
@@ -681,6 +694,159 @@ internal static class ConfigPhase
 
         if (string.IsNullOrWhiteSpace(raw)) return [];
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToArray();
+    }
+
+    /// <summary>
+    /// Menu-row summary for the Firebase wizard. Renders <c>off</c> when none of the four
+    /// <see cref="FirebaseSection"/> paths are set, or <c>N/4 configured (…)</c> listing
+    /// the platform labels that are, so the operator can see the section's state without
+    /// opening the wizard.
+    /// </summary>
+    private static string ShowFirebaseState(FirebaseSection section)
+    {
+        var platforms = new List<string>(4);
+        if (!string.IsNullOrEmpty(section.AndroidConfigPath)) platforms.Add("android");
+        if (!string.IsNullOrEmpty(section.IosConfigPath)) platforms.Add("ios");
+        if (!string.IsNullOrEmpty(section.WebConfigPath)) platforms.Add("web");
+        if (!string.IsNullOrEmpty(section.ServiceAccountPath)) platforms.Add("service_account");
+        return platforms.Count == 0
+            ? "off"
+            : $"{platforms.Count}/4 configured ({string.Join(", ", platforms)})";
+    }
+
+    // Wizard branch labels — kept as constants because both the SelectionPrompt below and
+    // the ConfigInteractivePromptTests navigation helpers reference them by exact string,
+    // and letting the two drift silently past each other would break the interactive test
+    // seam without a compile-time signal.
+    private const string FirebaseChoiceAutoDetect = "Auto-detect from folder";
+    private const string FirebaseChoicePerFile = "Configure per-file";
+    private const string FirebaseChoiceClear = "Clear all";
+    private const string FirebaseChoiceCancel = "Cancel";
+
+    /// <summary>
+    /// Three-way (plus Cancel) wizard fired from the Firebase menu row. Delegates path
+    /// discovery to <see cref="FirebaseFolderScanner"/> for the folder branch and falls
+    /// back to four sequential <see cref="TextPrompt{T}"/> calls for the per-file branch;
+    /// the clear branch zeros the four paths, and cancel is a no-op. All state lives on
+    /// the shared <paramref name="section"/> so the menu redraws with the updated
+    /// <see cref="ShowFirebaseState"/> summary as soon as the wizard returns.
+    /// </summary>
+    private static void PromptFirebase(IAnsiConsole console, FirebaseSection section)
+    {
+        var choice = console.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[bold]Firebase push notifications[/]")
+                .AddChoices(FirebaseChoiceAutoDetect, FirebaseChoicePerFile, FirebaseChoiceClear, FirebaseChoiceCancel));
+
+        switch (choice)
+        {
+            case FirebaseChoiceAutoDetect:
+                PromptFirebaseFolder(console, section);
+                break;
+
+            case FirebaseChoicePerFile:
+                section.AndroidConfigPath = PromptFirebasePath(console,
+                    "Path to google-services.json", section.AndroidConfigPath);
+                section.IosConfigPath = PromptFirebasePath(console,
+                    "Path to GoogleService-Info.plist", section.IosConfigPath);
+                section.WebConfigPath = PromptFirebasePath(console,
+                    "Path to firebase-web-config.json", section.WebConfigPath);
+                section.ServiceAccountPath = PromptFirebasePath(console,
+                    "Path to FCM v1 service-account JSON", section.ServiceAccountPath);
+                break;
+
+            case FirebaseChoiceClear:
+                section.AndroidConfigPath = string.Empty;
+                section.IosConfigPath = string.Empty;
+                section.WebConfigPath = string.Empty;
+                section.ServiceAccountPath = string.Empty;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Folder-input branch of the Firebase wizard. Prompts for a directory, hands it to
+    /// <see cref="FirebaseFolderScanner.Scan"/>, writes the four resolved paths back onto
+    /// <paramref name="section"/>, and prints a two-column summary of what was found vs.
+    /// missing. Blank input aborts silently — matches the "Cancel" branch semantics.
+    /// </summary>
+    private static void PromptFirebaseFolder(IAnsiConsole console, FirebaseSection section)
+    {
+        var folder = console.Prompt(
+            new TextPrompt<string>("Folder containing Firebase files (blank to cancel):")
+                .AllowEmpty()
+                .Validate(s =>
+                {
+                    if (string.IsNullOrWhiteSpace(s)) return ValidationResult.Success();
+                    return Directory.Exists(s)
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error($"[red]'{s}' is not an existing directory[/]");
+                }));
+        if (string.IsNullOrWhiteSpace(folder)) return;
+
+        var result = FirebaseFolderScanner.Scan(folder);
+        section.AndroidConfigPath = result.Section.AndroidConfigPath;
+        section.IosConfigPath = result.Section.IosConfigPath;
+        section.WebConfigPath = result.Section.WebConfigPath;
+        section.ServiceAccountPath = result.Section.ServiceAccountPath;
+
+        RenderFirebaseScanSummary(console, result);
+    }
+
+    /// <summary>
+    /// Per-file prompt used by <see cref="PromptFirebase"/>'s per-file branch. Blank input
+    /// returns empty so the operator can leave any single platform unwired; a non-blank
+    /// value must resolve to an existing file (a typo shouldn't silently disable push
+    /// for that platform — the operator can still commit an empty path when they mean it).
+    /// </summary>
+    private static string PromptFirebasePath(IAnsiConsole console, string label, string fallback) =>
+        console.Prompt(
+            new TextPrompt<string>($"{label} (blank to skip):")
+                .DefaultValue(fallback)
+                .AllowEmpty()
+                .Validate(s =>
+                {
+                    if (string.IsNullOrWhiteSpace(s)) return ValidationResult.Success();
+                    return File.Exists(s)
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error($"[red]'{s}' does not exist[/]");
+                }));
+
+    /// <summary>
+    /// Renders the auto-detect outcome as a Spectre table so the operator sees at a glance
+    /// which platforms were resolved and which are still missing (and would need the
+    /// per-file path branch, or an explicit clear-all, to finish configuring).
+    /// </summary>
+    private static void RenderFirebaseScanSummary(IAnsiConsole console, FirebaseFolderScanResult result)
+    {
+        var table = new Table()
+            .AddColumn("Platform")
+            .AddColumn("Resolved path");
+
+        AddScanRow(table, "android",         result.Section.AndroidConfigPath);
+        AddScanRow(table, "ios",             result.Section.IosConfigPath);
+        AddScanRow(table, "web",             result.Section.WebConfigPath);
+        AddScanRow(table, "service_account", result.Section.ServiceAccountPath);
+
+        console.Write(table);
+        if (result.Missing.Count > 0)
+        {
+            console.MarkupLine(
+                $"[yellow]Missing: {string.Join(", ", result.Missing)}. " +
+                "Re-open the wizard and choose 'Configure per-file' to point at them individually.[/]");
+        }
+    }
+
+    private static void AddScanRow(Table table, string platform, string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            table.AddRow($"[grey]{platform}[/]", "[grey]-[/]");
+        }
+        else
+        {
+            table.AddRow(platform, Markup.Escape(path));
+        }
     }
 
     /// <summary>
