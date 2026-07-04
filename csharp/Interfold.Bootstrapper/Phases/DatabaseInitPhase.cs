@@ -38,6 +38,7 @@ internal static class DatabaseInitPhase
         BootstrapOptions options,
         BootstrapConfig config,
         GeneratedSecrets secrets,
+        FirebaseSeedInputs firebase,
         PhaseLogger logger,
         CancellationToken ct)
     {
@@ -66,7 +67,7 @@ internal static class DatabaseInitPhase
         var seederLogger = new PhaseLoggerAdapter(logger);
         var pgExecutor = new ComposeExecPostgresExecutor(composeFile, PostgresService, seederLogger);
         var scExecutor = new ComposeExecScyllaExecutor(composeFile, scyllaService, seederLogger);
-        var pgOptions = BuildPostgresSeedOptions(config, secrets, scyllaService, scyllaPort);
+        var pgOptions = BuildPostgresSeedOptions(config, secrets, firebase, scyllaService, scyllaPort);
         var scOptions = new ScyllaSeedOptions(
             AppUser: secrets.ScyllaUser,
             AppPassword: secrets.ScyllaPassword,
@@ -94,7 +95,11 @@ internal static class DatabaseInitPhase
     }
 
     private static PostgresSeedOptions BuildPostgresSeedOptions(
-        BootstrapConfig config, GeneratedSecrets secrets, string scyllaService, int scyllaPort)
+        BootstrapConfig config,
+        GeneratedSecrets secrets,
+        FirebaseSeedInputs firebase,
+        string scyllaService,
+        int scyllaPort)
     {
         return new PostgresSeedOptions(
             InitUser: PostgresInitUser,
@@ -125,7 +130,11 @@ internal static class DatabaseInitPhase
             // Production callers always finish by scrambling the init credential in-cluster
             // so the .env value sitting in the operator's deployment dir is intentionally
             // stale by the time the API starts.
-            ScrambleInitUserPassword: true);
+            ScrambleInitUserPassword: true,
+            FirebaseAndroidClientJson: firebase.AndroidClientJson,
+            FirebaseIosClientJson: firebase.IosClientJson,
+            FirebaseWebClientJson: firebase.WebClientJson,
+            FcmServiceAccountJson: firebase.ServiceAccountJson);
     }
 
     private static string? FindComposeFile(string outputDir)

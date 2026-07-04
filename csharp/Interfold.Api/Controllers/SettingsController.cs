@@ -20,6 +20,7 @@ using Interfold.Domain.Settings;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Interfold.Api.Controllers.Base;
+using System.Net;
 
 namespace Interfold.Api.Controllers;
 
@@ -30,6 +31,7 @@ public sealed class SettingsController : InterfoldControllerBase
     private readonly ISingletonTaskOwner _singletonTaskOwner;
     private readonly IAvatarStorage _avatarStorage;
     private readonly IOptionsMonitor<AuthenticationConfiguration> _authenticationConfiguration;
+    private readonly IOptionsMonitor<FirebaseClientConfiguration> _firebaseClientConfiguration;
 
     private readonly UpdateUsernameCommandHandler _usernameHandler;
     private readonly UpdateDescriptionCommandHandler _descriptionHandler;
@@ -78,7 +80,8 @@ public sealed class SettingsController : InterfoldControllerBase
         UpdateFieldCommandHandler updateFieldHandler,
         DeleteFieldCommandHandler deleteFieldHandler,
         RelocateFieldCommandHandler relocateFieldHandler,
-        IOptionsMonitor<AuthenticationConfiguration> authenticationConfiguration)
+        IOptionsMonitor<AuthenticationConfiguration> authenticationConfiguration,
+        IOptionsMonitor<FirebaseClientConfiguration> firebaseClientConfiguration)
     {
         _accountRepository = accountRepository;
         _singletonTaskOwner = singletonTaskOwner;
@@ -105,6 +108,7 @@ public sealed class SettingsController : InterfoldControllerBase
         _deleteFieldHandler = deleteFieldHandler;
         _relocateFieldHandler = relocateFieldHandler;
         _authenticationConfiguration = authenticationConfiguration;
+        _firebaseClientConfiguration = firebaseClientConfiguration;
     }
 
     [HttpGet("link_token")]
@@ -647,6 +651,35 @@ public sealed class SettingsController : InterfoldControllerBase
     {
         var authenticationConfiguration = _authenticationConfiguration.CurrentValue;
         return authenticationConfiguration.Rsa256PublicKey;
+    }
+
+    /// <summary>
+    /// Serves the per-platform Firebase client-init payload the mobile / wasm apps fetch
+    /// at runtime. Values are PUBLIC (they previously shipped inside every distributed
+    /// bundle as <c>google-services.json</c> / <c>GoogleService-Info.plist</c> / hardcoded
+    /// web config), so the endpoint is anonymous — mirrors the <c>public-key</c> shape
+    /// above.
+    /// <para>
+    /// Contract:
+    /// <list type="bullet">
+    ///   <item><c>?platform=android|ios|web</c> — required. Unknown / missing values return 400 with code <c>invalid_platform</c>.</item>
+    ///   <item>Configured platform absent from <c>internal.secrets</c> — 503 <c>firebase_config_unavailable</c>. The deployment hasn't seeded the matching row via the bootstrapper's Firebase phase.</item>
+    ///   <item>Cache headers: <c>Cache-Control: public, max-age=300, must-revalidate</c> plus a body-hash <c>ETag</c>. The client keeps a 7-day cache (see <c>FirebaseConfigProvider</c>); the server ceiling of 5 minutes bounds how long a rotated config takes to reach the service-worker install path.</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    [HttpGet("firebase-config")]
+    [AllowAnonymous]
+    public async Task<Response<FirebaseClientConfigResponse>> GetFirebaseConfig(
+        [FromQuery] string? platform,
+        CancellationToken ct)
+    {
+        var (payload, error) = FirebaseConfigResolver.Resolve(_firebaseClientConfiguration.CurrentValue, platform);
+        if (error is not null)
+            return error;
+
+        FirebaseConfigResolver.ApplyCacheHeaders(Response, payload!);
+        return new SuccessResponse<FirebaseClientConfigResponse>(payload!);
     }
 
     private async Task<AvatarUploadPayload> ResolveMultipartUploadAsync(CancellationToken ct)

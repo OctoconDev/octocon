@@ -45,6 +45,15 @@
       adapters into the executors defined there.
     -->
     <ProjectReference Include="..\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
+    <!--
+      FirebasePhase serialises its normalised seed payloads via the same
+      FirebaseAndroidClientConfig / FirebaseIosClientConfig / FirebaseWebClientConfig
+      records that SecretsBootstrapService deserialises at API startup, so the wire
+      contract is compile-time checked in both directions. Interfold.Contracts is
+      framework-only with no package references — no impact on the trimmed binary size
+      guardrail.
+    -->
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

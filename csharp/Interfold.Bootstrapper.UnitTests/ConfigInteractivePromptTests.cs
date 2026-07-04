@@ -15,8 +15,8 @@ namespace Interfold.Bootstrapper.UnitTests;
 ///
 /// Interaction model after the form-only redesign:
 /// <list type="bullet">
-///   <item>The form is a single <c>SelectionPrompt&lt;int&gt;</c> with 47 field rows grouped
-///         under 10 section headers + a trailing <c>Confirm and save</c> entry. Section headers
+///   <item>The form is a single <c>SelectionPrompt&lt;int&gt;</c> with 48 field rows grouped
+///         under 11 section headers + a trailing <c>Confirm and save</c> entry. Section headers
 ///         are inert (not selectable); arrow-key navigation skips them.</item>
 ///   <item>Cursor starts at field index 0 (<c>Output directory</c>) — <see cref="SelectionPrompt{T}.DefaultValue"/>
 ///         defaults to <c>default(int)</c>.</item>
@@ -74,8 +74,9 @@ namespace Interfold.Bootstrapper.UnitTests;
 ///   <item>44 Auto-restore on failure                (Updates)</item>
 ///   <item>45 Recreate containers on update          (Updates)</item>
 ///   <item>46 Update service whitelist (blank=all)   (Updates)</item>
+///   <item>47 Firebase push notifications            (Firebase)</item>
 /// </list>
-/// Navigate(47) lands on the trailing <c>Confirm and save</c> entry (one DownArrow per
+/// Navigate(48) lands on the trailing <c>Confirm and save</c> entry (one DownArrow per
 /// selectable row past field 0). Helpers <see cref="Navigate"/> / <see cref="ConfirmForm"/> /
 /// <see cref="EditField"/> below wrap the key sequences so the test bodies stay focused on
 /// "what is being edited", not "how many DownArrows that takes".
@@ -83,11 +84,11 @@ namespace Interfold.Bootstrapper.UnitTests;
 public sealed class ConfigInteractivePromptTests
 {
     /// <summary>Number of selectable field rows in the navigable form.</summary>
-    private const int FieldCount = 47;
+    private const int FieldCount = 48;
 
     /// <summary>
     /// Builds a fresh interactive <see cref="TestConsole"/> tall enough to render the entire
-    /// 58-row navigable form (47 fields + 10 section headers + Confirm entry) without Spectre
+    /// 60-row navigable form (48 fields + 11 section headers + Confirm entry) without Spectre
     /// paginating it. Default <see cref="TestConsole"/> height is 24 lines, which would clamp
     /// the menu to a single page and hide the top section header by the time the cursor
     /// reaches Confirm — breaking the "every label is in the captured output" assertions.
@@ -97,7 +98,7 @@ public sealed class ConfigInteractivePromptTests
     {
         var c = new TestConsole();
         c.Interactive();
-        // Bump well above the form's 58-row footprint so the form never paginates in
+        // Bump well above the form's 60-row footprint so the form never paginates in
         // tests (pagination clips top rows out of the captured output and breaks the
         // "every label is in the output" assertions).
         c.Profile.Height = 120;
@@ -1135,5 +1136,124 @@ public sealed class ConfigInteractivePromptTests
         // …but the captured console output never contains the raw secret literal: the prompt
         // echoed `*` chars and the menu row rendered `<set>`.
         await Assert.That(console.Output).DoesNotContain(secret);
+    }
+
+    /// <summary>
+    /// Minimal-shaped service-account fixture the Firebase wizard tests write out so the
+    /// scanner's per-file "type": "service_account" sniff finds a valid candidate. The
+    /// FirebasePhase-level parsing isn't exercised here — the wizard's job is purely to
+    /// point at files; validation is FirebasePhase's problem downstream.
+    /// </summary>
+    private const string FirebaseServiceAccountFixture = /*lang=json,strict*/ """
+    {
+      "type": "service_account",
+      "project_id": "octocon-test",
+      "private_key_id": "abc",
+      "private_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+      "client_email": "sa@octocon.iam.gserviceaccount.com",
+      "client_id": "1",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token"
+    }
+    """;
+
+    private static string NewFirebaseWizardTempDir()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "firebase-wizard-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    [Test]
+    public async Task FirebaseAutoDetectBranchPopulatesAllFourPathsFromFolder()
+    {
+        // End-to-end proof that the Firebase row (index 47) dispatches into the auto-detect
+        // branch and writes the scanner's output onto FirebaseSection. Uses a real temp folder
+        // with the four canonical filenames so we cover the scanner → wizard → config
+        // wiring in one drive.
+        var folder = NewFirebaseWizardTempDir();
+        var android = Path.Combine(folder, "google-services.json");
+        var ios = Path.Combine(folder, "GoogleService-Info.plist");
+        var web = Path.Combine(folder, "firebase-web-config.json");
+        var sa = Path.Combine(folder, "octocon-firebase-adminsdk-abc.json");
+        File.WriteAllText(android, "{}");
+        File.WriteAllText(ios, "<plist/>");
+        File.WriteAllText(web, "{}");
+        File.WriteAllText(sa, FirebaseServiceAccountFixture);
+
+        var console = NewConsole();
+        // Open the Firebase field. Navigate handles the DownArrows + Enter that select the row
+        // and open its editor (the SelectionPrompt<string> the wizard runs).
+        Navigate(console, downArrows: 47);
+        // Wizard's SelectionPrompt starts on "Auto-detect from folder" (first choice) — Enter
+        // selects it without any DownArrow.
+        console.Input.PushKey(ConsoleKey.Enter);
+        // Folder TextPrompt reads a full line.
+        console.Input.PushTextWithEnter(folder);
+        // Back on the outer form → Confirm and save.
+        ConfirmForm(console);
+
+        var config = PromptWithoutDetection(console);
+
+        await Assert.That(config.Firebase.AndroidConfigPath).IsEqualTo(Path.GetFullPath(android));
+        await Assert.That(config.Firebase.IosConfigPath).IsEqualTo(Path.GetFullPath(ios));
+        await Assert.That(config.Firebase.WebConfigPath).IsEqualTo(Path.GetFullPath(web));
+        await Assert.That(config.Firebase.ServiceAccountPath).IsEqualTo(Path.GetFullPath(sa));
+    }
+
+    [Test]
+    public async Task FirebasePerFileBranchWritesFourExplicitPaths()
+    {
+        // Per-file branch: four sequential TextPrompts, each validated against
+        // File.Exists. Writing real fixture files means the prompts accept the inputs without
+        // triggering the validator's re-prompt loop.
+        var folder = NewFirebaseWizardTempDir();
+        var android = Path.Combine(folder, "google-services.json");
+        var ios = Path.Combine(folder, "GoogleService-Info.plist");
+        var web = Path.Combine(folder, "firebase-web-config.json");
+        var sa = Path.Combine(folder, "service-account.json");
+        File.WriteAllText(android, "{}");
+        File.WriteAllText(ios, "<plist/>");
+        File.WriteAllText(web, "{}");
+        File.WriteAllText(sa, FirebaseServiceAccountFixture);
+
+        var console = NewConsole();
+        Navigate(console, downArrows: 47);
+        // Second choice in the SelectionPrompt — one DownArrow before Enter.
+        console.Input.PushKey(ConsoleKey.DownArrow);
+        console.Input.PushKey(ConsoleKey.Enter);
+        console.Input.PushTextWithEnter(android);
+        console.Input.PushTextWithEnter(ios);
+        console.Input.PushTextWithEnter(web);
+        console.Input.PushTextWithEnter(sa);
+        ConfirmForm(console);
+
+        var config = PromptWithoutDetection(console);
+
+        await Assert.That(config.Firebase.AndroidConfigPath).IsEqualTo(android);
+        await Assert.That(config.Firebase.IosConfigPath).IsEqualTo(ios);
+        await Assert.That(config.Firebase.WebConfigPath).IsEqualTo(web);
+        await Assert.That(config.Firebase.ServiceAccountPath).IsEqualTo(sa);
+    }
+
+    [Test]
+    public async Task FirebaseCancelBranchLeavesSectionAtDefaults()
+    {
+        // Cancel branch is fourth in the SelectionPrompt — three DownArrows before Enter. Must
+        // leave every FirebaseSection.*Path at its shipped default (empty string).
+        var console = NewConsole();
+        Navigate(console, downArrows: 47);
+        console.Input.PushKey(ConsoleKey.DownArrow);
+        console.Input.PushKey(ConsoleKey.DownArrow);
+        console.Input.PushKey(ConsoleKey.DownArrow);
+        console.Input.PushKey(ConsoleKey.Enter);
+        ConfirmForm(console);
+
+        var config = PromptWithoutDetection(console);
+
+        await Assert.That(config.Firebase.AndroidConfigPath).IsEmpty();
+        await Assert.That(config.Firebase.IosConfigPath).IsEmpty();
+        await Assert.That(config.Firebase.WebConfigPath).IsEmpty();
+        await Assert.That(config.Firebase.ServiceAccountPath).IsEmpty();
     }
 }

@@ -52,6 +52,16 @@ public static class ConfigurationServiceCollectionExtensions
         services.AddOptions<AuthenticationConfiguration>()
             .Configure<IConfiguration>(ApplyAuthentication);
 
+        // Startup-only: FirebaseClientConfiguration is populated entirely from
+        // internal.secrets (firebase:client:{android,ios,web}) by SecretsBootstrapService
+        // ahead of any request-time consumer. The initial ApplyFirebaseClient callback
+        // just leaves the platform variants null so a bad seed manifests as a 503 rather
+        // than as a config-binding error; wiring an IOptionsChangeTokenSource here would
+        // clobber the patched values on any IConfiguration reload (see the equivalent
+        // AuthenticationConfiguration note above).
+        services.AddOptions<FirebaseClientConfiguration>()
+            .Configure<IConfiguration>(ApplyFirebaseClient);
+
         // Registered for completeness; OTLP exporters are wired at startup so runtime changes
         // to OtlpEndpoint only take effect after a restart.
         services.AddOptions<ObservabilityConfiguration>()
@@ -230,6 +240,20 @@ public static class ConfigurationServiceCollectionExtensions
         // the data the callback handlers read, so changing them requires a code change. The
         // only per-deployment value (client_id) is injected directly during scheme
         // registration from the OAuthClientId fields above.
+    }
+
+    /// <summary>
+    /// Initial bind of <see cref="FirebaseClientConfiguration"/>. Every platform variant
+    /// is intentionally left <c>null</c> here — <c>SecretsBootstrapService</c> patches
+    /// them in from <c>internal.secrets:firebase:client:{android,ios,web}</c> before any
+    /// request-time consumer runs. A missing row is a supported state (returns 503 for
+    /// that platform) so there is nothing to bind from env vars.
+    /// </summary>
+    private static void ApplyFirebaseClient(FirebaseClientConfiguration opts, IConfiguration config)
+    {
+        opts.Android = null;
+        opts.Ios = null;
+        opts.Web = null;
     }
 
     private static void ApplyObservability(ObservabilityConfiguration opts, IConfiguration config)

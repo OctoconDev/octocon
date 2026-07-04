@@ -140,6 +140,21 @@ internal static class Orchestrator
             if (HaltAfter(options, "publish", logger)) return 0;
         }
 
+        // --- Firebase inputs (optional; feeds internal.secrets seeding below) ---
+        // Runs on the same commands that eventually hit db-init so the parsed inputs are
+        // ready in time for PostgresSeeder to insert them alongside the OAuth / JWT rows.
+        // Skipped on `up` (no db-init runs there) and on `publish` (artifact-only). Empty
+        // paths in config.Firebase are the supported "no push configured" shape and produce
+        // an empty FirebaseSeedInputs — see FirebasePhase for the fail-fast rules.
+        FirebaseSeedInputs firebase = FirebaseSeedInputs.Empty;
+        if (options.Command is BootstrapCommand.Bootstrap
+            or BootstrapCommand.RotateSecrets
+            or BootstrapCommand.RotateCerts)
+        {
+            firebase = await FirebasePhase.RunAsync(options, config!, logger, ct).ConfigureAwait(false);
+            if (HaltAfter(options, "firebase", logger)) return 0;
+        }
+
         // --- Database init (admin role + internal.secrets seeding) ---
         // Runs for any command that subsequently invokes launch (bootstrap, rotate-secrets,
         // rotate-certs). `publish` stays artifact-only and skips this phase. The phase is
@@ -149,7 +164,7 @@ internal static class Orchestrator
             or BootstrapCommand.RotateSecrets
             or BootstrapCommand.RotateCerts)
         {
-            await DatabaseInitPhase.RunAsync(options, config!, secrets!, logger, ct).ConfigureAwait(false);
+            await DatabaseInitPhase.RunAsync(options, config!, secrets!, firebase, logger, ct).ConfigureAwait(false);
             if (HaltAfter(options, "db-init", logger)) return 0;
         }
 

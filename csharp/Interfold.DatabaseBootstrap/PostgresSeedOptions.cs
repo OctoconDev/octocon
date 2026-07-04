@@ -58,6 +58,19 @@ namespace Interfold.DatabaseBootstrap;
 /// <c>ALTER ROLE db_init WITH PASSWORD '&lt;random 48 chars&gt;'</c> so the .env value is stale
 /// in-cluster. Production: <c>true</c>. Tests: <c>false</c> (we want re-running the fixture
 /// in the same session to be able to authenticate as db_init again on idempotent retries).</param>
+/// <param name="FirebaseAndroidClientJson">Optional normalised JSON payload seeded as
+/// <c>firebase:client:android</c>. Consumed by <c>SecretsBootstrapService</c> on startup
+/// and deserialised into <c>FirebaseClientConfiguration.Android</c>. Empty / null skips
+/// the row so unconfigured deployments produce 503 on the matching endpoint.</param>
+/// <param name="FirebaseIosClientJson">Optional normalised JSON payload seeded as
+/// <c>firebase:client:ios</c>. Same handling as the Android field above.</param>
+/// <param name="FirebaseWebClientJson">Optional normalised JSON payload seeded as
+/// <c>firebase:client:web</c>. Same handling as the Android field above.</param>
+/// <param name="FcmServiceAccountJson">Optional Firebase FCM v1 service-account
+/// credential JSON (the private key). Seeded as <c>fcm:service_account_json</c> and
+/// read directly by the <c>IFCMService</c> DI factory in
+/// <c>ClusterServiceCollectionExtensions</c> — when absent the factory falls back to
+/// <c>NullFCMService</c> so notifications become no-ops rather than errors.</param>
 public sealed record PostgresSeedOptions(
     string InitUser,
     string InitPassword,
@@ -81,4 +94,8 @@ public sealed record PostgresSeedOptions(
     string JwtEs256PrivateKeyPem,
     string DeepLinkSecret,
     string LeafPfxPassword,
-    bool ScrambleInitUserPassword);
+    bool ScrambleInitUserPassword,
+    string? FirebaseAndroidClientJson = null,
+    string? FirebaseIosClientJson = null,
+    string? FirebaseWebClientJson = null,
+    string? FcmServiceAccountJson = null);

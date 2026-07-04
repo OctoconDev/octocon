@@ -30,5 +30,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Api\Interfold.Api.csproj" />
+    <ProjectReference Include="..\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
   </ItemGroup>
 </Project>

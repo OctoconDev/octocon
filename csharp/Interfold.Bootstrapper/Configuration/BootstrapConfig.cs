@@ -150,6 +150,20 @@ public sealed class BootstrapConfig
     /// </summary>
     [JsonPropertyName("update")]
     public UpdateSection Update { get; set; } = new();
+
+    /// <summary>
+    /// Firebase / FCM inputs consumed by <see cref="Phases.FirebasePhase"/>. All four
+    /// paths default to <c>""</c> — an empty path means "skip this platform / feature"
+    /// and the matching <c>internal.secrets</c> row stays absent, which downstream
+    /// translates to a 503 on <c>/api/settings/firebase-config</c> for the affected
+    /// platform and to the <c>NullFCMService</c> fallback on the send side. Operators
+    /// wire Firebase in by pointing these at the files the Firebase console hands out
+    /// (<c>google-services.json</c>, <c>GoogleService-Info.plist</c>,
+    /// <c>firebase-web-config.json</c>) plus the FCM v1 service-account JSON downloaded
+    /// from Google Cloud IAM.
+    /// </summary>
+    [JsonPropertyName("firebase")]
+    public FirebaseSection Firebase { get; set; } = new();
 }
 
 /// <summary>
@@ -629,4 +643,68 @@ public sealed class UpdateSection
     /// </summary>
     [JsonPropertyName("services")]
     public string[] Services { get; set; } = [];
+}
+
+/// <summary>
+/// Operator-supplied paths for the four Firebase inputs. Every field is optional and
+/// defaults to <c>""</c> — an empty value means "skip this platform / feature". Paths
+/// are resolved relative to the bootstrapper's CWD when relative, or taken as-is when
+/// absolute; <see cref="Phases.FirebasePhase"/> validates that any non-empty value
+/// resolves to an existing file before parsing.
+/// <para>
+/// Each field is deliberately a filesystem path rather than an inline JSON blob so a
+/// stock deploy directory doesn't accumulate multi-line secrets in
+/// <c>interfold.bootstrap.json</c> — operators can point at files under
+/// <c>secrets/firebase/</c> (or wherever their key-management story lives) that get
+/// checked in with restrictive filesystem perms rather than committed to the same JSON
+/// that the interactive prompt round-trips.
+/// </para>
+/// </summary>
+public sealed class FirebaseSection
+{
+    /// <summary>
+    /// Path to <c>google-services.json</c> downloaded from Firebase console
+    /// (Project Settings → General → Your apps → Android). The phase extracts
+    /// <c>client[0].api_key[0].current_key</c>, <c>client[0].client_info.mobilesdk_app_id</c>,
+    /// <c>project_info.project_id</c>, <c>project_info.project_number</c>, and
+    /// <c>project_info.storage_bucket</c> and emits a normalised
+    /// <see cref="Interfold.Contracts.Configuration.FirebaseAndroidClientConfig"/>
+    /// JSON string as the <c>firebase:client:android</c> seed row. Leave empty on
+    /// stacks that don't ship an Android build.
+    /// </summary>
+    [JsonPropertyName("androidConfigPath")]
+    public string AndroidConfigPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Path to <c>GoogleService-Info.plist</c> downloaded from Firebase console (iOS
+    /// app). Parsed via <c>System.Xml.Linq</c> and reshaped into a
+    /// <see cref="Interfold.Contracts.Configuration.FirebaseIosClientConfig"/> JSON
+    /// string as the <c>firebase:client:ios</c> seed row. Leave empty on stacks that
+    /// don't ship an iOS build.
+    /// </summary>
+    [JsonPropertyName("iosConfigPath")]
+    public string IosConfigPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Path to the flat web-config JSON copy-pasted from Firebase console (Project
+    /// Settings → General → Your apps → Web → SDK setup and configuration). Must
+    /// match <see cref="Interfold.Contracts.Configuration.FirebaseWebClientConfig"/>
+    /// 1:1 (including the operator-injected <c>vapidKey</c> from Cloud Messaging →
+    /// Web configuration → Web Push certificates); the phase reads it as-is and seeds
+    /// it verbatim into <c>firebase:client:web</c>. Leave empty on stacks that don't
+    /// ship the wasm client.
+    /// </summary>
+    [JsonPropertyName("webConfigPath")]
+    public string WebConfigPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Path to the FCM v1 service-account credential JSON (Firebase console → Project
+    /// Settings → Service accounts → Generate new private key). Seeded verbatim as
+    /// <c>fcm:service_account_json</c>. Protect on disk with the same 0600 mode as
+    /// <c>secrets.json</c> — this is a private credential that authenticates the API
+    /// as the FCM project's server-side agent. Leave empty to fall back to
+    /// <c>NullFCMService</c> and disable server-side push entirely.
+    /// </summary>
+    [JsonPropertyName("serviceAccountPath")]
+    public string ServiceAccountPath { get; set; } = string.Empty;
 }

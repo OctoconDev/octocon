@@ -50,6 +50,18 @@ public static class SeedKeys
         // The leaf PFX password is fetched by a one-shot ISecretsStore lookup in Program.cs
         // before Kestrel binds. No env shadow.
         new("certs:leaf_pfx_password",     o => o.LeafPfxPassword ?? string.Empty),
+        // Firebase client-init payloads (public values) — SecretsBootstrapService
+        // deserialises each into the matching FirebaseClientConfiguration variant so
+        // GET /api/settings/firebase-config?platform=... can hand them out. Missing rows
+        // → 503 for that platform (unconfigured deployment).
+        new("firebase:client:android",     o => o.FirebaseAndroidClientJson ?? string.Empty),
+        new("firebase:client:ios",         o => o.FirebaseIosClientJson ?? string.Empty),
+        new("firebase:client:web",         o => o.FirebaseWebClientJson ?? string.Empty),
+        // FCM v1 service-account credential (PRIVATE — authenticates the API to Google
+        // FCM). Read directly by the IFCMService DI factory in ClusterServiceCollectionExtensions;
+        // absent row → NullFCMService fallback so deployments without Firebase silently
+        // no-op the push flow.
+        new("fcm:service_account_json",    o => o.FcmServiceAccountJson ?? string.Empty),
     ];
 
     /// <summary>All well-known keys with their selectors, in seed order.</summary>
