@@ -10,6 +10,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -36,8 +38,8 @@ public sealed class SetupEncryptionCommandHandler : ICommandHandler<SetupEncrypt
         CommandEnvelope<SetupEncryptionCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.RecoveryCode))
-            return RejectInvariant(command, "settings:recovery_code_invalid");
+        if (string.IsNullOrWhiteSpace(command.Payload.RecoveryCode.Value))
+            return RejectInvariant(command, EntityRefs.SettingsRecoveryCodeInvalid);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -51,7 +53,7 @@ public sealed class SetupEncryptionCommandHandler : ICommandHandler<SetupEncrypt
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "settings:encryption:setup");
+                return RejectDuplicate(command, EntityRefs.SettingsEncryptionSetup);
 
             var replay = CommandSerialization.Deserialize<EncryptionCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -59,21 +61,20 @@ public sealed class SetupEncryptionCommandHandler : ICommandHandler<SetupEncrypt
         }
         
         var existing = await _repository.GetAsync(command.PrincipalId, cancellationToken);
-        if (string.IsNullOrWhiteSpace(existing?.Salt))
+        if (existing?.Salt is not { } salt || string.IsNullOrWhiteSpace(salt.Value))
         {
-            throw new InterfoldException("Salt must be provided.", "encryption_salt_required");
+            throw new InterfoldException("Salt must be provided.", ErrorCodes.EncryptionSaltRequired);
         }
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        string salt = existing.Salt;
         var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId, command.Payload.RecoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
 
         var persisted = await _repository.UpsertAsync(command.PrincipalId, true, checksum, null, cancellationToken);
         if (!persisted)
-            return RejectInvariant(command, "settings:encryption_setup_failed");
+            return RejectInvariant(command, EntityRefs.SettingsEncryptionSetupFailed);
 
-        var result = new EncryptionCommandResult(command.PrincipalId, "encryption_setup", key, Replay: false);
+        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionSetup, key, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
@@ -91,13 +92,13 @@ public sealed class SetupEncryptionCommandHandler : ICommandHandler<SetupEncrypt
 
     private static CommandExecutionResult<EncryptionCommandResult> RejectDuplicate(
         CommandEnvelope<SetupEncryptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<EncryptionCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<EncryptionCommandResult> RejectInvariant(
         CommandEnvelope<SetupEncryptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<EncryptionCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

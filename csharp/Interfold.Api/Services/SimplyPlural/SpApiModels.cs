@@ -32,13 +32,30 @@ internal sealed class SpSystemContent
 
 // --- /customFields/{id} ---
 
+/// <summary>
+/// Simply Plural's numeric custom-field type codes (their v1 API `type` member).
+/// Deserialized straight from the wire integers 0–7; unknown future codes land as
+/// undefined enum values and are rejected by <c>MapFieldType</c>'s exhaustive switch.
+/// </summary>
+internal enum SpFieldType
+{
+    Text = 0,
+    Colour = 1,
+    Date = 2,
+    Month = 3,
+    Year = 4,
+    MonthYear = 5,
+    Timestamp = 6,
+    MonthDay = 7,
+}
+
 internal sealed class SpCustomFieldContent
 {
     [JsonPropertyName("name")]
     public string? Name { get; set; }
 
     [JsonPropertyName("type")]
-    public int Type { get; set; }
+    public SpFieldType Type { get; set; }
 
     // SP's `update300.ts` migration copies legacy field schemas into the customFields
     // collection via `insertOne({ ..., supportMarkdown: field.supportMarkdown, ... })`

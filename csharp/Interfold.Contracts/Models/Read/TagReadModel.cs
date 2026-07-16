@@ -1,51 +1,55 @@
-﻿namespace Interfold.Contracts.Models.Read;
+﻿using Interfold.Contracts.Ids;
+using Interfold.Contracts.Validation;
+
+namespace Interfold.Contracts.Models.Read;
 
 public sealed record TagReadModel(
-    string Id,
+    TagId Id,
     string Name,
-    string? Color,
+    HexColor? Color,
     string? Description,
-    string? ParentTagId,
-    IReadOnlyList<int> Alters,
+    TagId? ParentTagId,
+    IReadOnlyList<AlterId> Alters,
     DateTime InsertedAt,
     DateTime UpdatedAt,
     VisibilityLevel SecurityLevel,
-    string? UserId
+    SystemId? UserId
 );
 
 public sealed record TagPublicReadModel(
-    string Id,
+    TagId Id,
     string Name,
-    string? Color,
+    HexColor? Color,
     string? Description,
-    string? ParentTagId,
+    TagId? ParentTagId,
     IReadOnlyList<BareAlter> Alters,
     DateTime InsertedAt,
     DateTime UpdatedAt,
     VisibilityLevel SecurityLevel,
-    string? UserId
+    SystemId? UserId
 );
 
 public sealed record CreateTagRequest(
     string Name,
-    string? ParentTagId,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    TagId? ParentTagId
+);
 
 public sealed record UpdateTagRequest(
     string? Name = null,
-    string? Color = null,
+    HexColor? Color = null,
     string? Description = null,
-    string? SecurityLevel = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    VisibilityLevel? SecurityLevel = null
+);
 
+// ValidAlterId lives on the constructor parameter, NOT the property — see the same
+// pattern in JournalAlterRequest / FrontStartRequest. MVC's ObjectModelValidator
+// rejects records that carry validation metadata on their auto-generated properties
+// (ThrowIfRecordTypeHasValidationOnProperties) and reads parameter-level attributes
+// via its parameter-binding validator instead.
 public sealed record TagAlterRequest(
-    int? AlterId,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    [ValidAlterId] AlterId AlterId
+);
 
 public sealed record SetParentRequest(
-    string? ParentTagId,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    TagId? ParentTagId
+);

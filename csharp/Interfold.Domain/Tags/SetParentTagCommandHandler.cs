@@ -1,5 +1,6 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -31,7 +32,7 @@ public sealed class SetParentTagCommandHandler : ICommandHandler<SetParentTagCom
         var payload = command.Payload;
 
         if (payload.TagId == payload.ParentTagId)
-            return RejectInvariant(command, "tag:cycle");
+            return RejectInvariant(command, EntityRefs.TagCycle);
 
         var payloadJson = CommandSerialization.Serialize(payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -42,7 +43,7 @@ public sealed class SetParentTagCommandHandler : ICommandHandler<SetParentTagCom
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "tag:set_parent");
+                return RejectDuplicate(command, EntityRefs.TagSetParent);
 
             var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -51,13 +52,13 @@ public sealed class SetParentTagCommandHandler : ICommandHandler<SetParentTagCom
 
         // Cycle detection: walk up from the proposed parent — if we encounter TagId, it's a cycle.
         if (await WouldCreateCycleAsync(command.PrincipalId, payload.ParentTagId, payload.TagId, cancellationToken))
-            return RejectInvariant(command, "tag:cycle");
+            return RejectInvariant(command, EntityRefs.TagCycle);
 
         // SetParentAsync returns false if tag or parent tag does not exist.
         var set = await _tagRepository.SetParentAsync(
             command.PrincipalId, payload.TagId, payload.ParentTagId, cancellationToken);
 
-        if (!set) return RejectInvariant(command, "tag:not_found");
+        if (!set) return RejectInvariant(command, EntityRefs.TagNotFound);
 
         var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -78,24 +79,24 @@ public sealed class SetParentTagCommandHandler : ICommandHandler<SetParentTagCom
     /// Returns true if <paramref name="childId"/> appears, indicating a cycle.
     /// </summary>
     private async Task<bool> WouldCreateCycleAsync(
-        string systemId, string candidateParentId, string childId, CancellationToken cancellationToken)
+        SystemId systemId, TagId candidateParentId, TagId childId, CancellationToken cancellationToken)
     {
-        var current = candidateParentId;
+        TagId? current = candidateParentId;
         while (current is not null)
         {
             if (current == childId) return true;
-            current = await _tagRepository.GetParentIdAsync(systemId, current, cancellationToken);
+            current = await _tagRepository.GetParentIdAsync(systemId, current.Value, cancellationToken);
         }
         return false;
     }
 
     private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
-        CommandEnvelope<SetParentTagCommand> command, string entityRef) =>
+        CommandEnvelope<SetParentTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<TagCommandResult> RejectInvariant(
-        CommandEnvelope<SetParentTagCommand> command, string entityRef) =>
+        CommandEnvelope<SetParentTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

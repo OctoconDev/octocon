@@ -11,7 +11,7 @@ namespace Interfold.IntegrationTests.Controllers;
 public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     [Test]
-    public async Task SettingsField_InvalidType_FallsBackToText_ReturnsCreatedWithId()
+    public async Task SettingsField_InvalidType_ReturnsBadRequest()
     {
         using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -21,20 +21,16 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var principal = "parity-field-fallback";
         await EnsureUserExistsAsync(client, principal);
 
-        // type = "garbage" — Elixir falls back to "text"; C# must do the same
+        // type = "garbage" — the Elixir server used to fold this to "text", but we deliberately
+        // hold every enum boundary to the same fail-fast contract EnumWireExtensions documents
         using var req1 = new HttpRequestMessage(HttpMethod.Post, "/api/settings/fields")
         {
             Content = JsonContent.Create(new { name = "FallbackField", type = "garbage" })
         };
         AttachPrincipalAuth(req1, client, principal);
         var res1 = await client.SendAsync(req1);
-        var body1 = await res1.Content.ReadAsStringAsync();
 
-        using (Assert.Multiple())
-        {
-            await Assert.That(res1.StatusCode).IsEqualTo(HttpStatusCode.Created);
-            await Assert.That(ReadNestedString(body1, "data", "id")).IsNotNullOrWhiteSpace();
-        }
+        await Assert.That(res1.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
     }
     
     [Test]
@@ -107,32 +103,48 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         }
     }
 
-    // Both avatar multipart tests mutate OCTOCON_AVATAR_STORAGE_ROOT and
-    // OCTOCON_AVATAR_PUBLIC_BASE on the shared factory via WithConfiguration. With
-    // IOptionsMonitor live-reload now wired through, those writes flow into every
-    // in-flight LocalAvatarStorage save call across the host. Two parallel tests
-    // racing on the same keys would interleave their values: the test that called
-    // WithConfiguration most recently wins, the other test reads back a URL stamped
-    // with the wrong publicBase prefix and fails its UrlPathStartsWith assertion.
-    // Serialise the two tests with a shared NotInParallel key so they take turns.
+    // Isolation contract for both avatar multipart tests below: each builds its OWN
+    // InterfoldWebApplicationFactory via IWebFactoryFixture.CreatePrivateFactory()
+    // instead of mutating fixture.Factory. The previous version wrote
+    // OCTOCON_AVATAR_STORAGE_ROOT and OCTOCON_AVATAR_PUBLIC_BASE via WithConfiguration
+    // on the session-shared factory. StorageConfiguration binds via IOptionsMonitor,
+    // so those writes cascaded live into every subsequent test's request pipeline;
+    // any test that resolved IOptionsMonitor<StorageConfiguration>.Get() afterwards
+    // (e.g. through InterfoldPrincipalMiddleware) would throw
+    // OptionsValidationException on the AvatarPublicBase's [AbsoluteHttpUri] rule,
+    // producing ~50 downstream 500s in the full suite. Private factories close that
+    // vector at the design level — nothing these tests write can ever be seen by a
+    // test that runs on fixture.Factory.
+    //
+    // NotInParallel is retained on the shared "avatar-storage-config" bucket so the
+    // three avatar-multipart tests (this one, the alter sibling below, and
+    // AvatarSourceTests.Api_SettingsAvatarMultipart_ReportsLocalSource) don't run
+    // three factory builds concurrently for the same backend — pending the Group-B
+    // Npgsql pool sizing fix, parallel builds can exhaust the default pool of 5
+    // connections during SecretsPreBuildLoader's Postgres fetch. Once Group B lands
+    // this attribute can be removed.
     [Test, NotInParallel("avatar-storage-config")]
     public async Task Api_SettingsAvatarMultipart_PersistsAndServesAvatar()
     {
         var runId = Guid.NewGuid().ToString("N");
         var storageRoot = Path.Combine(Path.GetTempPath(), "octocon-itest", "avatars", runId);
-        var publicBase = $"/avatars-itest/{runId}";
+        // AvatarPublicBase is validated by [AbsoluteHttpUri] on StorageConfiguration, so
+        // the configured value must be an absolute http(s) URL. WebApplicationFactory's
+        // default BaseAddress is http://localhost/, so "http://localhost" matches request
+        // origin resolution downstream. publicBasePath is what we assert against, because
+        // UrlPathStartsWith compares against Uri.AbsolutePath (the path, not the full URL).
+        var publicBasePath = $"/avatars-itest/{runId}";
+        var publicBase = $"http://localhost{publicBasePath}";
 
         try
         {
             Directory.CreateDirectory(storageRoot);
 
-            // StorageConfiguration is bound via IOptionsMonitor so WithConfiguration writes
-            // propagate live to the running host - no factory rebuild needed.
-            fixture.Factory
+            await using var isolatedFactory = fixture.CreatePrivateFactory()
                 .WithConfiguration("OCTOCON_AVATAR_STORAGE_ROOT", storageRoot)
                 .WithConfiguration("OCTOCON_AVATAR_PUBLIC_BASE", publicBase);
 
-            using var client = fixture.Factory.CreateClient();
+            using var client = isolatedFactory.CreateClient();
 
             var principalId = $"sys-avatar-{Guid.NewGuid():N}"[..18];
 
@@ -150,7 +162,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             {
                 await Assert.That(profileResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
                 await Assert.That(avatarUrl).IsNotNullOrWhiteSpace();
-                await Assert.That(UrlPathStartsWith(avatarUrl, $"{publicBase}/{principalId}/self/")).IsTrue();
+                await Assert.That(UrlPathStartsWith(avatarUrl, $"{publicBasePath}/{principalId}/self/")).IsTrue();
             }
 
             // End-to-end serving check: the avatar_url that the SPA receives from the
@@ -182,22 +194,30 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         }
     }
 
+    // Isolation contract: see the sibling Api_SettingsAvatarMultipart_PersistsAndServesAvatar
+    // above for the full rationale — this test also builds its OWN factory via
+    // CreatePrivateFactory so its avatar-storage config mutations never leak into
+    // fixture.Factory and cannot poison other tests in the session.
     [Test, NotInParallel("avatar-storage-config")]
     public async Task Api_AlterAvatarMultipart_PersistsAndReflectsOnPublicAlter()
     {
         var runId = Guid.NewGuid().ToString("N");
         var storageRoot = Path.Combine(Path.GetTempPath(), "octocon-itest", "avatars", runId);
-        var publicBase = $"/avatars-itest/{runId}";
+        // See sibling test for the AbsoluteHttpUri constraint on AvatarPublicBase and the
+        // path-vs-URL split. publicBasePath is what we assert against because
+        // UrlPathStartsWith compares Uri.AbsolutePath (the path portion) not the full URL.
+        var publicBasePath = $"/avatars-itest/{runId}";
+        var publicBase = $"http://localhost{publicBasePath}";
 
         try
         {
             Directory.CreateDirectory(storageRoot);
 
-            fixture.Factory
+            await using var isolatedFactory = fixture.CreatePrivateFactory()
                 .WithConfiguration("OCTOCON_AVATAR_STORAGE_ROOT", storageRoot)
                 .WithConfiguration("OCTOCON_AVATAR_PUBLIC_BASE", publicBase);
 
-            using var client = fixture.Factory.CreateClient();
+            using var client = isolatedFactory.CreateClient();
 
             var principalId = $"sys-alter-avatar-{Guid.NewGuid():N}"[..24];
 
@@ -229,7 +249,7 @@ public class SettingsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
             var publicAlterResponse = await client.SendAsync(publicAlterRequest);
             var publicAlterBody = await publicAlterResponse.Content.ReadAsStringAsync();
 
-            var expectedPrefix = $"{publicBase}/{principalId}/{alterId}/";
+            var expectedPrefix = $"{publicBasePath}/{principalId}/{alterId}/";
             var alterAvatarUrl = ReadNestedStringField(publicAlterBody, "data", "avatar_url");
             using (Assert.Multiple())
             {

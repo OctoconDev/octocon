@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Cassandra;
+using Interfold.Contracts.Configuration;
 using Interfold.DatabaseBootstrap;
 using Npgsql;
 
@@ -29,7 +30,7 @@ namespace Interfold.IntegrationTests.TestServices;
 internal static class DbInitHelper
 {
     /// <summary>Hard-coded by msg-db's <c>POSTGRES_USER</c> in the AppHost.</summary>
-    public const string PostgresInitUser = "db_init";
+    public const string PostgresInitUser = PostgresRoles.Init;
 
     /// <summary>Application database name used across the in-process integration test suite.
     /// <para>

@@ -59,8 +59,12 @@ internal static class DatabaseTransientRetry
         CancellationToken cancellationToken)
     {
         var attempts = Math.Max(1, options.DbRetryAttempts);
-        var initialDelayMs = Math.Max(1, options.DbRetryInitialDelayMs);
-        var maxDelayMs = Math.Max(initialDelayMs, options.DbRetryMaxDelayMs);
+        var initialDelay = options.DbRetryInitialDelay <= TimeSpan.Zero
+            ? TimeSpan.FromMilliseconds(1)
+            : options.DbRetryInitialDelay;
+        var maxDelay = options.DbRetryMaxDelay < initialDelay
+            ? initialDelay
+            : options.DbRetryMaxDelay;
 
         for (var attempt = 1; ; attempt++)
         {
@@ -72,7 +76,7 @@ internal static class DatabaseTransientRetry
             }
             catch (Exception ex) when (attempt < attempts && isTransient(ex))
             {
-                var delay = ComputeBackoff(attempt, initialDelayMs, maxDelayMs);
+                var delay = ComputeBackoff(attempt, initialDelay, maxDelay);
                 logger?.LogWarning(ex,
                     "Transient database error on attempt {Attempt}/{MaxAttempts}; retrying in {DelayMs} ms.",
                     attempt, attempts, delay.TotalMilliseconds);
@@ -88,13 +92,16 @@ internal static class DatabaseTransientRetry
         }
     }
 
-    private static TimeSpan ComputeBackoff(int attempt, int initialDelayMs, int maxDelayMs)
+    private static TimeSpan ComputeBackoff(int attempt, TimeSpan initialDelay, TimeSpan maxDelay)
     {
         var exponent = Math.Min(attempt - 1, MaxBackoffExponent);
-        var baseDelay = initialDelayMs * (1 << exponent);
-        var capped = Math.Min(baseDelay, maxDelayMs);
-        var jittered = Random.Shared.Next(capped / 2, capped + 1);
-        return TimeSpan.FromMilliseconds(jittered);
+        var baseTicks = initialDelay.Ticks * (1L << exponent);
+        var cappedTicks = Math.Min(baseTicks, maxDelay.Ticks);
+        // Jitter over [capped/2, capped] to spread reconnect storms without ever waiting
+        // longer than the configured cap.
+        var lower = cappedTicks / 2L;
+        var jitteredTicks = Random.Shared.NextInt64(lower, cappedTicks + 1);
+        return TimeSpan.FromTicks(jitteredTicks);
     }
 
     private static bool IsScyllaTransient(Exception exception) => exception switch

@@ -1,3 +1,6 @@
+using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Api.Models;
 
 /// <summary>
@@ -17,9 +20,9 @@ namespace Interfold.Api.Models;
 /// </para>
 /// </summary>
 /// <param name="OperationId">Server-minted TimeUuid surrogate for this dispatch. Same value flows through the <c>import_operations</c> Cassandra row.</param>
-/// <param name="Status">Either <c>"queued"</c> (this dispatch claimed a fresh slot) or <c>"running"</c> (an import was already in flight for the system and this dispatch collapsed onto it).</param>
+/// <param name="Status">Either <see cref="ImportOperationDispatchStatus.Queued"/> (this dispatch claimed a fresh slot) or <see cref="ImportOperationDispatchStatus.Running"/> (an import was already in flight for the system and this dispatch collapsed onto it). Serialises as <c>"queued"</c>/<c>"running"</c>.</param>
 /// <param name="StartedAt">When the dispatcher observed the claim. For a collapsed dispatch this is the observation time of the *second* request, not the original — clients that care about the true import start should read it from the eventual completion frame.</param>
 public sealed record ImportDispatchResponse(
-    Guid OperationId,
-    string Status,
+    ImportOperationId OperationId,
+    ImportOperationDispatchStatus Status,
     DateTimeOffset StartedAt);

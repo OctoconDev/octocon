@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Abstractions;
@@ -10,7 +13,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 {
     private readonly IRegionContext _regionContext;
     private readonly IServiceProvider _serviceProvider;
-    private readonly ConcurrentDictionary<string, List<SettingsFieldReadModel>> _bySystem = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<ScopedSystemId, List<SettingsFieldReadModel>> _bySystem = new();
 
     public InMemorySettingsFieldRepository(IRegionContext regionContext, IServiceProvider serviceProvider)
     {
@@ -18,7 +21,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         _serviceProvider = serviceProvider;
     }
 
-    public Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
@@ -36,34 +39,32 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         }
     }
 
-    public Task<string?> CreateAsync(
-        string systemId,
+    public Task<FieldId?> CreateAsync(
+        SystemId systemId,
         string name,
-        string type,
-        string securityLevel,
+        FieldType type,
+        VisibilityLevel securityLevel,
         bool locked,
         DateTime insertedAtUtc,
         CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new List<SettingsFieldReadModel>());
-        var fieldId = Guid.NewGuid().ToString("N");
+        FieldId fieldId = new(Guid.NewGuid());
 
         lock (store)
         {
-            var normalizedType = NormalizeType(type);
-            var normalizedSecurity = NormalizeSecurityLevel(securityLevel);
-            store.Add(new SettingsFieldReadModel(fieldId, name, normalizedType, normalizedSecurity, locked, store.Count, insertedAtUtc));
+            store.Add(new SettingsFieldReadModel(fieldId, name, type, securityLevel, locked, store.Count, insertedAtUtc));
         }
 
-        return Task.FromResult<string?>(fieldId);
+        return Task.FromResult<FieldId?>(fieldId);
     }
 
     public Task<bool> UpdateAsync(
-        string systemId,
-        string fieldId,
+        SystemId systemId,
+        FieldId fieldId,
         string? name,
-        string? securityLevel,
+        VisibilityLevel? securityLevel,
         bool? locked,
         CancellationToken cancellationToken = default)
     {
@@ -73,7 +74,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
         lock (store)
         {
-            var index = store.FindIndex(x => string.Equals(x.Id, fieldId, StringComparison.Ordinal));
+            var index = store.FindIndex(x => x.Id == fieldId);
             if (index < 0)
             {
                 return Task.FromResult(false);
@@ -83,7 +84,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
             store[index] = existing with
             {
                 Name = name ?? existing.Name,
-                SecurityLevel = securityLevel is not null ? NormalizeSecurityLevel(securityLevel) : existing.SecurityLevel,
+                SecurityLevel = securityLevel ?? existing.SecurityLevel,
                 Locked = locked ?? existing.Locked
             };
         }
@@ -91,20 +92,15 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         return Task.FromResult(true);
     }
 
-    public Task<bool> DeleteAsync(string systemId, string fieldId, CancellationToken cancellationToken = default)
+    public Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
     {
-        if (!TryParseUuid(fieldId, out var fieldGuid))
-        {
-            return Task.FromResult(false);
-        }
-
         var systemKey = GetSystemKey(systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
             return Task.FromResult(false);
 
         lock (store)
         {
-            var index = store.FindIndex(x => string.Equals(x.Id, fieldId, StringComparison.Ordinal));
+            var index = store.FindIndex(x => x.Id == fieldId);
             if (index < 0)
             {
                 return Task.FromResult(false);
@@ -120,7 +116,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
             var alterRepo = _serviceProvider?.GetService<IAlterRepository>();
             if (alterRepo is InMemoryAlterRepository regional)
             {
-                regional.RemoveFieldValuesForSystem(systemId, fieldGuid);
+                regional.RemoveFieldValuesForSystem(systemId, fieldId.Value);
             }
         }
         catch
@@ -131,7 +127,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         return Task.FromResult(true);
     }
 
-    public Task<bool> RelocateAsync(string systemId, string fieldId, int index, CancellationToken cancellationToken = default)
+    public Task<bool> RelocateAsync(SystemId systemId, FieldId fieldId, int index, CancellationToken cancellationToken = default)
     {
         var systemKey = GetSystemKey(systemId);
         if (!_bySystem.TryGetValue(systemKey, out var store))
@@ -139,7 +135,7 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
 
         lock (store)
         {
-            var oldIndex = store.FindIndex(x => string.Equals(x.Id, fieldId, StringComparison.Ordinal));
+            var oldIndex = store.FindIndex(x => x.Id == fieldId);
             if (oldIndex < 0)
             {
                 return Task.FromResult(false);
@@ -163,54 +159,5 @@ public sealed class InMemorySettingsFieldRepository : ISettingsFieldRepository
         }
     }
 
-    private string GetSystemKey(string systemId)
-    {
-        var region = _regionContext.ResolveUserRegion(systemId);
-        return $"{region}:{systemId}";
-    }
-
-    private static string NormalizeType(string? type)
-    {
-        if (string.IsNullOrWhiteSpace(type))
-            return "text";
-
-        return type.Trim().ToLowerInvariant() switch
-        {
-            "number" => "number",
-            "boolean" => "boolean",
-            "date" => "date",
-            "colour" => "colour",
-            "plaintext" => "plaintext",
-            "month" => "month",
-            "year" => "year",
-            "month_year" => "month_year",
-            "timestamp" => "timestamp",
-            "month_day" => "month_day",
-            _ => "text"
-        };
-    }
-
-    private static string NormalizeSecurityLevel(string? securityLevel)
-    {
-        if (string.IsNullOrWhiteSpace(securityLevel))
-            return "private";
-
-        return securityLevel.Trim().ToLowerInvariant() switch
-        {
-            "public" => "public",
-            "friends_only" => "friends_only",
-            "trusted_only" => "trusted_only",
-            _ => "private"
-        };
-    }
-
-    internal static bool TryParseUuid(string value, out Guid guid)
-    {
-        if (Guid.TryParseExact(value, "N", out guid))
-        {
-            return true;
-        }
-
-        return Guid.TryParse(value, out guid);
-    }
+    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }

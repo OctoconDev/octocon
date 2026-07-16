@@ -2,34 +2,46 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
+using Interfold.Contracts;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.Helpers;
 
 public static class RecoveryCodeResolver
 {
-    public static bool TryResolve(string candidate, string privateKeyPem, out string recoveryCode, out string errorCode)
+    /// <summary>
+    /// Decrypt a compact JWE recovery-code ciphertext and return the plaintext wrapped in
+    /// a <see cref="RecoveryCode"/> whose <see cref="RecoveryCode.ToString"/> redacts.
+    /// Wrapping inside the resolver keeps the plaintext as a bare <c>string</c> only
+    /// inside <see cref="TryDecryptJwe"/> (no logging or interpolation surface); every
+    /// external observation goes through the redacted <c>ToString</c>.
+    /// </summary>
+    public static bool TryResolve(string candidate, string privateKeyPem, out RecoveryCode recoveryCode, out ErrorCode errorCode)
     {
-        recoveryCode = "";
+        recoveryCode = default;
         if (string.IsNullOrWhiteSpace(candidate))
         {
-            errorCode = "recovery_code_not_provided";
+            errorCode = ErrorCodes.RecoveryCodeNotProvided;
             return false;
         }
         if (!LooksLikeCompactJwe(candidate))
         {
-            errorCode = "recovery_code_not_jwe";
+            errorCode = ErrorCodes.RecoveryCodeNotJwe;
             return false;
         }
 
         if (!TryLoadEncryptionPrivateKey(ref privateKeyPem)
-            || !TryDecryptJwe(candidate, privateKeyPem, out recoveryCode))
+            || !TryDecryptJwe(candidate, privateKeyPem, out var plaintext))
         {
-            errorCode = "decryption_error";
+            errorCode = ErrorCodes.DecryptionError;
             return false;
         }
 
-        errorCode = "";
-        return !string.IsNullOrWhiteSpace(recoveryCode);
+        errorCode = default;
+        // Wrap-at-decrypt-boundary: the plaintext local dies with this method frame; every
+        // downstream reference goes through the redacting RecoveryCode wrapper.
+        recoveryCode = new(plaintext);
+        return !string.IsNullOrWhiteSpace(plaintext);
     }
 
     public static bool LooksLikeCompactJwe(string token) => token.Count(ch => ch == '.') == 4;

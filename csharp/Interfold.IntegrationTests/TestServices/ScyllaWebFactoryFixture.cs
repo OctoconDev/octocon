@@ -36,13 +36,21 @@ public sealed class ScyllaWebFactoryFixture : IWebFactoryFixture, IAsyncInitiali
                 scyllaFailure);
         }
 
-        Factory = new InterfoldWebApplicationFactory("scylla-postgres", "scylla-single-node")
+        Factory = CreatePrivateFactory();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    // Configuration must stay byte-identical to InitializeAsync so that tests opting into a
+    // private factory exercise the same Scylla + Postgres wiring as the session-shared one.
+    // ScyllaPort is asserted non-null by InitializeAsync's guard above — any caller reaching
+    // this method has already passed that check via the same shared Aspire fixture.
+    public InterfoldWebApplicationFactory CreatePrivateFactory()
+        => new InterfoldWebApplicationFactory("scylla-postgres", "scylla-single-node")
             .WithConfiguration("OCTOCON_POSTGRES_CONNECTION", Aspire.PostgresConnectionString)
             .WithConfiguration("OCTOCON_SCYLLA_PORT", Aspire.ScyllaPort!.Value.ToString())
             .WithConfiguration("OCTOCON_SINGLE_SCYLLA_INSTANCE", "true")
             .WithConfiguration("OCTOCON_DB_RETRY_ATTEMPTS", "10")
             .WithConfiguration("OCTOCON_DB_RETRY_INITIAL_DELAY_MS", "500")
             .WithConfiguration("OCTOCON_DB_RETRY_MAX_DELAY_MS", "3000");
-        return Task.CompletedTask;
-    }
 }

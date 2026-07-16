@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Journals;
 
@@ -29,10 +30,10 @@ public sealed class UpdateGlobalJournalEntryCommandHandler : ICommandHandler<Upd
         CancellationToken cancellationToken = default)
     {
         if (command.Payload.Title is null && command.Payload.Content is null && command.Payload.Color is null)
-            return RejectInvariant(command, "journal:no_fields");
+            return RejectInvariant(command, EntityRefs.JournalNoFields);
 
         if (command.Payload.Title is not null && command.Payload.Title.Length > 250)
-            return RejectInvariant(command, "journal:title_too_long");
+            return RejectInvariant(command, EntityRefs.JournalTitleTooLong);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -43,7 +44,7 @@ public sealed class UpdateGlobalJournalEntryCommandHandler : ICommandHandler<Upd
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "journal:global:update");
+                return RejectDuplicate(command, EntityRefs.JournalGlobalUpdate);
 
             var replay = CommandSerialization.Deserialize<GlobalJournalCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -52,11 +53,11 @@ public sealed class UpdateGlobalJournalEntryCommandHandler : ICommandHandler<Upd
 
         var exists = await _journalRepository.ExistsGlobalAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
         if (!exists)
-            return RejectInvariant(command, "journal:not_found");
+            return RejectInvariant(command, EntityRefs.JournalNotFound);
 
         var updated = await _journalRepository.UpdateGlobalAsync(command.PrincipalId, command.Payload, cancellationToken);
         if (!updated)
-            return RejectInvariant(command, "journal:update_failed");
+            return RejectInvariant(command, EntityRefs.JournalUpdateFailed);
 
         var result = new GlobalJournalCommandResult(command.PrincipalId, command.Payload.EntryId, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -76,12 +77,12 @@ public sealed class UpdateGlobalJournalEntryCommandHandler : ICommandHandler<Upd
     }
 
     private static CommandExecutionResult<GlobalJournalCommandResult> RejectDuplicate(
-        CommandEnvelope<UpdateGlobalJournalEntryCommand> command, string entityRef) =>
+        CommandEnvelope<UpdateGlobalJournalEntryCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<GlobalJournalCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<GlobalJournalCommandResult> RejectInvariant(
-        CommandEnvelope<UpdateGlobalJournalEntryCommand> command, string entityRef) =>
+        CommandEnvelope<UpdateGlobalJournalEntryCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<GlobalJournalCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

@@ -1,45 +1,48 @@
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Validation;
+
 namespace Interfold.Contracts.Models.Read;
 
 public sealed record JournalReadModel(
-    string Id,
-    string UserId,
+    EntryId Id,
+    SystemId UserId,
     string Title,
     string? Content,
-    string? Color,
+    HexColor? Color,
     bool Locked,
     bool Pinned,
     DateTime InsertedAt,
     DateTime UpdatedAt,
-    IReadOnlyList<int> Alters
+    IReadOnlyList<AlterId> Alters
 );
 
 
 public sealed record CreateGlobalJournalRequest(
     string Title,
-    string? IdempotencyKey = null,
-    long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+    EntityVersion? ExpectedVersion = null
+);
 
 public sealed record UpdateGlobalJournalRequest(
     string? Title = null,
     string? Content = null,
-    string? Color = null,
-    string? IdempotencyKey = null,
-    long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+    HexColor? Color = null,
+    EntityVersion? ExpectedVersion = null
+);
 
 public sealed record DeleteGlobalJournalRequest(
-    string? IdempotencyKey = null,
-    long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+    EntityVersion? ExpectedVersion = null
+);
 
 public sealed record JournalActionRequest(
-    string? IdempotencyKey = null,
-    long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+    EntityVersion? ExpectedVersion = null
+);
 
+// ValidAlterId lives on the constructor parameter (default target), NOT the property:
+// MVC's ObjectModelValidator throws InvalidOperationException on records that carry
+// validation metadata on properties (see ThrowIfRecordTypeHasValidationOnProperties)
+// — the parameter target is where MVC's parameter-binding validator actually reads
+// the attribute from.
 public sealed record JournalAlterRequest(
-    int? AlterId,
-    string? IdempotencyKey = null,
-    long? ExpectedVersion = null
-) : BaseRequest(IdempotencyKey);
+    [ValidAlterId] AlterId AlterId,
+    EntityVersion? ExpectedVersion = null
+);

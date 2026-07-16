@@ -21,11 +21,11 @@ public static class SocketEventPumpRunner
         IJournalRepository journalRepository,
         IEncryptionStateRepository encryptionStateRepository)
     {
-        // Every event subscription below is scoped to context.JoinedSystemId via the bus's
+        // Every event subscription below is scoped to context.JoinedScopedSystemId via the bus's
         // targetSystemId filter. Because every event the pump cares about implements
         // ITargetedClusterEvent, the bus delivers an event to this socket only when its
-        // TargetSystemId equals the socket's JoinedSystemId — i.e. the per-socket pump only
-        // does work when the publish is actually for this user.
+        // TargetSystemId equals the socket's JoinedScopedSystemId — i.e. the per-socket pump
+        // only does work when the publish is actually for this user.
         return Task.WhenAll(
             SubscribeAsync<FrontingStartedEvent>(eventBus, context, evt => FrontingSocketEventHandlers.HandleAsync(evt, context, frontingRepository)),
             SubscribeAsync<FrontingEndedEvent>(eventBus, context, evt => FrontingSocketEventHandlers.HandleAsync(evt, context)),
@@ -47,7 +47,9 @@ public static class SocketEventPumpRunner
             SubscribeAsync<SettingsEncryptedDataWipedSignalEvent>(eventBus, context, evt => SettingsSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<SettingsDiscordAccountUnlinkedSignalEvent>(eventBus, context, evt => SettingsSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<SettingsAppleAccountUnlinkedSignalEvent>(eventBus, context, evt => SettingsSocketEventHandlers.HandleAsync(evt, context)),
-            SubscribeAsync<SettingsAccountLinkedEvent>(eventBus, context, evt => SettingsSocketEventHandlers.HandleAsync(evt, context)),
+            SubscribeAsync<SettingsDiscordAccountLinkedEvent>(eventBus, context, evt => SettingsSocketEventHandlers.HandleAsync(evt, context)),
+            SubscribeAsync<SettingsGoogleAccountLinkedEvent>(eventBus, context, evt => SettingsSocketEventHandlers.HandleAsync(evt, context)),
+            SubscribeAsync<SettingsAppleAccountLinkedEvent>(eventBus, context, evt => SettingsSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<FriendshipAddedEvent>(eventBus, context, evt => FriendshipSocketEventHandlers.HandleAsync(evt, context, friendshipRepository)),
             SubscribeAsync<FriendshipRemovedEvent>(eventBus, context, evt => FriendshipSocketEventHandlers.HandleAsync(evt, context)),
             SubscribeAsync<FriendshipTrustedEvent>(eventBus, context, evt => FriendshipSocketEventHandlers.HandleAsync(evt, context)),
@@ -91,7 +93,11 @@ public static class SocketEventPumpRunner
         // Keep the loop alive across handler faults; if cancellation comes through
         // context.CancellationToken we still exit cleanly because SubscribeAsync's
         // enumerator observes it and MoveNextAsync simply returns false.
-        await foreach (var evt in eventBus.SubscribeAsync<TEvent>(context.JoinedSystemId, context.CancellationToken).ConfigureAwait(false))
+        // SubscribeAsync takes ScopedSystemId?. Feed it the scoped composite that
+        // WebSocketHandler parsed from the JWT sub — the scoped-to-scoped compare in
+        // InProcessEventBus.PublishAsync is byte-equivalent when regions match and
+        // correctly rejects cross-region false positives (same raw id, different region).
+        await foreach (var evt in eventBus.SubscribeAsync<TEvent>(context.JoinedScopedSystemId, context.CancellationToken).ConfigureAwait(false))
         {
             try
             {

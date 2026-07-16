@@ -1,22 +1,26 @@
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.ImportOperations;
+
 namespace Interfold.Contracts;
 
-public sealed record AccountCommandResult(string SystemId, string Username, bool Replay) : ICommandResult;
+public sealed record AccountCommandResult(SystemId SystemId, Username Username, bool Replay) : ICommandResult;
 
-public sealed record AlterCommandResult(string SystemId, int AlterId, bool Replay) : ICommandResult;
+public sealed record AlterCommandResult(SystemId SystemId, AlterId AlterId, bool Replay) : ICommandResult;
 
-public sealed record FrontCommandResult(string SystemId, int? AlterId, string? FrontId, bool Replay) : ICommandResult;
+public sealed record FrontCommandResult(SystemId SystemId, AlterId? AlterId, FrontId? FrontId, bool Replay) : ICommandResult;
 
-public sealed record TagCommandResult(string SystemId, string TagId, bool Replay) : ICommandResult;
+public sealed record TagCommandResult(SystemId SystemId, TagId TagId, bool Replay) : ICommandResult;
 
-public sealed record PollCommandResult(string SystemId, string PollId, bool Replay) : ICommandResult;
+public sealed record PollCommandResult(SystemId SystemId, PollId PollId, bool Replay) : ICommandResult;
 
-public sealed record GlobalJournalCommandResult(string SystemId, string EntryId, bool Replay) : ICommandResult;
+public sealed record GlobalJournalCommandResult(SystemId SystemId, EntryId EntryId, bool Replay) : ICommandResult;
 
-public sealed record AlterJournalCommandResult(string SystemId, string EntryId, int AlterId, bool Replay) : ICommandResult;
+public sealed record AlterJournalCommandResult(SystemId SystemId, EntryId EntryId, AlterId AlterId, bool Replay) : ICommandResult;
 
-public sealed record FriendshipCommandResult(string SystemId, string TargetSystemId, string Action, bool Replay) : ICommandResult;
+public sealed record FriendshipCommandResult(SystemId SystemId, SystemId TargetSystemId, FriendshipAction Action, bool Replay) : ICommandResult;
 
-public sealed record SettingsCommandResult(string SystemId, string Action, bool Replay) : ICommandResult;
+public sealed record SettingsCommandResult(SystemId SystemId, SettingsAction Action, bool Replay) : ICommandResult;
 
 /// <summary>
 /// Result of dispatching an asynchronous third-party import (SP or PK) onto the in-process
@@ -32,13 +36,13 @@ public sealed record SettingsCommandResult(string SystemId, string Action, bool 
 /// </list>
 /// </summary>
 public sealed record ImportDispatchCommandResult(
-    string SystemId,
-    Guid OperationId,
-    string Kind,
-    string Status,
+    SystemId SystemId,
+    ImportOperationId OperationId,
+    ImportOperationKind Kind,
+    ImportOperationDispatchStatus Status,
     DateTimeOffset StartedAt,
     bool Replay) : ICommandResult;
 
-public sealed record SettingsFieldCommandResult(string SystemId, string Action, string FieldId, bool Replay) : ICommandResult;
+public sealed record SettingsFieldCommandResult(SystemId SystemId, SettingsFieldAction Action, FieldId FieldId, bool Replay) : ICommandResult;
 
-public sealed record EncryptionCommandResult(string SystemId, string Action, string Key, bool Replay) : ICommandResult;
+public sealed record EncryptionCommandResult(SystemId SystemId, EncryptionAction Action, EncryptionKeyMaterial Key, bool Replay) : ICommandResult;

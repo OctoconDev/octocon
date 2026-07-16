@@ -59,25 +59,30 @@ public class Response<TValue> : OneOfBase<SuccessResponse<TValue>, ErrorResponse
         return new Response<TValue>(error);
     }
     
+    public bool IsSuccess => IsT0;
+    public SuccessResponse<TValue> AsSuccess => AsT0;
+    public bool IsError => IsT1;
+    public ErrorResponse AsError => AsT1;
+
     public IActionResult Convert()
     {
-        if (IsT0)
+        if (IsSuccess)
         {
-            var statusCode = (int)AsT0.StatusCode;
+            var statusCode = (int)AsSuccess.StatusCode;
             if (statusCode == 204)
                 return new StatusCodeResult(204);
 
-            return new ObjectResult(AsT0)
+            return new ObjectResult(AsSuccess)
             {
                 DeclaredType = typeof(SuccessResponse<TValue>),
                 StatusCode = statusCode
             };
         }
 
-        return new ObjectResult(AsT1)
+        return new ObjectResult(AsError)
         {
             DeclaredType = typeof(ErrorResponse),
-            StatusCode = (int)AsT1.StatusCode
+            StatusCode = (int)AsError.StatusCode
         };
     }
 }

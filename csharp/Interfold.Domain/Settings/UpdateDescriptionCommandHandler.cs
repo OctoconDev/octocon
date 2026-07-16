@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -29,7 +31,7 @@ public sealed class UpdateDescriptionCommandHandler : ICommandHandler<UpdateDesc
         CancellationToken cancellationToken = default)
     {
         if (command.Payload.Description.Length > 3000)
-            return RejectInvariant(command, "settings:description_invalid");
+            return RejectInvariant(command, EntityRefs.SettingsDescriptionInvalid);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -43,7 +45,7 @@ public sealed class UpdateDescriptionCommandHandler : ICommandHandler<UpdateDesc
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "settings:description:update");
+                return RejectDuplicate(command, EntityRefs.SettingsDescriptionUpdate);
 
             var replay = CommandSerialization.Deserialize<SettingsCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -56,9 +58,9 @@ public sealed class UpdateDescriptionCommandHandler : ICommandHandler<UpdateDesc
             cancellationToken);
 
         if (!persisted)
-            return RejectInvariant(command, "settings:description_update_failed");
+            return RejectInvariant(command, EntityRefs.SettingsDescriptionUpdateFailed);
 
-        var result = new SettingsCommandResult(command.PrincipalId, "description_updated", Replay: false);
+        var result = new SettingsCommandResult(command.PrincipalId, SettingsAction.DescriptionUpdated, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
@@ -76,13 +78,13 @@ public sealed class UpdateDescriptionCommandHandler : ICommandHandler<UpdateDesc
 
     private static CommandExecutionResult<SettingsCommandResult> RejectDuplicate(
         CommandEnvelope<UpdateDescriptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<SettingsCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<SettingsCommandResult> RejectInvariant(
         CommandEnvelope<UpdateDescriptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<SettingsCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

@@ -1,42 +1,31 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemoryEncryptionStateRepository : IEncryptionStateRepository
 {
-    private readonly ConcurrentDictionary<string, EncryptionState> _states = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<SystemId, EncryptionState> _states = new();
 
-    public Task<EncryptionState?> GetAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = NormalizeSystemId(systemId);
+        var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
         _states.TryGetValue(normalizedSystemId, out var state);
         return Task.FromResult(state);
     }
 
-    public Task<bool> UpsertAsync(string systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default)
+    public Task<bool> UpsertAsync(SystemId systemId, bool initialized, KeyChecksum? keyChecksum, EncryptionSalt? salt, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = NormalizeSystemId(systemId);
+        var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
 
         _states.TryGetValue(normalizedSystemId, out EncryptionState? value);
         _states[normalizedSystemId] = new EncryptionState(Initialized: initialized, KeyChecksum: keyChecksum,
             Salt: salt ?? value?.Salt);
 
         return Task.FromResult(true);
-    }
-
-    private static string NormalizeSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-            return systemId;
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0 || separator >= systemId.Length - 1)
-            return systemId;
-
-        return systemId[(separator + 1)..];
     }
 }

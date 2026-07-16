@@ -1,13 +1,18 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Contracts.Models.Commands;
 
-public sealed record RemoveFriendshipCommand(string FriendSystemId);
+public sealed record RemoveFriendshipCommand(SystemId FriendSystemId);
 
-public sealed record SetFriendTrustCommand(string FriendSystemId, bool Trusted);
+public sealed record SetFriendTrustCommand(SystemId FriendSystemId, bool Trusted);
 
-public sealed record SendFriendRequestCommand(string TargetSystemId);
+// TargetSystemId's name is frozen (persisted payload + idempotency hashes); the type is
+// FriendLookup because the route accepts either a system id (bare or 'id:'-prefixed) or a
+// username ('username:'-prefixed) — everything else fails route binding with a 400.
+public sealed record SendFriendRequestCommand(FriendLookup TargetSystemId);
 
-public sealed record AcceptFriendRequestCommand(string SourceSystemId);
+public sealed record AcceptFriendRequestCommand(SystemId SourceSystemId);
 
-public sealed record RejectFriendRequestCommand(string SourceSystemId);
+public sealed record RejectFriendRequestCommand(SystemId SourceSystemId);
 
-public sealed record CancelFriendRequestCommand(string TargetSystemId);
+public sealed record CancelFriendRequestCommand(SystemId TargetSystemId);

@@ -38,7 +38,15 @@ internal static class LifecycleProbe
             // The probe must never break a test run if the log path isn't writable; the
             // diagnostic value is "best effort" by design.
         }
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => Log("ProcessExit");
     }
+
+    /// <summary>
+    /// Returns a disposable scope that logs <paramref name="endLabel"/> with elapsed ms on dispose.
+    /// </summary>
+    public static TimedScope BeginTimed(string endLabel)
+        => new(endLabel);
 
     /// <summary>
     /// Writes a single line to the probe log capturing hook ordering plus whether
@@ -48,13 +56,15 @@ internal static class LifecycleProbe
     /// versions; null-safe on every read so a missing context shows up as a label rather than
     /// throwing the probe out.
     /// </summary>
-    public static void Log(string label)
+    public static void Log(string label, long? elapsedMs = null)
     {
         var seq = Interlocked.Increment(ref _sequence);
         var sessionCount = ReadAllTestsCount("TUnit.Core.TestSessionContext, TUnit.Core");
         var discoveryCount = ReadAllTestsCount("TUnit.Core.TestDiscoveryContext, TUnit.Core");
-        var line = $"{{\"seq\":{seq},\"timestamp\":\"{DateTime.UtcNow:O}\",\"label\":\"{label}\"," +
-                   $"\"sessionCount\":\"{sessionCount}\",\"discoveryCount\":\"{discoveryCount}\"}}";
+        var elapsed = elapsedMs is null ? string.Empty : $",\"elapsedMs\":{elapsedMs.Value}";
+        var line = $"{{\"seq\":{seq},\"timestamp\":\"{DateTime.UtcNow:O}\",\"label\":\"{label}\"" +
+                   elapsed +
+                   $",\"sessionCount\":\"{sessionCount}\",\"discoveryCount\":\"{discoveryCount}\"}}";
 
         try
         {
@@ -123,5 +133,23 @@ internal static class LifecycleProbe
         }
 
         return "(non-enumerable)";
+    }
+
+    internal readonly struct TimedScope : IDisposable
+    {
+        private readonly string _endLabel;
+        private readonly long _startedTicks;
+
+        public TimedScope(string endLabel)
+        {
+            _endLabel = endLabel;
+            _startedTicks = Environment.TickCount64;
+        }
+
+        public void Dispose()
+        {
+            var elapsed = Environment.TickCount64 - _startedTicks;
+            Log(_endLabel, elapsed);
+        }
     }
 }

@@ -1,7 +1,7 @@
 namespace Interfold.Contracts.Secrets;
 
 public sealed record SecretEntry(
-    string Key,
+    SecretsStoreKey Key,
     string Value,
     string CreatedBy,
     DateTimeOffset CreatedAt,
@@ -11,7 +11,7 @@ public sealed record SecretEntry(
 
 public interface ISecretsStore
 {
-    Task<string?> GetAsync(string key, CancellationToken cancellationToken = default);
-    Task<string> GetRequiredAsync(string key, CancellationToken cancellationToken = default);
+    Task<string?> GetAsync(SecretsStoreKey key, CancellationToken cancellationToken = default);
+    Task<string> GetRequiredAsync(SecretsStoreKey key, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SecretEntry>> ListAsync(CancellationToken cancellationToken = default);
 }

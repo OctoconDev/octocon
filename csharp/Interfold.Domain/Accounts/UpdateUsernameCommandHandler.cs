@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Accounts;
 
@@ -32,12 +33,12 @@ public sealed class UpdateUsernameCommandHandler : ICommandHandler<UpdateUsernam
     {
         if (string.IsNullOrWhiteSpace(command.Payload.Username))
         {
-            return RejectInvariant(command, "account:username_invalid");
+            return RejectInvariant(command, EntityRefs.AccountUsernameInvalid);
         }
 
-        if (command.Payload.Username.Length > 64)
+        if (command.Payload.Username.Value.Length > 64)
         {
-            return RejectInvariant(command, "account:username_too_long");
+            return RejectInvariant(command, EntityRefs.AccountUsernameTooLong);
         }
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
@@ -54,7 +55,7 @@ public sealed class UpdateUsernameCommandHandler : ICommandHandler<UpdateUsernam
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
-                return RejectDuplicate(command, "account:username_update");
+                return RejectDuplicate(command, EntityRefs.AccountUsernameUpdate);
             }
 
             var replay = CommandSerialization.Deserialize<AccountCommandResult>(previous.OutcomePayload);
@@ -72,7 +73,7 @@ public sealed class UpdateUsernameCommandHandler : ICommandHandler<UpdateUsernam
 
         if (!persisted)
         {
-            return RejectInvariant(command, "account:username_update_failed");
+            return RejectInvariant(command, EntityRefs.AccountUsernameUpdateFailed);
         }
 
         var result = new AccountCommandResult(command.PrincipalId, command.Payload.Username, Replay: false);
@@ -94,27 +95,27 @@ public sealed class UpdateUsernameCommandHandler : ICommandHandler<UpdateUsernam
 
     private static CommandExecutionResult<AccountCommandResult> RejectDuplicate(
         CommandEnvelope<UpdateUsernameCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<AccountCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictDuplicate,
                 command.OperationId,
                 entityRef,
-                "no_retry"
+                ResolutionHint.NoRetry
             )
         );
 
     private static CommandExecutionResult<AccountCommandResult> RejectInvariant(
         CommandEnvelope<UpdateUsernameCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<AccountCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictInvariant,
                 command.OperationId,
                 entityRef,
-                "manual_merge_required"
+                ResolutionHint.ManualMergeRequired
             )
         );
 }

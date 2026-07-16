@@ -95,12 +95,13 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task RespectsCustomApiHttpPort()
     {
-        // Every test now gets its own apiHttp port via the DinD port allocator (the rewrite in
-        // CreateScratchAsync substitutes the allocated 6-port window into the test config). That
-        // makes this test redundant with every other launch-style test in terms of "does the
-        // operator's port actually get used", but we keep it as the explicit canary: we assert
-        // LaunchPhase emits a polling line for the allocator's port specifically, so a future
-        // refactor that hard-codes 5000 / 4200 / 9042 in the launch path is caught directly.
+        // Every test gets its own apiHttp port via the DinD port allocator
+        // (CreateScratchAsync substitutes the allocated 6-port window into the test
+        // config). That makes this test redundant with every other launch-style test in
+        // terms of "does the operator's port actually get used", but it's kept as the
+        // explicit canary: LaunchPhase must emit a polling line for the allocator's port
+        // specifically, so a future refactor that hard-codes 5000 / 4200 / 9042 in the
+        // launch path is caught directly.
         var scratch = await dinD.CreateScratchAsync(nameof(RespectsCustomApiHttpPort), TestConfigJsonPath);
 
         var result = await dinD.RunBootstrapperAsync(nameof(RespectsCustomApiHttpPort),

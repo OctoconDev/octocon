@@ -1,8 +1,7 @@
 using Cassandra;
 using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Secrets;
 using Interfold.Infrastructure.Persistence;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;
 
@@ -14,15 +13,15 @@ public interface IScyllaSessionProvider
 public sealed class ScyllaSessionProvider : IScyllaSessionProvider
 {
     private readonly PersistenceConfiguration _options;
-    private readonly ISecretsStore _secretsStore;
-    private readonly IConfiguration _configuration;
+    private readonly IScyllaConfigResolver _configResolver;
     private readonly Lazy<Task<ISession>> _session;
 
-    public ScyllaSessionProvider(PersistenceConfiguration options, ISecretsStore secretsStore, IConfiguration configuration)
+    public ScyllaSessionProvider(
+        IOptions<PersistenceConfiguration> options,
+        IScyllaConfigResolver configResolver)
     {
-        _options = options;
-        _secretsStore = secretsStore;
-        _configuration = configuration;
+        _options = options.Value;
+        _configResolver = configResolver;
         _session = new Lazy<Task<ISession>>(ConnectAsync);
     }
 
@@ -32,12 +31,12 @@ public sealed class ScyllaSessionProvider : IScyllaSessionProvider
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            var contactPoints = await ScyllaConfigResolver.GetContactPointsAsync(_configuration, _secretsStore);
-            var datacenter = await ScyllaConfigResolver.GetDatacenterAsync(_secretsStore);
-            var username = await ScyllaConfigResolver.GetUsernameAsync(_secretsStore);
-            var password = await ScyllaConfigResolver.GetPasswordAsync(_secretsStore);
-            var keyspace = await ScyllaConfigResolver.GetKeyspaceAsync(_configuration);
-            var port = await ScyllaConfigResolver.GetPortAsync(_configuration, _secretsStore);
+            var contactPoints = await _configResolver.GetContactPointsAsync();
+            var datacenter = await _configResolver.GetDatacenterAsync();
+            var username = await _configResolver.GetUsernameAsync();
+            var password = await _configResolver.GetPasswordAsync();
+            var keyspace = _configResolver.GetKeyspace();
+            var port = await _configResolver.GetPortAsync();
 
             var builder = Cluster.Builder()
                 .AddContactPoints(contactPoints)

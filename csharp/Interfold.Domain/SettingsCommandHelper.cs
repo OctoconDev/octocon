@@ -1,7 +1,9 @@
 using Interfold.Contracts;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain;
 
@@ -9,8 +11,8 @@ internal static class SettingsCommandHelper
 {
     public static async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteAsync<TCommand>(
         CommandEnvelope<TCommand> command,
-        string action,
-        string duplicateEntityRef,
+        SettingsAction action,
+        EntityRef duplicateEntityRef,
         IIdempotencyStore idempotencyStore,
         Func<CancellationToken, Task<bool>> apply,
         CancellationToken cancellationToken = default)
@@ -29,7 +31,7 @@ internal static class SettingsCommandHelper
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
                 return CommandExecutionResult<SettingsCommandResult>.Rejected(
-                    new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, duplicateEntityRef, "no_retry"));
+                    new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, duplicateEntityRef, ResolutionHint.NoRetry));
             }
 
             var replay = CommandSerialization.Deserialize<SettingsCommandResult>(previous.OutcomePayload);
@@ -41,7 +43,7 @@ internal static class SettingsCommandHelper
         if (!applied)
         {
             return CommandExecutionResult<SettingsCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, $"settings:{action}_failed", "manual_merge_required"));
+                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsActionFailed(action), ResolutionHint.ManualMergeRequired));
         }
 
         var result = new SettingsCommandResult(command.PrincipalId, action, Replay: false);

@@ -1,10 +1,12 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Domain.Abstractions.Repository;
 
 public interface INotificationTokenRepository
 {
-    Task<bool> AddAsync(string systemId, string token, CancellationToken cancellationToken = default);
+    Task<bool> AddAsync(SystemId systemId, PushToken token, CancellationToken cancellationToken = default);
 
-    Task<bool> RemoveAsync(string token, CancellationToken cancellationToken = default);
+    Task<bool> RemoveAsync(PushToken token, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns push tokens for every friend of <paramref name="systemId"/>, grouped by
@@ -21,11 +23,11 @@ public interface INotificationTokenRepository
     /// devices should be omitted rather than returned with an empty <see cref="FriendNotificationTokens.Tokens"/>.
     /// </para>
     /// </summary>
-    Task<IReadOnlyList<FriendNotificationTokens>> ListTokensForFriendsOfAsync(string systemId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<FriendNotificationTokens>> ListTokensForFriendsOfAsync(SystemId systemId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// One friend's registered push tokens. Multiple entries per friend (phone + tablet +
 /// browser) collapse into a single <see cref="Tokens"/> list.
 /// </summary>
-public sealed record FriendNotificationTokens(string FriendSystemId, IReadOnlyList<string> Tokens);
+public sealed record FriendNotificationTokens(SystemId FriendSystemId, IReadOnlyList<PushToken> Tokens);

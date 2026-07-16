@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Primitives;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Middleware;
 
@@ -20,7 +21,7 @@ public sealed class RequestCorrelationMiddleware(RequestDelegate next, ILogger<R
 
         context.Response.OnStarting(() =>
         {
-            context.Response.Headers["X-Interfold-Request-Id"] = requestId;
+            context.Response.Headers[InterfoldHeaders.RequestId] = requestId;
             return Task.CompletedTask;
         });
 
@@ -51,7 +52,7 @@ public sealed class RequestCorrelationMiddleware(RequestDelegate next, ILogger<R
 
     private static string GetOrGenerateRequestId(HttpContext context)
     {
-        if (context.Request.Headers.TryGetValue("X-Request-Id", out StringValues existing)
+        if (context.Request.Headers.TryGetValue(InterfoldHeaders.InboundRequestId, out StringValues existing)
             && !StringValues.IsNullOrEmpty(existing))
         {
             return existing.ToString();

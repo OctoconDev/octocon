@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Enums;
 using Spectre.Console;
 using Spectre.Console.Testing;
 using TUnit.Core;
@@ -9,109 +10,43 @@ using TUnit.Core;
 namespace Interfold.Bootstrapper.UnitTests;
 
 /// <summary>
-/// Drives <see cref="ConfigPhase.PromptForConfig(Spectre.Console.IAnsiConsole, bool)"/> with an
-/// in-memory <see cref="TestConsole"/> so the Spectre.Console-driven navigable form is exercised
-/// without standing up a real TTY.
-///
-/// Interaction model after the form-only redesign:
-/// <list type="bullet">
-///   <item>The form is a single <c>SelectionPrompt&lt;int&gt;</c> with 48 field rows grouped
-///         under 11 section headers + a trailing <c>Confirm and save</c> entry. Section headers
-///         are inert (not selectable); arrow-key navigation skips them.</item>
-///   <item>Cursor starts at field index 0 (<c>Output directory</c>) — <see cref="SelectionPrompt{T}.DefaultValue"/>
-///         defaults to <c>default(int)</c>.</item>
-///   <item>After every edit the form re-renders with the cursor back at field 0; tests can
-///         therefore use absolute navigation distances on every iteration.</item>
-/// </list>
-///
-/// Field row order (0-based, used as the <see cref="Navigate"/> distance from the cursor's
-/// starting position):
-/// <list type="number">
-///   <item>0  Output directory                       (Deployment)</item>
-///   <item>1  Public domain(s)                       (Deployment)</item>
-///   <item>2  Root CA subject                        (Deployment)</item>
-///   <item>3  Leaf cert validity (years)             (Deployment)</item>
-///   <item>4  Install root CA into trust store       (Deployment)</item>
-///   <item>5  Include octocon-web container          (Deployment)</item>
-///   <item>6  Terminate HTTPS at octocon-web         (Deployment)</item>
-///   <item>7  API HTTP port                          (Ports)</item>
-///   <item>8  API HTTPS port                         (Ports)</item>
-///   <item>9  Web HTTP port                          (Ports)</item>
-///   <item>10 Web HTTPS port                         (Ports)</item>
-///   <item>11 Postgres host port                     (Ports)</item>
-///   <item>12 Scylla/Cassandra host port             (Ports)</item>
-///   <item>13 Database mode                          (Database)</item>
-///   <item>14 Postgres application DB name           (Database)</item>
-///   <item>15 Cluster name                           (Database)</item>
-///   <item>16 Scylla keyspace (region)               (Database)</item>
-///   <item>17 OAuth callback base URL                (API)</item>
-///   <item>18 JWT authority (iss claim)              (API)</item>
-///   <item>19 JWT audience (aud claim)               (API)</item>
-///   <item>20 CORS allowed origins                   (API)</item>
-///   <item>21 Pre-built Interfold API image          (API)</item>
-///   <item>22 Cluster node group                     (Cluster &amp; telemetry)</item>
-///   <item>23 OTLP endpoint                          (Cluster &amp; telemetry)</item>
-///   <item>24 Avatar storage root (container path)   (Storage)</item>
-///   <item>25 Avatar public base URL                 (Storage)</item>
-///   <item>26 Socket batch flush threshold (bytes)   (Performance tuning)</item>
-///   <item>27 DB retry attempts                      (Performance tuning)</item>
-///   <item>28 DB retry initial delay (ms)            (Performance tuning)</item>
-///   <item>29 DB retry max delay (ms)                (Performance tuning)</item>
-///   <item>30 Hydration max concurrency              (Performance tuning)</item>
-///   <item>31 Google OAuth client ID                 (OAuth credentials)</item>
-///   <item>32 Google OAuth client secret             (OAuth credentials)</item>
-///   <item>33 Discord OAuth client ID                (OAuth credentials)</item>
-///   <item>34 Discord OAuth client secret            (OAuth credentials)</item>
-///   <item>35 Apple OAuth client ID                  (OAuth credentials)</item>
-///   <item>36 Apple OAuth client secret              (OAuth credentials)</item>
-///   <item>37 Scheduled backups enabled              (Backup &amp; autostart)</item>
-///   <item>38 Backup schedule (OnCalendar)           (Backup &amp; autostart)</item>
-///   <item>39 Backup retention (count per component) (Backup &amp; autostart)</item>
-///   <item>40 Backup directory (absolute, blank=default) (Backup &amp; autostart)</item>
-///   <item>41 Autostart server on boot              (Backup &amp; autostart)</item>
-///   <item>42 Chain updates after backup             (Updates)</item>
-///   <item>43 Health-check timeout (seconds)         (Updates)</item>
-///   <item>44 Auto-restore on failure                (Updates)</item>
-///   <item>45 Recreate containers on update          (Updates)</item>
-///   <item>46 Update service whitelist (blank=all)   (Updates)</item>
-///   <item>47 Firebase push notifications            (Firebase)</item>
-/// </list>
-/// Navigate(48) lands on the trailing <c>Confirm and save</c> entry (one DownArrow per
-/// selectable row past field 0). Helpers <see cref="Navigate"/> / <see cref="ConfirmForm"/> /
-/// <see cref="EditField"/> below wrap the key sequences so the test bodies stay focused on
-/// "what is being edited", not "how many DownArrows that takes".
+/// Drives <see cref="ConfigPhase.PromptForConfig(IAnsiConsole, bool, Func{IPAddress?}?, Func{string?}?)"/>
+/// through an in-memory <see cref="TestConsole"/> to exercise the Spectre navigable form.
+/// <para>
+/// The form is a single <c>SelectionPrompt&lt;int&gt;</c> with 48 selectable field rows
+/// under 11 section headers + a trailing <c>Confirm and save</c>. Headers are inert; the
+/// cursor starts at field 0 and returns there after every edit, so tests use absolute
+/// navigation distances (see <see cref="Navigate"/> / <see cref="EditField"/>).
+/// </para>
+/// <para>
+/// Field order (0-based DownArrow distance from field 0):
+/// 0..6 Deployment · 7..12 Ports · 13..16 Database · 17..21 API ·
+/// 22..23 Cluster &amp; telemetry · 24..25 Storage · 26..30 Performance tuning ·
+/// 31..36 OAuth credentials · 37..41 Backup &amp; autostart · 42..46 Updates · 47 Firebase.
+/// <see cref="Navigate"/>(48) lands on <c>Confirm and save</c>.
+/// </para>
 /// </summary>
 public sealed class ConfigInteractivePromptTests
 {
-    /// <summary>Number of selectable field rows in the navigable form.</summary>
+    /// <summary>Selectable field-row count.</summary>
     private const int FieldCount = 48;
 
     /// <summary>
-    /// Builds a fresh interactive <see cref="TestConsole"/> tall enough to render the entire
-    /// 60-row navigable form (48 fields + 11 section headers + Confirm entry) without Spectre
-    /// paginating it. Default <see cref="TestConsole"/> height is 24 lines, which would clamp
-    /// the menu to a single page and hide the top section header by the time the cursor
-    /// reaches Confirm — breaking the "every label is in the captured output" assertions.
-    /// Each test seeds the input queue after construction via the navigation helpers below.
+    /// Interactive <see cref="TestConsole"/> sized to fit the whole 60-row form so Spectre
+    /// never paginates it (pagination clips top rows out of the captured output).
     /// </summary>
     private static TestConsole NewConsole()
     {
         var c = new TestConsole();
         c.Interactive();
-        // Bump well above the form's 60-row footprint so the form never paginates in
-        // tests (pagination clips top rows out of the captured output and breaks the
-        // "every label is in the output" assertions).
         c.Profile.Height = 120;
         c.Profile.Width = 130;
         return c;
     }
 
     /// <summary>
-    /// Pushes <paramref name="downArrows"/> down-arrow key events followed by Enter, simulating
-    /// the operator navigating from the cursor's current position to a row N steps below and
-    /// activating it. Field index <c>N</c> sits exactly <c>N</c> DownArrows below the cursor's
-    /// initial position (field 0); the trailing <c>Confirm and save</c> entry sits at
-    /// <see cref="FieldCount"/> DownArrows.
+    /// Pushes <paramref name="downArrows"/> DownArrow presses + Enter. Field index N sits N
+    /// DownArrows below the cursor's starting position (field 0).
     /// </summary>
     private static void Navigate(TestConsole c, int downArrows)
     {
@@ -120,20 +55,12 @@ public sealed class ConfigInteractivePromptTests
         c.Input.PushKey(ConsoleKey.Enter);
     }
 
-    /// <summary>
-    /// Selects the trailing <c>Confirm and save</c> entry from the form's default starting
-    /// position (field 0). Tests call this exactly once per form invocation to terminate the
-    /// navigable loop.
-    /// </summary>
+    /// <summary>Selects <c>Confirm and save</c> from the form's default starting position.</summary>
     private static void ConfirmForm(TestConsole c) => Navigate(c, FieldCount);
 
     /// <summary>
-    /// Opens the per-field editor for <paramref name="fieldIndex"/> and pushes
-    /// <paramref name="answers"/> as the answer line(s) the field's prompt will consume. The
-    /// field's editor reads via <c>ReadLine</c> (or <c>ReadKey</c> for the masked OAuth path),
-    /// which both consume from the same input queue <see cref="TestConsoleInput.PushTextWithEnter"/>
-    /// populates. Use multiple <paramref name="answers"/> when the field re-prompts on invalid
-    /// input — e.g. <c>EditField(c, 6, "bad", "5005")</c> for an int re-prompt.
+    /// Opens the field's editor and pushes <paramref name="answers"/> as answer lines. Pass
+    /// multiple answers to drive a re-prompt on invalid input.
     /// </summary>
     private static void EditField(TestConsole c, int fieldIndex, params string[] answers)
     {
@@ -143,20 +70,9 @@ public sealed class ConfigInteractivePromptTests
     }
 
     /// <summary>
-    /// Calls <see cref="ConfigPhase.PromptForConfig(IAnsiConsole, bool, Func{IPAddress?}?, Func{string?}?)"/>
-    /// with null-returning <c>localAddressProbe</c> AND <c>hostnameProbe</c> so neither the
-    /// device-IP nor the mDNS-hostname auto-default fires during unit tests. Every test below
-    /// that doesn't specifically exercise the auto-default goes through this wrapper — without
-    /// it, a CI runner with a routable NIC would silently pre-populate <c>Deployment.Hosts</c>
-    /// with the runner's primary IP and break the existing "fresh config = empty Hosts"
-    /// assertion in <see cref="ConfirmingFormImmediatelyUsesDefaults"/> (and incidentally
-    /// pollute the derived-URL menu rows in tests that don't edit hosts). The
-    /// <c>hostnameProbe</c> default here is redundant (the prompt's own default is
-    /// <c>() =&gt; null</c>) but stated explicitly so a future refactor that flips
-    /// PromptForConfig's default to a live detector doesn't silently regress these tests.
-    /// The tests that DO want a detected IP call
-    /// <see cref="ConfigPhase.PromptForConfig(IAnsiConsole, bool, Func{IPAddress?}?, Func{string?}?)"/>
-    /// directly with an explicit fake.
+    /// Standard wrapper — both probes return null so neither auto-default fires in tests. A
+    /// CI runner with a routable NIC would otherwise pre-populate Hosts and break the empty-
+    /// Hosts assertions. Tests exercising the auto-default call <c>PromptForConfig</c> directly.
     /// </summary>
     private static BootstrapConfig PromptWithoutDetection(IAnsiConsole console, bool maskSecrets = false) =>
         ConfigPhase.PromptForConfig(
@@ -180,12 +96,8 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Deployment.TrustStoreInstall).IsTrue();
         await Assert.That(config.Deployment.IncludeWeb).IsFalse();
         await Assert.That(config.Deployment.WebHttps).IsFalse();
-        // Hosts has no shipped default placeholder — confirming the form without editing the
-        // Hosts row leaves Hosts as []. Validate fails fast on this state downstream, which is
-        // the explicit fail-fast contract documented in DeploymentSection.Hosts. Note: this
-        // test routes through PromptWithoutDetection which suppresses the runtime device-IP
-        // pre-fill; in production an interactive bootstrap on a box with a routable NIC sees
-        // the detected IP as the row's default (see DetectedDeviceIpPreFillsHostsOnFreshBootstrap).
+        // No default; the auto-fill is suppressed via PromptWithoutDetection. Validate
+        // fails fast on this state downstream (see DeploymentSection.Hosts).
         await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(0);
 
         // Ports defaults
@@ -197,29 +109,21 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Ports.Scylla).IsEqualTo(9042);
 
         // Database / API defaults
-        await Assert.That(config.DatabaseMode).IsEqualTo("single");
+        await Assert.That(config.DatabaseMode).IsEqualTo(DatabaseMode.Single);
         await Assert.That(config.PostgresDatabase).IsEqualTo("interfold");
         await Assert.That(config.ClusterName).IsEqualTo("InterfoldCluster");
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo("nam");
+        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Nam);
         await Assert.That(config.ApiImage).IsEqualTo("ghcr.io/azyyyyyy/interfold-api:latest");
 
-        // ApiRuntime defaults are NOT derived inside PromptForConfig itself — the menu's
-        // Show callbacks derive them on every redraw, but the stored field is whatever the
-        // operator last typed (or empty if they accepted the prompt's derived default).
-        // RunAsync / Validate is where the stored field gets the derived value materialised.
+        // ApiRuntime: derivation happens in RunAsync / Validate, not PromptForConfig, so
+        // the stored fields stay empty here (the menu's Show callbacks derive for display only).
         await Assert.That(config.ApiRuntime.CallbackBaseUrl).IsEqualTo(string.Empty);
         await Assert.That(config.ApiRuntime.JwtAuthority).IsEqualTo(string.Empty);
-        // JwtAudience has a hardcoded property-initialiser default; the form just echoes it.
         await Assert.That(config.ApiRuntime.JwtAudience).IsEqualTo("octocon");
         await Assert.That(config.ApiRuntime.CorsAllowedOrigins.Count).IsEqualTo(0);
 
-        // Cluster & telemetry / Storage / Performance tuning defaults. NodeGroup +
-        // four DB-retry/hydration tuning ints have non-null property-initialiser
-        // defaults that match the API's compile-time fallbacks; the three "disabled
-        // when blank" string fields (Avatar* + OtlpEndpoint) and the nullable
-        // BatchBytesThreshold default to empty/null so leaving them untouched
-        // reproduces the pre-bootstrapper "env var unset" behaviour 1:1.
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo("auxiliary");
+        // Blank string/null fields reproduce the pre-bootstrapper "env var unset" behaviour.
+        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Auxiliary);
         await Assert.That(config.Observability.OtlpEndpoint).IsEqualTo(string.Empty);
         await Assert.That(config.Storage.AvatarStorageRoot).IsEqualTo(string.Empty);
         await Assert.That(config.Storage.AvatarPublicBase).IsEqualTo(string.Empty);
@@ -237,8 +141,7 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.OAuth.AppleClientId).IsEqualTo(string.Empty);
         await Assert.That(config.OAuth.AppleClientSecret).IsEqualTo(string.Empty);
 
-        // Update-section defaults — every field defaults to a "manual only" stance so a
-        // stock bootstrap behaves identically to pre-feature deployments.
+        // Update section defaults to "manual only" — stock bootstrap matches pre-feature deployments.
         await Assert.That(config.Update.Enabled).IsFalse();
         await Assert.That(config.Update.HealthCheckTimeoutSeconds).IsEqualTo(180);
         await Assert.That(config.Update.AutoRestoreOnFailure).IsFalse();
@@ -278,9 +181,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingHostsAcceptsIpAndCidr()
     {
-        // Mixed input: IPv4 literal + IPv6 CIDR. Both must survive the validator and reach the
-        // stored list verbatim — the parser pins their kinds (Ipv4 / Ipv6Cidr) at config-load
-        // time, and the prompt's responsibility ends at preserving the operator's raw text.
+        // IPv4 literal + IPv6 CIDR must reach the stored list verbatim.
         var console = NewConsole();
         EditField(console, fieldIndex: 1, "192.168.1.42,fe80::/64");
         ConfirmForm(console);
@@ -295,9 +196,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task DetectedDeviceIpPreFillsHostsOnFreshBootstrap()
     {
-        // The interactive prompt pre-fills "Public host(s)" with the device's primary IP so the
-        // operator's first-run experience is a single Enter to accept the detected LAN address.
-        // We inject a deterministic probe so the test doesn't depend on the runner's NICs.
+        // Deterministic probe (test doesn't depend on the runner's NICs).
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -313,11 +212,8 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task DetectedIpv6IsStoredAsBareLiteralNotBracketed()
     {
-        // The stored Hosts entry must be the bare literal — HostParser accepts either form for
-        // IPv6 (bracketed or bare), but downstream consumers expect the bare form: the SAN
-        // encoder uses entry.Ip directly, and URL derivation in ResolveDerivedDefaults handles
-        // its own bracket-wrapping via HostParser.ToUrlHost. Storing "[::1]" would round-trip
-        // into the JSON file with the brackets and silently surprise anyone hand-editing it.
+        // Downstream consumers (SAN encoder, URL derivation) expect the bare literal;
+        // storing "[::1]" would round-trip into the JSON with brackets and surprise editors.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -333,9 +229,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task OperatorEditedHostsOverrideDetectedIpDefault()
     {
-        // Pre-fill is just a default — the operator can still edit the row to whatever they
-        // want, and the typed value MUST win. Sanity-check that the auto-default doesn't bake
-        // itself into the stored config when the operator explicitly types a replacement.
+        // Auto-default is just a pre-fill — a typed value must win.
         var console = NewConsole();
         EditField(console, fieldIndex: 1, "api.example.com");
         ConfirmForm(console);
@@ -352,12 +246,8 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task NullDetectorLeavesHostsEmpty()
     {
-        // The detector can legitimately return null (loopback-only test runner, air-gapped box,
-        // every NIC filtered as virtual). In that case the prompt must NOT invent a fallback —
-        // Hosts stays [] and Validate fails fast downstream, which is the documented contract
-        // on DeploymentSection.Hosts. This is the same shape PromptWithoutDetection exercises,
-        // but pinned as an explicit test so a future "default to 127.0.0.1 when detection fails"
-        // refactor gets caught.
+        // Null detector must NOT invent a fallback (would mask a future "default to 127.0.0.1"
+        // regression). Validate fails fast on the resulting empty Hosts downstream.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -372,10 +262,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task DetectedIpAppearsInPublicHostMenuRow()
     {
-        // The menu rendering is where the operator sees the auto-default before deciding to
-        // accept or override. Pin that the detected IP appears in the captured output next to
-        // the "Public host(s)" label so a future refactor that bypasses the Hosts pre-fill (or
-        // accidentally puts the detected value in the wrong row) is caught visually too.
+        // Guards against a refactor that pre-fills Hosts but doesn't render the value on its row.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -390,12 +277,8 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task HostsPrefillIncludesMdnsHostnameAndIp()
     {
-        // Two-probe pre-fill: when the pre-prompt banner reports mDNS is working AND the
-        // device has a routable NIC, the hosts seed contains BOTH the {hostname}.local name
-        // (first, so HostParser.PickPrimary latches it as the primary host for leaf-cert /
-        // derived-URL purposes) AND the primary IP (second, for LAN-address-based reachability).
-        // Order matters — a regression that swaps them would silently change every derived
-        // URL to point at the IP instead of the hostname.
+        // Order matters: hostname first so HostParser.PickPrimary latches it for leaf-cert
+        // and derived-URL purposes. A swap would silently point every derived URL at the IP.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -408,19 +291,15 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(config.Deployment.Hosts.Count).IsEqualTo(2);
         await Assert.That(config.Deployment.Hosts[0]).IsEqualTo("workstation.local");
         await Assert.That(config.Deployment.Hosts[1]).IsEqualTo("192.168.1.42");
-        // The menu row shows both values comma-joined (Show callback = string.Join(",", Hosts)).
-        // Pin the exact display so a future refactor that (say) prints only Hosts[0] gets caught.
+        // Menu row = comma-joined; pin the exact display so a "print only Hosts[0]" regression gets caught.
         await Assert.That(Regex.IsMatch(console.Output, @"Public host\(s\)\s+workstation\.local,192\.168\.1\.42")).IsTrue();
     }
 
     [Test]
     public async Task HostsPrefillOmitsHostnameWhenProbeReturnsNull()
     {
-        // The pre-prompt banner returns null when mDNS is unavailable (or the operator declined
-        // the install offer). In that case only the detected IP lands in the pre-fill — the
-        // hostname is deliberately omitted rather than pre-filled with an unresolvable name.
-        // Documents the "banner said mDNS is unavailable" flow and pins that a null probe
-        // never becomes an accidental empty-string / null entry in the Hosts list.
+        // Null hostname probe (banner reported mDNS unavailable) must not become an empty
+        // or null entry in Hosts — only the detected IP lands.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -437,16 +316,14 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingOAuthSecretsCapturesValues()
     {
-        // OAuth rows are paired per provider (ID then secret) - the secret rows therefore sit at
-        // 32 / 34 / 36 (immediately after each provider's matching ID row at 31 / 33 / 35).
+        // Paired per provider (ID then secret): secrets sit at 32 / 34 / 36.
         var console = NewConsole();
         EditField(console, fieldIndex: 32, "google-secret-xyz");
         EditField(console, fieldIndex: 34, "discord-secret-abc");
         EditField(console, fieldIndex: 36, "apple-secret-jwt");
         ConfirmForm(console);
 
-        // maskSecrets:false (the default) keeps the prompt off the ReadKey path so PushTextWithEnter
-        // suffices — matches the in-test behaviour we want.
+        // maskSecrets:false keeps the prompt off the ReadKey path so PushTextWithEnter suffices.
         var config = PromptWithoutDetection(console);
 
         await Assert.That(config.OAuth.GoogleClientSecret).IsEqualTo("google-secret-xyz");
@@ -457,9 +334,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingOAuthClientIdsCapturesValues()
     {
-        // Client IDs are public per-provider identifiers - paired with the matching secrets but
-        // sourced via the plain PromptStr path (no masking, no <set>/<empty> indirection on the
-        // menu row). The three ID rows sit at the start of each provider's pair: 31 / 33 / 35.
+        // Public IDs → plain PromptStr (no masking). ID rows sit at 31 / 33 / 35.
         var console = NewConsole();
         EditField(console, fieldIndex: 31, "1234.apps.googleusercontent.com");
         EditField(console, fieldIndex: 33, "9876543210");
@@ -476,20 +351,13 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FormShowsEmptyMarkerNextToUnsetOAuthClientIds()
     {
-        // Pins the parity with the secret rows: an OAuth client ID row that was never set must
-        // render the <empty> marker (same as the matching secret), so the menu makes the
-        // unset-vs-set distinction visible at a glance. Without this, an empty ID just paints
-        // a blank cell next to the label, which reads as "no row" rather than "row exists but
-        // is unset" — and operators who tab through the form can miss that they need to fill
-        // both halves of a provider's credentials.
+        // Parity with secret rows: an unset ID must render <empty>, not a blank cell (which
+        // reads as "no row" and can lead operators to miss the second half of a provider's pair).
         var console = NewConsole();
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
 
-        // The menu row format is "<padded label> <value>" after markup stripping, so a guard
-        // regex anchored on each ID's label catches a regression that would leave the value
-        // column blank or non-<empty>.
         var output = console.Output;
         await Assert.That(Regex.IsMatch(output, @"Google OAuth client ID\s+<empty>")).IsTrue();
         await Assert.That(Regex.IsMatch(output, @"Discord OAuth client ID\s+<empty>")).IsTrue();
@@ -499,10 +367,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FormShowsOAuthClientIdsVerbatimInMenuRow()
     {
-        // OAuth client IDs are NOT secrets - they end up in the OAuth redirect URL and are
-        // publicly visible at runtime, so the menu row should echo them as-is (unlike the secret
-        // rows, which collapse to <set>/<empty>). The post-edit form re-render must contain the
-        // literal Google client ID we typed, NOT a "<set>" marker.
+        // IDs are public → the menu row echoes the value verbatim, not <set>/<empty>.
         const string googleId = "1234.apps.googleusercontent.com";
         var console = NewConsole();
         EditField(console, fieldIndex: 31, googleId);
@@ -552,11 +417,8 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingIncludeWebCapturesOverride()
     {
-        // IncludeWeb (row 5) is the HTTP-only opt-in for the octocon-web container. Independent
-        // from WebHttps (row 6) — flipping IncludeWeb=true while WebHttps stays false ships the
-        // wasm container in HTTP-only mode (the debugging / external-TLS-proxy variant). This
-        // test pins the prompt round-trips a typed "y" through the form onto the config without
-        // also promoting WebHttps.
+        // IncludeWeb (row 5) is independent from WebHttps (row 6) — toggling one must not
+        // silently promote the other.
         var console = NewConsole();
         EditField(console, fieldIndex: 5, "y");   // IncludeWeb := true
         ConfirmForm(console);
@@ -570,8 +432,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task PortPromptRePromptsOnInvalidInt()
     {
-        // EditField pushes both answers into the same field's editor; the inline ValidationErrorMessage
-        // re-prompts after "bad" and the second answer (5005) is what should stick.
+        // "bad" triggers the re-prompt; the second answer (5005) is what should stick.
         var console = NewConsole();
         EditField(console, fieldIndex: 7, "bad", "5005");
         ConfirmForm(console);
@@ -603,45 +464,39 @@ public sealed class ConfigInteractivePromptTests
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.DatabaseMode).IsEqualTo("multi");
+        await Assert.That(config.DatabaseMode).IsEqualTo(DatabaseMode.Multi);
     }
 
     [Test]
     public async Task EditingScyllaKeyspaceCapturesValue()
     {
-        // Scylla keyspace (row 16) is the per-instance region identity — operator picks one of
-        // the seven valid regional values, defaulted to "nam". The AddChoices restriction is
-        // covered by the rejection test below; this one just proves the happy-path edit.
+        // Happy-path edit; AddChoices enforcement is covered by the rejection test below.
         var console = NewConsole();
         EditField(console, fieldIndex: 16, "eur");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo("eur");
+        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Eur);
     }
 
     [Test]
     public async Task ScyllaKeyspacePromptEnforcesChoices()
     {
-        // AddChoices on the underlying TextPrompt enforces the seven-value allow-list. Typing
-        // anything else re-prompts; the eventually-accepted value is what sticks.
+        // AddChoices re-prompts on non-listed values; the eventually-accepted value sticks.
         var console = NewConsole();
         EditField(console, fieldIndex: 16, "ant", "gdpr");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.ScyllaKeyspace).IsEqualTo("gdpr");
+        await Assert.That(config.ScyllaKeyspace).IsEqualTo(ScyllaKeyspace.Gdpr);
     }
 
     [Test]
     public async Task EditingApiRuntimeCapturesValues()
     {
-        // The four ApiRuntime rows: callback URL (17), JWT authority (18), JWT audience (19),
-        // CORS allowed origins (20). Each goes through its dedicated prompt (PromptStr for
-        // the three single-value fields, PromptCorsAllowedOrigins for the comma-separated
-        // list). All four must round-trip through the form and land on the config verbatim.
+        // Rows 17-20: CallbackBaseUrl / JwtAuthority / JwtAudience / CORS. Verbatim round-trip.
         var console = NewConsole();
         EditField(console, fieldIndex: 17, "https://api.custom.example.com");
         EditField(console, fieldIndex: 18, "https://issuer.custom.example.com");
@@ -662,13 +517,9 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FormShowsDerivedCallbackBaseUrlInMenuRow()
     {
-        // The four ApiRuntime show callbacks call ResolveDerivedDefaults on a clone so the
-        // menu row paints the derived default next to its label even when the stored field
-        // is still empty. Hosts has no shipped default, so the test first populates it via
-        // the Public host(s) row (field index 1); after that, with WebHttps=false and the
-        // shipped port defaults (Ports.ApiHttps=5001 / Ports.WebHttp=8080) the derived
-        // callback URL is "https://api.example.com:5001" (always https for the API in
-        // self-host) and the CORS origin is "http://api.example.com:8080" (web tier).
+        // ApiRuntime Show callbacks paint the derived default when the stored field is empty.
+        // With WebHttps=false and shipped port defaults: callback is https://host:5001 (API
+        // always https in self-host), CORS is http://host:8080 (web tier).
         var console = NewConsole();
         EditField(console, fieldIndex: 1, "api.example.com");
         ConfirmForm(console);
@@ -676,21 +527,15 @@ public sealed class ConfigInteractivePromptTests
         PromptWithoutDetection(console);
 
         var output = console.Output;
-        // Same row-format guard as the OAuth-ID <empty> assertions: anchor on the label so
-        // a regression that paints a blank value cell or the wrong derived string fails loudly.
         await Assert.That(Regex.IsMatch(output, @"OAuth callback base URL\s+https://api\.example\.com:5001")).IsTrue();
         await Assert.That(Regex.IsMatch(output, @"JWT authority \(iss claim\)\s+https://api\.example\.com:5001")).IsTrue();
-        // CORS row derives one entry per non-CIDR host, joined with ',' for the menu display.
-        // The single-host input produces one entry on the web scheme + port.
         await Assert.That(Regex.IsMatch(output, @"CORS allowed origins\s+http://api\.example\.com:8080")).IsTrue();
     }
 
     [Test]
     public async Task CorsAllowedOriginsRePromptsOnInvalidUri()
     {
-        // The inline validator in PromptCorsAllowedOrigins rejects any entry that doesn't
-        // parse as an absolute http(s) URI. Typing a bare hostname re-prompts; the second
-        // (valid) answer is what sticks.
+        // Bare hostnames aren't absolute http(s) URIs — re-prompt; second answer sticks.
         var console = NewConsole();
         EditField(console, fieldIndex: 20,
             "not-a-url,still-not-a-url",
@@ -707,8 +552,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FormListsEveryFieldLabel()
     {
-        // The menu rendering is the only chance to catch a dropped field. Confirming the form
-        // immediately is enough — the menu is drawn before the operator gets a chance to act.
+        // Confirming immediately is enough — the menu renders before the first key is consumed.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -752,9 +596,7 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(output).Contains("DB retry initial delay");
         await Assert.That(output).Contains("DB retry max delay");
         await Assert.That(output).Contains("Hydration max concurrency");
-        // OAuth credentials — every provider has BOTH an ID and a secret row, and both
-        // must be reachable from the menu. Asserting the suffix "client ID" / "client secret"
-        // separately catches a future refactor that drops a label by accident.
+        // OAuth: assert ID and secret rows separately so a dropped label is caught.
         await Assert.That(output).Contains("Google OAuth client ID");
         await Assert.That(output).Contains("Google OAuth client secret");
         await Assert.That(output).Contains("Discord OAuth client ID");
@@ -766,11 +608,6 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FormListsEverySectionHeader()
     {
-        // Section headers are rendered by AddChoiceGroup as inert rows above each group. All
-        // ten headers (Deployment / Ports / Database / API / Cluster & telemetry / Storage /
-        // Performance tuning / OAuth credentials / Backup & autostart / Updates) must appear
-        // in the captured output. "API" subsumes the old single-row "API image" section now
-        // that the four ApiRuntime fields share the section.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -780,33 +617,62 @@ public sealed class ConfigInteractivePromptTests
         await Assert.That(output).Contains("Deployment");
         await Assert.That(output).Contains("Ports");
         await Assert.That(output).Contains("Database");
-        // Use regex with the "---" framing so this doesn't match the literal token inside the
-        // "OAuth callback base URL" label / the "API HTTP port" label / etc.
+        // "---" framing distinguishes ambiguous tokens (e.g. "API" also appears in field labels).
         await Assert.That(Regex.IsMatch(output, @"---\s+API\s+---")).IsTrue();
         await Assert.That(output).Contains("Cluster & telemetry");
-        // Storage as a header must be distinguishable from the "Avatar storage root" label —
-        // the "---" framing pins the header context.
         await Assert.That(Regex.IsMatch(output, @"---\s+Storage\s+---")).IsTrue();
         await Assert.That(output).Contains("Performance tuning");
         await Assert.That(output).Contains("OAuth credentials");
-        // New Backup & autostart section sits after the credentials group; the framing is
-        // the same as Storage.
         await Assert.That(output).Contains("Backup & autostart");
-        // Updates section sits at the tail; framed same as the others so this line matches
-        // the header, not e.g. the "Auto-restore" label in a row value.
         await Assert.That(Regex.IsMatch(output, @"---\s+Updates\s+---")).IsTrue();
-        // The title is part of every form render — assert it too so a future refactor that
-        // accidentally drops the Title() call gets flagged immediately.
         await Assert.That(output).Contains("Configure interfold.bootstrap.json");
-        // And the Confirm entry.
         await Assert.That(output).Contains("Confirm and save");
+    }
+
+    [Test]
+    public async Task SectionHeadersSitAboveTheirFirstField()
+    {
+        // Position guard (FormListsEverySectionHeader only checks presence). The grouped
+        // declaration makes mechanical index drift impossible, so this now catches a field
+        // declared under the wrong Group(...) — same visible symptom.
+        // Assert: previous section's last field < header < current section's first field.
+        var console = NewConsole();
+        ConfirmForm(console);
+
+        PromptWithoutDetection(console);
+
+        var output = console.Output;
+        // (previous section's last field label, header text, section's first field label)
+        var boundaries = new (string PrevField, string Header, string FirstField)[]
+        {
+            ("Terminate HTTPS at octocon-web",           "--- Ports ---",              "API HTTP port"),
+            ("Scylla/Cassandra host port",               "--- Database ---",           "Database mode"),
+            ("Scylla keyspace (region)",                 "--- API ---",                "OAuth callback base URL"),
+            ("Pre-built Interfold API image",            "--- Cluster & telemetry ---", "Cluster node group"),
+            ("OTLP endpoint",                            "--- Storage ---",            "Avatar storage root"),
+            ("Avatar public base URL",                   "--- Performance tuning ---", "Socket batch flush threshold"),
+            ("Hydration max concurrency",                "--- OAuth credentials ---",  "Google OAuth client ID"),
+            ("Apple OAuth client secret",                "--- Backup & autostart ---", "Scheduled backups enabled"),
+            ("Autostart server on boot",                 "--- Updates ---",            "Chain updates after backup"),
+            ("Update service whitelist",                 "--- Firebase ---",           "Firebase push notifications"),
+        };
+        foreach (var (prevField, header, firstField) in boundaries)
+        {
+            var prevIdx = output.IndexOf(prevField, StringComparison.Ordinal);
+            var headerIdx = output.IndexOf(header, StringComparison.Ordinal);
+            var firstIdx = output.IndexOf(firstField, StringComparison.Ordinal);
+            await Assert.That(prevIdx).IsGreaterThanOrEqualTo(0);
+            await Assert.That(headerIdx).IsGreaterThan(prevIdx)
+                .Because($"'{header}' must render below '{prevField}'");
+            await Assert.That(firstIdx).IsGreaterThan(headerIdx)
+                .Because($"'{firstField}' must render below '{header}'");
+        }
     }
 
     [Test]
     public async Task EditingBackupTogglesAndSchedule()
     {
-        // Five-row backup section (rows 37..41). Exercises a happy-path edit of every row so
-        // the round-trip through PromptForConfig captures the operator input verbatim.
+        // Happy-path edit of every row in the five-row backup section (37..41).
         var console = NewConsole();
         EditField(console, fieldIndex: 37, "y");                           // Enabled := true
         EditField(console, fieldIndex: 38, "Mon..Fri 03:30");              // Schedule
@@ -827,8 +693,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task BackupRetainPromptRejectsOutOfRangeValues()
     {
-        // PromptInt re-prompts on values outside the [1..1000] band. The first input is bad
-        // (the validator's lower bound is 1) and the operator types a valid value second.
+        // 0 is outside [1..1000]; PromptInt re-prompts and the second answer sticks.
         var console = NewConsole();
         EditField(console, fieldIndex: 39, "0", "7");
         ConfirmForm(console);
@@ -841,9 +706,8 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task BackupSectionEmptyDirectoryDefaults()
     {
-        // Confirming the form without editing the directory row leaves it at the empty-string
-        // default — the "use {outputDir}/backups" sentinel. Important because operators who
-        // ignore the section entirely (the most common case) still produce a valid config.
+        // Empty Directory = the "use {outputDir}/backups" sentinel — operators who ignore
+        // the section entirely (the common case) still produce a valid config.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -857,41 +721,33 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingNodeGroupCapturesValue()
     {
-        // NodeGroup (row 22) is the cluster-role identity. AddChoices on the underlying
-        // TextPrompt enforces the three-value allow-list (primary / auxiliary / sidecar);
-        // this test exercises the happy path. The rejection / re-prompt behaviour is
-        // covered by NodeGroupPromptEnforcesChoices below.
+        // Happy-path edit; rejection covered by NodeGroupPromptEnforcesChoices below.
         var console = NewConsole();
         EditField(console, fieldIndex: 22, "primary");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo("primary");
+        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Primary);
     }
 
     [Test]
     public async Task NodeGroupPromptEnforcesChoices()
     {
-        // AddChoices restricts the prompt to {primary, auxiliary, sidecar}; an unknown
-        // value re-prompts and the eventually-accepted value sticks. Matches the
-        // ScyllaKeyspace AddChoices behaviour pattern.
+        // AddChoices re-prompts on non-listed values (same shape as ScyllaKeyspace).
         var console = NewConsole();
         EditField(console, fieldIndex: 22, "guardian", "sidecar");
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
 
-        await Assert.That(config.Cluster.NodeGroup).IsEqualTo("sidecar");
+        await Assert.That(config.Cluster.NodeGroup).IsEqualTo(NodeGroup.Sidecar);
     }
 
     [Test]
     public async Task EditingStorageAndObservabilityCapturesValues()
     {
-        // Storage (rows 24 / 25) and Observability (row 23) are plain PromptStr rows — empty
-        // input is allowed (signals "feature disabled" on the API side). This test pins that
-        // a non-empty value round-trips through the form verbatim; the empty-state behaviour
-        // is locked down by ConfirmingFormImmediatelyUsesDefaults above.
+        // Non-empty round-trip; blank-state pinned by ConfirmingFormImmediatelyUsesDefaults.
         var console = NewConsole();
         EditField(console, fieldIndex: 23, "http://otel-collector:4317");
         EditField(console, fieldIndex: 24, "/var/lib/interfold/avatars");
@@ -908,9 +764,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task EditingTuningIntsCapturesValues()
     {
-        // The four DB-retry / hydration tuning rows are plain PromptInt rows; the
-        // BatchBytesThreshold row (26) is the nullable PromptNullableInt variant. All five
-        // round-trip the typed value through the form.
+        // Row 26 uses PromptNullableInt; the other four use PromptInt. All five round-trip.
         var console = NewConsole();
         EditField(console, fieldIndex: 26, "131072");
         EditField(console, fieldIndex: 27, "5");
@@ -931,11 +785,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task BatchBytesThresholdAcceptsBlankAsNull()
     {
-        // PromptNullableInt treats blank input as null (the "use the API's compile-time
-        // default" signal). This test pins that contract — typing nothing on row 26 leaves
-        // BatchBytesThreshold at null even after an explicit edit invocation. The PromptStr
-        // helper used by the other tuning rows would default to the existing value on blank
-        // input; the nullable variant explicitly clears.
+        // Blank on row 26 must clear to null (PromptNullableInt contract), not fall back to the existing value.
         var console = NewConsole();
         EditField(console, fieldIndex: 26, string.Empty);
         ConfirmForm(console);
@@ -948,9 +798,8 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task DbRetryAttemptsRePromptsOnOutOfRangeInt()
     {
-        // PromptInt's inline validator enforces the 1..100 bound on row 27 — typing 9999
-        // re-prompts and the second (valid) answer sticks. Same pattern as the port re-prompt
-        // test above; this one pins the new tuning fields use the same validator path.
+        // 9999 breaches the [1..100] bound on row 27; second answer sticks. Pins that the
+        // tuning fields share PromptInt's validator with the port rows.
         var console = NewConsole();
         EditField(console, fieldIndex: 27, "9999", "5");
         ConfirmForm(console);
@@ -958,76 +807,53 @@ public sealed class ConfigInteractivePromptTests
         var config = PromptWithoutDetection(console);
 
         await Assert.That(config.Persistence.DbRetryAttempts).IsEqualTo(5);
-        // PromptInt's ValidationErrorMessage uses "must be an integer in [N..M]" — pin the
-        // shared prefix so a future error-text refactor flags both this test and the
-        // matching PortPromptRePromptsOnInvalidInt test.
         await Assert.That(console.Output).Contains("must be an integer in");
     }
 
     [Test]
     public async Task FormShowsEditedValueInMenuRow()
     {
-        // After an edit, the form re-renders with the new value displayed next to the field's
-        // label. Editing the API HTTP port to 5005 and then confirming gives the form a chance
-        // to render twice — the second render must contain the new value.
+        // Post-edit re-render must echo the freshly-typed value on the row.
         var console = NewConsole();
         EditField(console, fieldIndex: 7, "5005");
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
 
-        // The literal "5005" appears at least once in the captured output — the form's
-        // post-edit re-render echoes the freshly-typed value back into the menu row. (It also
-        // appears in the TextPrompt echo, but either source is sufficient evidence of the
-        // round-trip working.)
         await Assert.That(console.Output).Contains("5005");
     }
 
     [Test]
     public async Task FormMasksOAuthSecretsInMenuRow()
     {
-        // The menu's row format is "<padded-label> <value>" after markup stripping — so if any
-        // form render ever leaked the raw secret into the Google OAuth row's value column, the
-        // captured output would match `Google OAuth client secret<whitespace><secret>`. The
-        // pattern below is the direct guard against that regression.
-        //
-        // We use the unmasked test path (maskSecrets:false) here on purpose: it proves the row
-        // is masked by the Mask() Show() callback (not by Spectre's per-field Secret() mode).
-        // The raw secret WILL appear elsewhere in the output (in the TextPrompt echo for the
-        // editor itself, which is why we have a separate MaskSecretsHidesOAuthEchoInPromptOutput
-        // test pinning the prod-path Secret() behaviour).
+        // Runs unmasked (maskSecrets:false) to prove the Mask() Show() callback is what
+        // hides the value in the row — Spectre's per-field Secret() is covered separately by
+        // MaskSecretsHidesOAuthEchoInPromptOutput. The raw secret WILL appear in the
+        // TextPrompt echo; the guard is that it never appears NEXT TO the label.
         const string secret = "google-secret-xyz";
         var console = NewConsole();
-        // Google OAuth client secret sits at index 32 (immediately after the matching ID at 31).
         EditField(console, fieldIndex: 32, secret);
         ConfirmForm(console);
 
         PromptWithoutDetection(console);
 
         var output = console.Output;
-        // The post-edit form renders show <set> next to Google OAuth client secret (and <empty>
-        // next to the two unedited OAuth secret rows). Both markers must be present somewhere
-        // in the output — proves the Mask() Show() callback fired through the converter.
+        // <set> next to the edited row, <empty> next to the two unedited ones.
         await Assert.That(output).Contains("<set>");
         await Assert.That(output).Contains("<empty>");
 
-        // The actual masking guard: the menu's "Google OAuth client secret" label is never
-        // followed (within the same logical menu row) by the raw secret literal.
+        // The actual masking guard.
         var leakedMenuRow = new Regex(@"Google OAuth client secret\s+google-secret-xyz");
         await Assert.That(leakedMenuRow.IsMatch(output)).IsFalse();
 
-        // Sanity: the raw secret IS present in the unmasked-path output (in the TextPrompt
-        // echo) — proving the test actually exercised the editor path it claims to. If this
-        // assertion ever flipped, the test would be vacuously passing the masking guard above.
+        // Sanity: without this, the guard above passes vacuously.
         await Assert.That(output).Contains(secret);
     }
 
     [Test]
     public async Task EditingUpdateSectionCapturesValues()
     {
-        // Five-row update section (rows 42..46). Exercises a happy-path edit of every row
-        // so the round-trip through PromptForConfig captures the operator input verbatim.
-        // Services row: comma-separated list validated against ValidUpdateServices.
+        // Happy-path edit of every row in the five-row update section (42..46).
         var console = NewConsole();
         EditField(console, fieldIndex: 42, "y");                                    // Enabled := true
         EditField(console, fieldIndex: 43, "300");                                  // HealthCheckTimeoutSeconds
@@ -1050,8 +876,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task UpdateHealthCheckTimeoutRePromptsOnOutOfRange()
     {
-        // PromptInt bounded to [1..3600]. First input is 9999 (out of range); the second
-        // (valid) answer is what sticks. Same pattern as PortPromptRePromptsOnInvalidInt.
+        // 9999 breaches the [1..3600] bound; second answer sticks.
         var console = NewConsole();
         EditField(console, fieldIndex: 43, "9999", "60");
         ConfirmForm(console);
@@ -1065,9 +890,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task UpdateServicesPromptRejectsUnknownEntry()
     {
-        // PromptUpdateServices validates every comma-separated entry against
-        // ConfigPhase.ValidUpdateServices. Typing an unknown name re-prompts; the
-        // second (valid) answer sticks.
+        // Unknown entry re-prompts against ValidUpdateServices; second answer sticks.
         var console = NewConsole();
         EditField(console, fieldIndex: 46,
             "msg-db,not-a-real-service",
@@ -1085,9 +908,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task UpdateServicesBlankClearsWhitelist()
     {
-        // Blank input signals "every service" — the whitelist is stored as an empty array.
-        // Important because operators who set a whitelist once and later want to un-scope
-        // an update need a clean way to do it in the interactive form.
+        // Blank = "every service" (stored as empty array) — the un-scope path in the UI.
         var console = NewConsole();
         EditField(console, fieldIndex: 46, string.Empty);
         ConfirmForm(console);
@@ -1100,9 +921,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task UpdateSectionEmptyDefaults()
     {
-        // Confirming the form without touching the update section leaves every field at
-        // its property-initialiser default — the "manual only" stance. Locked down here
-        // so a future refactor that flips a default gets caught immediately.
+        // Locks the "manual only" property-initialiser defaults so a flipped default is caught.
         var console = NewConsole();
         ConfirmForm(console);
 
@@ -1118,31 +937,23 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task MaskSecretsHidesOAuthEchoInPromptOutput()
     {
-        // Production passes maskSecrets:true so the per-field prompt itself masks each typed
-        // character with `*` instead of echoing it. Spectre.Secret() reads characters via
-        // ReadKey; PushTextWithEnter populates the TestConsole input queue with the same
-        // per-character + Enter sequence that ReadKey consumes, so the masked path works
-        // end-to-end against the in-memory console.
+        // Prod path (maskSecrets:true) → Secret('*') masks the echo. PushTextWithEnter's
+        // per-char + Enter sequence matches what ReadKey consumes.
         const string secret = "google-secret-xyz";
         var console = NewConsole();
-        // Google OAuth client secret sits at index 32 (immediately after the matching ID at 31).
         EditField(console, fieldIndex: 32, secret);
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console, maskSecrets: true);
 
-        // The actual value still lands on the config — masking is purely a display concern.
+        // Value still lands on the config; masking is display-only.
         await Assert.That(config.OAuth.GoogleClientSecret).IsEqualTo(secret);
-        // …but the captured console output never contains the raw secret literal: the prompt
-        // echoed `*` chars and the menu row rendered `<set>`.
         await Assert.That(console.Output).DoesNotContain(secret);
     }
 
     /// <summary>
-    /// Minimal-shaped service-account fixture the Firebase wizard tests write out so the
-    /// scanner's per-file "type": "service_account" sniff finds a valid candidate. The
-    /// FirebasePhase-level parsing isn't exercised here — the wizard's job is purely to
-    /// point at files; validation is FirebasePhase's problem downstream.
+    /// Minimal service-account fixture so the scanner's <c>"type": "service_account"</c>
+    /// sniff finds a valid candidate. FirebasePhase-level parsing is validated separately.
     /// </summary>
     private const string FirebaseServiceAccountFixture = /*lang=json,strict*/ """
     {
@@ -1167,10 +978,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FirebaseAutoDetectBranchPopulatesAllFourPathsFromFolder()
     {
-        // End-to-end proof that the Firebase row (index 47) dispatches into the auto-detect
-        // branch and writes the scanner's output onto FirebaseSection. Uses a real temp folder
-        // with the four canonical filenames so we cover the scanner → wizard → config
-        // wiring in one drive.
+        // End-to-end drive of the scanner → wizard → config wiring on the auto-detect branch.
         var folder = NewFirebaseWizardTempDir();
         var android = Path.Combine(folder, "google-services.json");
         var ios = Path.Combine(folder, "GoogleService-Info.plist");
@@ -1182,15 +990,10 @@ public sealed class ConfigInteractivePromptTests
         File.WriteAllText(sa, FirebaseServiceAccountFixture);
 
         var console = NewConsole();
-        // Open the Firebase field. Navigate handles the DownArrows + Enter that select the row
-        // and open its editor (the SelectionPrompt<string> the wizard runs).
         Navigate(console, downArrows: 47);
-        // Wizard's SelectionPrompt starts on "Auto-detect from folder" (first choice) — Enter
-        // selects it without any DownArrow.
+        // Auto-detect is the first choice — Enter without a DownArrow.
         console.Input.PushKey(ConsoleKey.Enter);
-        // Folder TextPrompt reads a full line.
         console.Input.PushTextWithEnter(folder);
-        // Back on the outer form → Confirm and save.
         ConfirmForm(console);
 
         var config = PromptWithoutDetection(console);
@@ -1204,9 +1007,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FirebasePerFileBranchWritesFourExplicitPaths()
     {
-        // Per-file branch: four sequential TextPrompts, each validated against
-        // File.Exists. Writing real fixture files means the prompts accept the inputs without
-        // triggering the validator's re-prompt loop.
+        // Per-file branch: four sequential TextPrompts, each guarded by File.Exists.
         var folder = NewFirebaseWizardTempDir();
         var android = Path.Combine(folder, "google-services.json");
         var ios = Path.Combine(folder, "GoogleService-Info.plist");
@@ -1219,7 +1020,7 @@ public sealed class ConfigInteractivePromptTests
 
         var console = NewConsole();
         Navigate(console, downArrows: 47);
-        // Second choice in the SelectionPrompt — one DownArrow before Enter.
+        // Per-file is the 2nd choice — one DownArrow before Enter.
         console.Input.PushKey(ConsoleKey.DownArrow);
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushTextWithEnter(android);
@@ -1239,8 +1040,7 @@ public sealed class ConfigInteractivePromptTests
     [Test]
     public async Task FirebaseCancelBranchLeavesSectionAtDefaults()
     {
-        // Cancel branch is fourth in the SelectionPrompt — three DownArrows before Enter. Must
-        // leave every FirebaseSection.*Path at its shipped default (empty string).
+        // Cancel is the 4th choice — three DownArrows. Every *Path must stay empty.
         var console = NewConsole();
         Navigate(console, downArrows: 47);
         console.Input.PushKey(ConsoleKey.DownArrow);

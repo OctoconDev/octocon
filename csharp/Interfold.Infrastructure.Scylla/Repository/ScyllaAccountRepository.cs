@@ -3,20 +3,54 @@ using Cassandra;
 using System.Security.Cryptography;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaAccountRepository : IAccountRepository
 {
-    private readonly record struct LinkTokenEntry(string ScopedSystemId, DateTimeOffset ExpiresAt);
+    /// <summary>
+    /// OAuth-provider identity column on the Scylla user_registry / users tables. A closed
+    /// three-arm enum rather than a magic column-name string, so misspellings surface at
+    /// build time and CQL interpolation flows through <see cref="ColumnName"/> as the
+    /// single translation point.
+    /// </summary>
+    private enum ProviderColumn
+    {
+        Discord,
+        Email,
+        Apple,
+    }
+
+    /// <summary>
+    /// Maps the typed provider onto the Cassandra column / lookup-table suffix. Kept
+    /// switch-exhaustive with an explicit throw so a future enum member without a mapping
+    /// is a hard error rather than a silent-null-column CQL statement.
+    /// </summary>
+    private static string ColumnName(ProviderColumn column) => column switch
+    {
+        ProviderColumn.Discord => "discord_id",
+        ProviderColumn.Email => "email",
+        ProviderColumn.Apple => "apple_id",
+        _ => throw new ArgumentOutOfRangeException(nameof(column), column, "Unknown provider column"),
+    };
+
+    // Reverse-map value: scoped systemId + expiry, so ResolveSystemIdByLinkTokenAsync
+    // can hand back the wrapper without a string round-trip through new SystemId(...).
+    private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
     private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
     private readonly object _linkTokenLock = new();
-    private readonly ConcurrentDictionary<string, string> _linkTokenBySystem = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, LinkTokenEntry> _systemByLinkToken = new(StringComparer.Ordinal);
+    // Forward map keys on the scoped composite; reverse map keys on the typed LinkToken
+    // so any accidental toString-then-dict-key path can't bypass the redacting wrapper.
+    // Process-lifetime only — no storage-layer rehydration reads either dict, so the
+    // key-shape choice is invisible externally.
+    private readonly ConcurrentDictionary<ScopedSystemId, LinkToken> _linkTokenBySystem = new();
+    private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
 
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
@@ -25,15 +59,15 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     public ScyllaAccountRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        PersistenceConfiguration options
+        IOptions<PersistenceConfiguration> options
     )
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _options = options;
+        _options = options.Value;
     }
 
-    public async Task<bool> UpdateUsernameAsync(string systemId, string username, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -48,12 +82,31 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var oldUsername = oldRow?.GetValue<string?>("username");
 
             var batch = new BatchStatement();
-            batch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                username, normalizedSystemId));
-            batch.Add(new SimpleStatement(
-                $"UPDATE global.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
-                username, normalizedSystemId));
+            if (oldRow is null)
+            {
+                // First touch for a JWT-scoped principal: mint the regional users row so
+                // GetPublicProfileAsync (and public guarded reads that gate on it) succeed.
+                // InMemory achieves the same implicitly by writing into its username map;
+                // Scylla previously only issued UPDATE, leaving ShowAlter to 404 system_not_found.
+                batch.Add(new SimpleStatement(
+                    $"INSERT INTO {keyspace}.users (id, username, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()))",
+                    normalizedSystemId,
+                    username.Value));
+                batch.Add(new SimpleStatement(
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry (user_id, username, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
+                    normalizedSystemId,
+                    username.Value,
+                    keyspace));
+            }
+            else
+            {
+                batch.Add(new SimpleStatement(
+                    $"UPDATE {keyspace}.users SET username = ?, updated_at = toTimestamp(now()) WHERE id = ?",
+                    username.Value, normalizedSystemId));
+                batch.Add(new SimpleStatement(
+                    $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET username = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                    username.Value, normalizedSystemId));
+            }
 
             // Remove old lookup entry
             if (!string.IsNullOrWhiteSpace(oldUsername))
@@ -61,7 +114,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 batch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.users_by_username WHERE username = ?", oldUsername));
                 batch.Add(new SimpleStatement(
-                    "DELETE FROM global.user_registry_by_username WHERE username = ?", oldUsername));
+                    $"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_username WHERE username = ?", oldUsername));
             }
 
             // Insert new lookup entry
@@ -69,10 +122,10 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             {
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {keyspace}.users_by_username (username, user_id) VALUES (?, ?)",
-                    username, normalizedSystemId));
+                    username.Value, normalizedSystemId));
                 batch.Add(new SimpleStatement(
-                    "INSERT INTO global.user_registry_by_username (username, user_id, region) VALUES (?, ?, ?)",
-                    username, normalizedSystemId, keyspace));
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_username (username, user_id, region) VALUES (?, ?, ?)",
+                    username.Value, normalizedSystemId, keyspace));
             }
 
             await session.ExecuteAsync(batch);
@@ -80,7 +133,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpdateDescriptionAsync(string systemId, string description, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -99,7 +152,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> UpdateAvatarAsync(string systemId, string avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateAvatarAsync(SystemId systemId, AvatarUrl avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -109,7 +162,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                avatarUrl,
+                avatarUrl.Value,
                 (short)source,
                 normalizedSystemId
             );
@@ -119,7 +172,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> ClearAvatarAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -140,68 +193,69 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public Task<string> GetOrCreateLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var scopedSystemId = $"{keyspace}:{normalizedSystemId}";
-        var systemKey = scopedSystemId;
+        // Compose is idempotent on already-scoped inputs — the safety net for routing
+        // every partition-key composition through the same helper.
+        var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId);
         var now = DateTimeOffset.UtcNow;
 
         lock (_linkTokenLock)
         {
-            if (_linkTokenBySystem.TryGetValue(systemKey, out var existingToken)
+            if (_linkTokenBySystem.TryGetValue(scoped, out var existingToken)
                 && _systemByLinkToken.TryGetValue(existingToken, out var existingEntry)
                 && existingEntry.ExpiresAt > now)
             {
                 return Task.FromResult(existingToken);
             }
 
-            if (!string.IsNullOrWhiteSpace(existingToken))
+            if (!string.IsNullOrWhiteSpace(existingToken.Value))
             {
-                _linkTokenBySystem.TryRemove(systemKey, out _);
+                _linkTokenBySystem.TryRemove(scoped, out _);
                 _systemByLinkToken.TryRemove(existingToken, out _);
             }
 
-            var token = Guid.NewGuid().ToString();
-            _linkTokenBySystem[systemKey] = token;
-            _systemByLinkToken[token] = new LinkTokenEntry(scopedSystemId, now.Add(LinkTokenTtl));
+            LinkToken token = new(Guid.NewGuid().ToString());
+            _linkTokenBySystem[scoped] = token;
+            _systemByLinkToken[token] = new LinkTokenEntry(scoped, now.Add(LinkTokenTtl));
 
             return Task.FromResult(token);
         }
     }
 
-    public Task<string?> GetLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<LinkToken?> GetLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = $"{keyspace}:{normalizedSystemId}";
+        var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId);
         var now = DateTimeOffset.UtcNow;
 
         lock (_linkTokenLock)
         {
-            if (_linkTokenBySystem.TryGetValue(systemKey, out var token)
+            if (_linkTokenBySystem.TryGetValue(scoped, out var token)
                 && _systemByLinkToken.TryGetValue(token, out var entry)
                 && entry.ExpiresAt > now)
             {
-                return Task.FromResult<string?>(token);
+                return Task.FromResult<LinkToken?>(token);
             }
 
-            if (!string.IsNullOrWhiteSpace(token))
+            if (!string.IsNullOrWhiteSpace(token.Value))
             {
-                _linkTokenBySystem.TryRemove(systemKey, out _);
+                _linkTokenBySystem.TryRemove(scoped, out _);
                 _systemByLinkToken.TryRemove(token, out _);
             }
 
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<LinkToken?>(null);
         }
     }
 
-    public Task<string?> ResolveSystemIdByLinkTokenAsync(string linkToken, CancellationToken cancellationToken = default)
+    public Task<SystemId?> ResolveSystemIdByLinkTokenAsync(LinkToken linkToken, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(linkToken))
+        if (string.IsNullOrWhiteSpace(linkToken.Value))
         {
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -209,32 +263,33 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         {
             if (_systemByLinkToken.TryGetValue(linkToken, out var entry) && entry.ExpiresAt > now)
             {
-                return Task.FromResult<string?>(entry.ScopedSystemId);
+                return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
             }
 
             _systemByLinkToken.TryRemove(linkToken, out _);
             foreach (var item in _linkTokenBySystem)
             {
-                if (string.Equals(item.Value, linkToken, StringComparison.Ordinal))
+                // LinkToken record-struct equality is ordinal on the underlying string.
+                if (item.Value == linkToken)
                 {
                     _linkTokenBySystem.TryRemove(item.Key, out _);
                     break;
                 }
             }
 
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<SystemId?>(null);
         }
     }
 
-    public Task<bool> ClearLinkTokenAsync(string systemId, CancellationToken cancellationToken = default)
+    public Task<bool> ClearLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        var systemKey = $"{keyspace}:{normalizedSystemId}";
+        var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId);
 
         lock (_linkTokenLock)
         {
-            if (_linkTokenBySystem.TryRemove(systemKey, out var token))
+            if (_linkTokenBySystem.TryRemove(scoped, out var token))
             {
                 _systemByLinkToken.TryRemove(token, out _);
             }
@@ -243,34 +298,49 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
-    public async Task<string?> FindSystemIdByDiscordIdAsync(string discordId, CancellationToken cancellationToken = default)
-        => await FindOrCreateSystemIdByRegistryColumnAsync("discord_id", discordId, cancellationToken);
+    // Every public IAccountRepository entry point below dispatches to an internal helper
+    // with a typed ProviderColumn instead of a hand-spelled column literal. The unwrap-
+    // to-.Value stays at the entry-point boundary — the internal helpers work with the
+    // raw provider-value string because it flows straight into a CQL bind parameter,
+    // and the bind arg position is typed `object?` where the wrapper's implicit widen
+    // does not fire through boxing. DiscordId/Email/AppleId are Cat B PII wrappers with
+    // no implicit widen at all, so `.Value` is the only unwrap available on this path.
 
-    public async Task<string?> FindSystemIdByEmailAsync(string email, CancellationToken cancellationToken = default)
-        => await FindOrCreateSystemIdByRegistryColumnAsync("email", email, cancellationToken);
+    public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
+        => TryFindSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
 
-    public async Task<string?> FindSystemIdByAppleIdAsync(string appleId, CancellationToken cancellationToken = default)
-        => await FindOrCreateSystemIdByRegistryColumnAsync("apple_id", appleId, cancellationToken);
+    // FindOrCreateSystemIdAsync and LinkIdentityToUserAsync are the consolidated OAuth-
+    // login shapes. Both dispatch on ProviderIdentity into the same ProviderColumn-typed
+    // internal helpers, so the pattern-match lives once here rather than being duplicated
+    // across AuthController and AuthLinkController.
+    public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
+        => identity switch
+        {
+            { Discord: { } discordId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
+            { Google: { } email } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken),
+            { Apple: { } appleId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken),
+            _ => Task.FromResult<SystemId?>(null),
+        };
 
-    public Task<AccountLinkResult> LinkDiscordToUserAsync(string systemId, string discordId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "discord_id", discordId, cancellationToken);
+    public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
+        => identity switch
+        {
+            { Discord: { } discordId } => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken),
+            { Google: { } email } => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken),
+            { Apple: { } appleId } => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken),
+            _ => Task.FromResult(AccountLinkResult.UserNotFound),
+        };
 
-    public Task<AccountLinkResult> LinkEmailToUserAsync(string systemId, string email, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "email", email, cancellationToken);
+    public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
+        => UnlinkIdentityAsync(systemId, ProviderColumn.Discord, cancellationToken);
 
-    public Task<AccountLinkResult> LinkAppleToUserAsync(string systemId, string appleId, CancellationToken cancellationToken = default)
-        => LinkIdentityAsync(systemId, "apple_id", appleId, cancellationToken);
+    public Task<bool> UnlinkEmailAsync(SystemId systemId, CancellationToken cancellationToken = default)
+        => UnlinkIdentityAsync(systemId, ProviderColumn.Email, cancellationToken);
 
-    public Task<bool> UnlinkDiscordAsync(string systemId, CancellationToken cancellationToken = default)
-        => UnlinkIdentityAsync(systemId, "discord_id", cancellationToken);
+    public Task<bool> UnlinkAppleAsync(SystemId systemId, CancellationToken cancellationToken = default)
+        => UnlinkIdentityAsync(systemId, ProviderColumn.Apple, cancellationToken);
 
-    public Task<bool> UnlinkEmailAsync(string systemId, CancellationToken cancellationToken = default)
-        => UnlinkIdentityAsync(systemId, "email", cancellationToken);
-
-    public Task<bool> UnlinkAppleAsync(string systemId, CancellationToken cancellationToken = default)
-        => UnlinkIdentityAsync(systemId, "apple_id", cancellationToken);
-
-    public async Task<bool> DeleteAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -290,7 +360,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             
             var deleteBatch = new BatchStatement();
             deleteBatch.Add(new SimpleStatement($"DELETE FROM {keyspace}.users WHERE id = ?", normalizedSystemId));
-            deleteBatch.Add(new SimpleStatement("DELETE FROM global.user_registry WHERE user_id = ?", normalizedSystemId));
+            deleteBatch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ?", normalizedSystemId));
 
             // Clean up denormalized identity lookup tables
             var identityColumns = new[] { "discord_id", "email", "username", "apple_id", "google_id" };
@@ -300,7 +370,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 if (!string.IsNullOrWhiteSpace(value))
                 {
                     deleteBatch.Add(new SimpleStatement($"DELETE FROM {keyspace}.users_by_{col} WHERE {col} = ?", value));
-                    deleteBatch.Add(new SimpleStatement($"DELETE FROM global.user_registry_by_{col} WHERE {col} = ?", value));
+                    deleteBatch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_{col} WHERE {col} = ?", value));
                 }
             }
 
@@ -310,7 +380,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -330,67 +400,66 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             }
 
             return new AccountPublicProfileReadModel(
-                normalizedSystemId,
-                profile.GetValue<string?>("username"),
+                new(normalizedSystemId),
+                profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
                 profile.GetValue<string?>("description"),
-                profile.GetValue<string?>("avatar_url"),
-                ResolveAvatarSource(profile.GetValue<short?>("avatar_source")),
-                profile.GetValue<string?>("discord_id"),
-                profile.GetValue<string?>("email"),
-                profile.GetValue<string?>("apple_id"));
+                AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
+                profile.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                profile.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null,
+                profile.GetValue<string?>("email") is { } email ? new Email(email) : null,
+                profile.GetValue<string?>("apple_id") is { } appleId ? new AppleId(appleId) : null);
         }, _options, cancellationToken);
     }
 
-    private static AvatarSource? ResolveAvatarSource(short? value)
-        => value switch
-        {
-            (short)AvatarSource.External => AvatarSource.External,
-            (short)AvatarSource.Local    => AvatarSource.Local,
-            _ => null
-        };
-
-    private async Task<string?> TryFindSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
+    // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — in-process
+    // caches and downstream callers all operate in the scoped-composite shape. The column
+    // parameter is a typed ProviderColumn enum, with the CQL literal derived locally via
+    // ColumnName(...); a misspelled column would be a build failure rather than a silent
+    // runtime "table does not exist".
+    private async Task<SystemId?> TryFindSystemIdByRegistryColumnAsync(ProviderColumn column, string value, CancellationToken cancellationToken)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             if (string.IsNullOrWhiteSpace(value))
             {
                 return null;
             }
 
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var query = new SimpleStatement(
-                $"SELECT user_id, region FROM global.user_registry_by_{columnName} WHERE {columnName} = ? LIMIT 1",
+                $"SELECT user_id, region FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} WHERE {columnName} = ? LIMIT 1",
                 value
             );
 
             var row = (await session.ExecuteAsync(query)).FirstOrDefault();
             if (row is not null)
             {
-                var userId = NormalizeRegistryUserId(row.GetValue<string>("user_id"));
+                var userId = NormalizeRegistryUserId(new(row.GetValue<string>("user_id")));
                 var region = row.GetValue<string?>("region") ?? _keyspaceResolver.DefaultKeyspace;
-                return $"{region}:{userId}";
+                return ScopedSystemId.Compose(region, userId).AsSystemId();
             }
 
             return null;
         }, _options, cancellationToken);
     }
 
-    private async Task<string?> FindOrCreateSystemIdByRegistryColumnAsync(string columnName, string value, CancellationToken cancellationToken)
+    private async Task<SystemId?> FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn column, string value, CancellationToken cancellationToken)
     {
-        var existing = await TryFindSystemIdByRegistryColumnAsync(columnName, value, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(existing))
+        var existing = await TryFindSystemIdByRegistryColumnAsync(column, value, cancellationToken);
+        if (existing is { } typedExisting && !string.IsNullOrWhiteSpace(typedExisting))
         {
-            return existing;
+            return typedExisting;
         }
 
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
         {
             if (string.IsNullOrWhiteSpace(value))
             {
                 return null;
             }
 
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
 
             const string idChars = "abcdefghijklmnopqrstuvwxyz";
@@ -412,7 +481,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     value
                 ))
                 .Add(new SimpleStatement(
-                    $"INSERT INTO global.user_registry (user_id, {columnName}, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry (user_id, {columnName}, region, inserted_at, updated_at) VALUES (?, ?, ?, toTimestamp(now()), toTimestamp(now()))",
                     newUserId,
                     value,
                     newRegion
@@ -424,7 +493,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     newUserId
                 ))
                 .Add(new SimpleStatement(
-                    $"INSERT INTO global.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
+                    $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
                     value,
                     newUserId,
                     newRegion
@@ -432,17 +501,20 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(createUserBatch);
 
-            return $"{newRegion}:{newUserId}";
+            return ScopedSystemId.Compose(newRegion, newUserId).AsSystemId();
         }, _options, cancellationToken);
     }
 
-    private string NormalizeRegistryUserId(string userId)
+    // Fixed-point loop because ScopedSystemId.StripRegionPrefix strips at most one
+    // leading region tag per call; a legacy row that somehow carried a double-prefixed value
+    // ("nam:nam:abcdefg") would otherwise slip through with the outer prefix intact.
+    private string NormalizeRegistryUserId(SystemId userId)
     {
-        var normalized = userId;
-        for (var i = 0; i < 3; i++)
+        var normalized = _keyspaceResolver.NormalizeSystemId(userId);
+        for (var i = 0; i < 2; i++)
         {
-            var next = _keyspaceResolver.NormalizeSystemId(normalized);
-            if (string.Equals(next, normalized, StringComparison.Ordinal))
+            var next = _keyspaceResolver.NormalizeSystemId(new(normalized));
+            if (next == normalized)
             {
                 break;
             }
@@ -453,7 +525,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         return normalized;
     }
 
-    private async Task<AccountLinkResult> LinkIdentityAsync(string systemId, string columnName, string value, CancellationToken cancellationToken)
+    private async Task<AccountLinkResult> LinkIdentityAsync(SystemId systemId, ProviderColumn column, string value, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -462,15 +534,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 return AccountLinkResult.UserNotFound;
             }
 
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            var owner = await TryFindSystemIdByRegistryColumnAsync(columnName, value, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(owner))
+            var owner = await TryFindSystemIdByRegistryColumnAsync(column, value, cancellationToken);
+            if (owner is { } typedOwner && !string.IsNullOrWhiteSpace(typedOwner))
             {
-                var normalizedOwner = NormalizeRegistryUserId(_keyspaceResolver.NormalizeSystemId(owner));
-                if (!string.Equals(normalizedOwner, normalizedSystemId, StringComparison.Ordinal))
+                var normalizedOwner = NormalizeRegistryUserId(typedOwner);
+                if (normalizedOwner != normalizedSystemId)
                 {
                     return AccountLinkResult.UserExists;
                 }
@@ -497,7 +570,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 value,
                 normalizedSystemId));
             linkBatch.Add(new SimpleStatement(
-                $"UPDATE global.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 value,
                 normalizedSystemId));
             // Maintain denormalized lookup tables
@@ -506,7 +579,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 value,
                 normalizedSystemId));
             linkBatch.Add(new SimpleStatement(
-                $"INSERT INTO global.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
+                $"INSERT INTO {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} ({columnName}, user_id, region) VALUES (?, ?, ?)",
                 value,
                 normalizedSystemId,
                 keyspace));
@@ -516,10 +589,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    private async Task<bool> UnlinkIdentityAsync(string systemId, string columnName, CancellationToken cancellationToken)
+    private async Task<bool> UnlinkIdentityAsync(SystemId systemId, ProviderColumn column, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
+            var columnName = ColumnName(column);
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -536,7 +610,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 null,
                 normalizedSystemId));
             unlinkBatch.Add(new SimpleStatement(
-                $"UPDATE global.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
+                $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 null,
                 normalizedSystemId));
 
@@ -547,7 +621,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     $"DELETE FROM {keyspace}.users_by_{columnName} WHERE {columnName} = ?",
                     oldValue));
                 unlinkBatch.Add(new SimpleStatement(
-                    $"DELETE FROM global.user_registry_by_{columnName} WHERE {columnName} = ?",
+                    $"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_{columnName} WHERE {columnName} = ?",
                     oldValue));
             }
 

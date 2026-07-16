@@ -1,4 +1,5 @@
 using Interfold.Api.Models;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Microsoft.AspNetCore.Mvc;
@@ -6,6 +7,7 @@ using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Tags;
 using Interfold.Api.Controllers.Base;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Controllers;
 
@@ -56,7 +58,7 @@ public sealed class TagsController : InterfoldControllerBase
             OperationId: OperationIds.TagCreate,
             CommandId: Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(body.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new CreateTagCommand(body.Name, body.ParentTagId, InsertedAtUtc: default)
         );
@@ -69,19 +71,19 @@ public sealed class TagsController : InterfoldControllerBase
 
         var tag = await _tagRepository.GetAsync(principal, execution.Result!.TagId, cancellationToken);
         if (tag is null)
-            return new ErrorResponse("An unknown error occurred.", "unknown_error", System.Net.HttpStatusCode.InternalServerError);
+            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
 
         return new SuccessResponse<TagReadModel>(tag, System.Net.HttpStatusCode.Created, execution.Result.Replay);
     }
 
     [HttpPatch("{id}")]
-    public async Task<Response> UpdateTag(string id, [FromBody] UpdateTagRequest body, CancellationToken ct)
+    public async Task<Response> UpdateTag(TagId id, [FromBody] UpdateTagRequest body, CancellationToken ct)
     {
         var command = new CommandEnvelope<UpdateTagCommand>(
             OperationId: OperationIds.TagUpdate,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(body.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new UpdateTagCommand(id, body.Name, body.Color, body.Description, body.SecurityLevel)
         );
@@ -91,13 +93,13 @@ public sealed class TagsController : InterfoldControllerBase
 
     //TODO: To ensure route works as expected - check if we unattach alters and remove parent tag relationships when a tag is deleted
     [HttpDelete("{id}")]
-    public async Task<Response> DeleteTag(string id, [FromBody] BaseRequest? body, CancellationToken ct)
+    public async Task<Response> DeleteTag(TagId id, CancellationToken ct)
     {
         var command = new CommandEnvelope<DeleteTagCommand>(
             OperationId: OperationIds.TagDelete,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(body?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new DeleteTagCommand(id)
         );
@@ -106,53 +108,46 @@ public sealed class TagsController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/alter")]
-    public async Task<Response> AttachAlter(string id, [FromBody] TagAlterRequest body, CancellationToken ct)
+    public async Task<Response> AttachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var alterId = body.AlterId ?? 0;
-        await CheckAlterId(alterId);
-
         var command = new CommandEnvelope<AttachAlterToTagCommand>(
             OperationId: OperationIds.TagAttachAlter,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(body.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AttachAlterToTagCommand(id, alterId)
+            Payload: new AttachAlterToTagCommand(id, body.AlterId)
         );
 
         return CommandNoContent(await _attachAlter.HandleAsync(command, ct));
     }
 
     [HttpDelete("{id}/alter")]
-    public async Task<Response> DetachAlter(string id, [FromBody] TagAlterRequest body, CancellationToken ct)
+    public async Task<Response> DetachAlter(TagId id, [FromBody] TagAlterRequest body, CancellationToken ct)
     {
-        var alterId = body.AlterId ?? 0;
-        await CheckAlterId(alterId);
-
         var command = new CommandEnvelope<DetachAlterFromTagCommand>(
             OperationId: OperationIds.TagDetachAlter,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(body.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DetachAlterFromTagCommand(id, alterId)
+            Payload: new DetachAlterFromTagCommand(id, body.AlterId)
         );
 
         return CommandNoContent(await _detachAlter.HandleAsync(command, ct));
     }
 
     [HttpPost("{id}/parent")]
-    public async Task<Response> SetParent(string id, [FromBody] SetParentRequest body, CancellationToken ct)
+    public async Task<Response> SetParent(TagId id, [FromBody] SetParentRequest body, CancellationToken ct)
     {
-        var parentTagId = body.ParentTagId;
-        if (string.IsNullOrWhiteSpace(parentTagId))
-            return new ErrorResponse("Invalid parent tag ID.", "invalid_parent_tag_id", System.Net.HttpStatusCode.BadRequest);
+        if (body.ParentTagId is not { } parentTagId || parentTagId == TagId.Empty)
+            return new ErrorResponse("Invalid parent tag ID.", ErrorCodes.InvalidParentTagId, System.Net.HttpStatusCode.BadRequest);
 
         var command = new CommandEnvelope<SetParentTagCommand>(
             OperationId: OperationIds.TagSetParent,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(body.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new SetParentTagCommand(id, parentTagId)
         );
@@ -161,13 +156,13 @@ public sealed class TagsController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}/parent")]
-    public async Task<Response> RemoveParent(string id, [FromBody] BaseRequest? body, CancellationToken ct)
+    public async Task<Response> RemoveParent(TagId id, CancellationToken ct)
     {
         var command = new CommandEnvelope<RemoveParentTagCommand>(
             OperationId: OperationIds.TagRemoveParent,
             CommandId: Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(body?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new RemoveParentTagCommand(id)
         );

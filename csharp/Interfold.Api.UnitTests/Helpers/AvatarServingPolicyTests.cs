@@ -246,6 +246,31 @@ public sealed class AvatarServingPolicyTests
     }
 
     [Test]
+    public async Task AbsoluteHttpLocalhostBase_ServesWithExtractedPath()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var (shouldServe, root, requestPath) = AvatarServingPolicy.Resolve(
+                avatarStorageRoot: tempDir,
+                avatarPublicBase: "http://localhost/avatars-itest/abc123");
+
+            using (Assert.Multiple())
+            {
+                await Assert.That(shouldServe).IsTrue()
+                    .Because("localhost absolute bases are same-origin — the API still serves bytes in dev/integration.");
+                await Assert.That(root).IsEqualTo(tempDir);
+                await Assert.That(requestPath).IsEqualTo("/avatars-itest/abc123")
+                    .Because("RequestPath must be the URI path so Program.cs middleware matches avatar_url GETs.");
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir);
+        }
+    }
+
+    [Test]
     public async Task CustomDefaultPublicBase_IsHonoured()
     {
         var tempDir = CreateTempDirectory();

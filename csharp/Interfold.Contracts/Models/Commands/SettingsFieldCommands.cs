@@ -1,3 +1,7 @@
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+
 namespace Interfold.Contracts.Models.Commands;
 
 /// <summary>
@@ -7,10 +11,10 @@ namespace Interfold.Contracts.Models.Commands;
 /// <c>DateTime.UtcNow</c> and trip <c>ConflictDuplicate</c>). The Simply Plural importer
 /// constructs the command directly with the decoded ObjectId timestamp.
 /// </summary>
-public sealed record CreateFieldCommand(string Name, string Type, string SecurityLevel, bool Locked, DateTime InsertedAtUtc);
+public sealed record CreateFieldCommand(string Name, FieldType Type, VisibilityLevel SecurityLevel, bool Locked, DateTime InsertedAtUtc);
 
-public sealed record UpdateFieldCommand(string FieldId, string? Name, string? SecurityLevel, bool? Locked);
+public sealed record UpdateFieldCommand(FieldId FieldId, string? Name, VisibilityLevel? SecurityLevel, bool? Locked);
 
-public sealed record DeleteFieldCommand(string FieldId);
+public sealed record DeleteFieldCommand(FieldId FieldId);
 
-public sealed record RelocateFieldCommand(string FieldId, int Index);
+public sealed record RelocateFieldCommand(FieldId FieldId, int Index);

@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Polls;
 
@@ -30,13 +31,13 @@ public sealed class UpdatePollCommandHandler : ICommandHandler<UpdatePollCommand
     {
         if (command.Payload.Title is null && command.Payload.Description is null &&
             !command.Payload.HasTimeEnd && command.Payload.Data is null)
-            return RejectInvariant(command, "poll:no_fields");
+            return RejectInvariant(command, EntityRefs.PollNoFields);
 
         if (command.Payload.Title is not null && command.Payload.Title.Length > 100)
-            return RejectInvariant(command, "poll:title_too_long");
+            return RejectInvariant(command, EntityRefs.PollTitleTooLong);
 
         if (command.Payload.Description is not null && command.Payload.Description.Length > 2000)
-            return RejectInvariant(command, "poll:description_too_long");
+            return RejectInvariant(command, EntityRefs.PollDescriptionTooLong);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -47,7 +48,7 @@ public sealed class UpdatePollCommandHandler : ICommandHandler<UpdatePollCommand
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "poll:update");
+                return RejectDuplicate(command, EntityRefs.PollUpdate);
 
             var replay = CommandSerialization.Deserialize<PollCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -56,11 +57,11 @@ public sealed class UpdatePollCommandHandler : ICommandHandler<UpdatePollCommand
 
         var exists = await _pollRepository.ExistsAsync(command.PrincipalId, command.Payload.Id, cancellationToken);
         if (!exists)
-            return RejectInvariant(command, "poll:not_found");
+            return RejectInvariant(command, EntityRefs.PollNotFound);
         
         var updated = await _pollRepository.UpdateAsync(command.PrincipalId, command.Payload, cancellationToken);
         if (!updated)
-            return RejectInvariant(command, "poll:update_failed");
+            return RejectInvariant(command, EntityRefs.PollUpdateFailed);
 
         var result = new PollCommandResult(command.PrincipalId, command.Payload.Id, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -74,12 +75,12 @@ public sealed class UpdatePollCommandHandler : ICommandHandler<UpdatePollCommand
     }
 
     private static CommandExecutionResult<PollCommandResult> RejectDuplicate(
-        CommandEnvelope<UpdatePollCommand> command, string entityRef) =>
+        CommandEnvelope<UpdatePollCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<PollCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<PollCommandResult> RejectInvariant(
-        CommandEnvelope<UpdatePollCommand> command, string entityRef) =>
+        CommandEnvelope<UpdatePollCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<PollCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

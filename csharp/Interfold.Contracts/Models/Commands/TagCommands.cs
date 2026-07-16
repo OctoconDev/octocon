@@ -1,3 +1,6 @@
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+
 namespace Interfold.Contracts.Models.Commands;
 
 /// <summary>
@@ -7,22 +10,22 @@ namespace Interfold.Contracts.Models.Commands;
 /// <c>DateTime.UtcNow</c> and trip <c>ConflictDuplicate</c>). The Simply Plural importer
 /// constructs the command directly with the decoded ObjectId timestamp.
 /// </summary>
-public sealed record CreateTagCommand(string Name, string? ParentTagId, DateTime InsertedAtUtc);
+public sealed record CreateTagCommand(string Name, TagId? ParentTagId, DateTime InsertedAtUtc);
 
 public sealed record UpdateTagCommand(
-	string TagId,
+	TagId TagId,
 	string? Name,
-	string? Color,
+	HexColor? Color,
 	string? Description,
-	string? SecurityLevel
+	VisibilityLevel? SecurityLevel
 );
 
-public sealed record DeleteTagCommand(string TagId);
+public sealed record DeleteTagCommand(TagId TagId);
 
-public sealed record AttachAlterToTagCommand(string TagId, int AlterId);
+public sealed record AttachAlterToTagCommand(TagId TagId, AlterId AlterId);
 
-public sealed record DetachAlterFromTagCommand(string TagId, int AlterId);
+public sealed record DetachAlterFromTagCommand(TagId TagId, AlterId AlterId);
 
-public sealed record SetParentTagCommand(string TagId, string ParentTagId);
+public sealed record SetParentTagCommand(TagId TagId, TagId ParentTagId);
 
-public sealed record RemoveParentTagCommand(string TagId);
+public sealed record RemoveParentTagCommand(TagId TagId);

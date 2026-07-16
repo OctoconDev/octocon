@@ -1,5 +1,6 @@
 using Interfold.Contracts.Configuration;
 using Interfold.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Interfold.Infrastructure.Postgres;
@@ -13,9 +14,9 @@ public sealed class PostgresConnectionFactory : IPostgresConnectionFactory
 {
     private readonly PersistenceConfiguration _options;
 
-    public PostgresConnectionFactory(PersistenceConfiguration options)
+    public PostgresConnectionFactory(IOptions<PersistenceConfiguration> options)
     {
-        _options = options;
+        _options = options.Value;
     }
 
     public async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)

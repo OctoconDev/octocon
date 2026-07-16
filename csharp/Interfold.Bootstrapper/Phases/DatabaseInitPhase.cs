@@ -1,6 +1,8 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.DatabaseBootstrap;
 
 namespace Interfold.Bootstrapper.Phases;
@@ -30,9 +32,8 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static class DatabaseInitPhase
 {
-    private const string Phase = "db-init";
-    private const string PostgresService = "msg-db";
-    private const string PostgresInitUser = "db_init";
+    private static readonly string Phase = BootstrapPhase.DbInit.ToWireName();
+    private const string PostgresService = ComposeServices.Postgres;
 
     public static async Task RunAsync(
         BootstrapOptions options,
@@ -82,7 +83,7 @@ internal static class DatabaseInitPhase
         // DbInitFaultRecoveryTests can confirm a rerun resumes cleanly. We throw rather than
         // return so the Orchestrator's try/catch surfaces a non-zero exit and skips the
         // Launch phase (which would otherwise try to `compose up` an un-initialised stack).
-        if (string.Equals(options.FaultInject, "after-db-postgres", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(options.FaultInject, BootstrapPhase.DbPostgres.ToFaultInjectToken(), StringComparison.OrdinalIgnoreCase))
         {
             logger.Warn("--fault-inject=after-db-postgres triggered; halting before scylla init.");
             throw new InvalidOperationException("fault-inject:after-db-postgres");
@@ -102,7 +103,7 @@ internal static class DatabaseInitPhase
         int scyllaPort)
     {
         return new PostgresSeedOptions(
-            InitUser: PostgresInitUser,
+            InitUser: PostgresRoles.Init,
             InitPassword: secrets.PostgresInitPassword,
             AppUser: secrets.PostgresUser,
             AppPassword: secrets.PostgresPassword,
@@ -137,12 +138,7 @@ internal static class DatabaseInitPhase
             FcmServiceAccountJson: firebase.ServiceAccountJson);
     }
 
-    private static string? FindComposeFile(string outputDir)
-    {
-        var direct = Path.Combine(outputDir, "docker-compose.yaml");
-        if (File.Exists(direct)) return direct;
-        return Directory.EnumerateFiles(outputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
-    }
+    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 
     private static string ResolveScyllaServiceName(BootstrapConfig config)
     {
@@ -152,9 +148,9 @@ internal static class DatabaseInitPhase
         // propagate via CQL gossip.
         return config.DatabaseMode switch
         {
-            "cassandra" => "cassandra",
-            "multi" => "scylla-nam",
-            _ => "scylla",
+            DatabaseMode.Cassandra => ComposeServices.Cassandra,
+            DatabaseMode.Multi => ComposeServices.ScyllaNam,
+            _ => ComposeServices.ScyllaSingle,
         };
     }
 
@@ -226,7 +222,7 @@ internal static class DatabaseInitPhase
             attempt++;
             var probe = await ProcessRunner.RunAsync("docker",
                 ["compose", "-f", composeFile, "exec", "-T", PostgresService,
-                 "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", PostgresInitUser],
+                 "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", PostgresRoles.Init],
                 ct: ct).ConfigureAwait(false);
             if (probe.ExitCode == 0)
             {

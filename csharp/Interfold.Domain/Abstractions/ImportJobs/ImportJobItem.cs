@@ -1,3 +1,6 @@
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.ImportOperations;
+
 namespace Interfold.Domain.Abstractions.ImportJobs;
 
 /// <summary>
@@ -14,12 +17,12 @@ namespace Interfold.Domain.Abstractions.ImportJobs;
 /// </summary>
 /// <param name="OperationId">The operation row's id, used by the worker to update status and publish events.</param>
 /// <param name="SystemId">Octocon system id, kept in its regional-prefixed shape so repositories and event publishers can use it directly.</param>
-/// <param name="Kind">One of <c>ImportOperationKinds</c> — picks the runner.</param>
+/// <param name="Kind">Third-party integration — picks the runner.</param>
 /// <param name="Token">Caller-supplied third-party API token (SP token or PK token). Sensitive — never log.</param>
 /// <param name="RecoveryCode">Optional SP recovery code, plaintext after the controller's <c>TryResolveRecoveryCode</c> decryption. Null for PK and for SP without recovery. Sensitive — never log.</param>
 public sealed record ImportJobItem(
-    Guid OperationId,
-    string SystemId,
-    string Kind,
-    string Token,
-    string? RecoveryCode);
+    ImportOperationId OperationId,
+    ScopedSystemId SystemId,
+    ImportOperationKind Kind,
+    ImportToken Token,
+    RecoveryCode? RecoveryCode);

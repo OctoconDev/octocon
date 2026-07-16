@@ -1,3 +1,4 @@
+using Interfold.Contracts.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,16 @@ namespace Microsoft.Extensions.Hosting;
 
 public static class Extensions
 {
+    /// <summary>The standard OTLP exporter endpoint variable; when present, the OTLP exporter is enabled.</summary>
+    private const string OtlpEndpointEnvName = "OTEL_EXPORTER_OTLP_ENDPOINT";
+
+    // Resilience ceilings applied by ConfigureResilienceForGetOnly (see its doc comment
+    // for the reasoning). SamplingDuration must satisfy the framework constraint of
+    // >= 2x AttemptTimeout.
+    private static readonly TimeSpan ResilienceAttemptTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ResilienceTotalRequestTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan CircuitBreakerSamplingDuration = TimeSpan.FromMinutes(1);
+
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureOpenTelemetry();
@@ -81,9 +92,9 @@ public static class Extensions
             return defaultBreakerShould(args);
         };
 
-        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(30);
-        options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(2);
-        options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(1);
+        options.AttemptTimeout.Timeout = ResilienceAttemptTimeout;
+        options.TotalRequestTimeout.Timeout = ResilienceTotalRequestTimeout;
+        options.CircuitBreaker.SamplingDuration = CircuitBreakerSamplingDuration;
     }
 
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
@@ -106,7 +117,7 @@ public static class Extensions
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddAspNetCoreInstrumentation(tracing =>
                         tracing.Filter = context =>
-                            !context.Request.Path.StartsWithSegments("/health")
+                            !context.Request.Path.StartsWithSegments(HealthEndpoints.PathPrefix)
                     )
                     .AddHttpClientInstrumentation();
             });
@@ -118,7 +129,7 @@ public static class Extensions
 
     private static TBuilder AddOpenTelemetryExporters<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
-        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration[OtlpEndpointEnvName]);
 
         if (useOtlpExporter)
         {
@@ -131,7 +142,7 @@ public static class Extensions
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
-            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+            .AddCheck(HealthCheckNames.Self, () => HealthCheckResult.Healthy(), [HealthCheckTags.Live]);
 
         return builder;
     }
@@ -139,21 +150,21 @@ public static class Extensions
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
         // Liveness: no dependency checks
-        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        app.MapHealthChecks(HealthEndpoints.Live, new HealthCheckOptions
         {
             Predicate = _ => false
         }).AllowAnonymous().ShortCircuit();
 
         // Readiness: checks tagged "ready"
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        app.MapHealthChecks(HealthEndpoints.Ready, new HealthCheckOptions
         {
-            Predicate = check => check.Tags.Contains("ready")
+            Predicate = check => check.Tags.Contains(HealthCheckTags.Ready)
         }).AllowAnonymous().ShortCircuit();
 
         // Startup: checks tagged "startup" (longer timeout for DB init)
-        app.MapHealthChecks("/health/startup", new HealthCheckOptions
+        app.MapHealthChecks(HealthEndpoints.Startup, new HealthCheckOptions
         {
-            Predicate = check => check.Tags.Contains("startup")
+            Predicate = check => check.Tags.Contains(HealthCheckTags.Startup)
         }).AllowAnonymous().ShortCircuit();
 
         return app;

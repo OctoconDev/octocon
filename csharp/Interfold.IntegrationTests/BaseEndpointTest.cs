@@ -4,10 +4,12 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using TUnit.Core.Services;
 
 namespace Interfold.IntegrationTests;
@@ -59,6 +61,10 @@ public class BaseEndpointTest
     [Before(HookType.TestSession)]
     public static void Probe_BeforeTestSession()
         => LifecycleProbe.Log("Before(TestSession)");
+
+    [After(HookType.TestSession)]
+    public static void Probe_AfterTestSession()
+        => LifecycleProbe.Log("After(TestSession)");
 
     internal static bool ReadBoolField(string json, string fieldName)
     {
@@ -435,7 +441,7 @@ public class BaseEndpointTest
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/start");
         request.Content = JsonContent.Create(new
         {
-            alterId,
+            id = alterId,
             comment,
             idempotencyKey = Guid.NewGuid().ToString("N")
         }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
@@ -455,7 +461,7 @@ public class BaseEndpointTest
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/end");
         request.Content = JsonContent.Create(new
         {
-            alterId,
+            id = alterId,
             idempotencyKey = Guid.NewGuid().ToString("N")
         }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
         AttachPrincipalAuth(request, client, principal);
@@ -475,7 +481,7 @@ public class BaseEndpointTest
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/set");
         request.Content = JsonContent.Create(new
         {
-            alterId,
+            id = alterId,
             comment,
             idempotencyKey = Guid.NewGuid().ToString("N")
         }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
@@ -599,13 +605,14 @@ public class BaseEndpointTest
     
     internal static async Task<string> CreateRandomToken(InterfoldWebApplicationFactory factory, string systemId)
     {
-        var config = factory.Services.GetRequiredService<IConfiguration>();
         var rev = factory.Services.GetRequiredService<IAuthTokenRevocationRepository>();
-        var authConfig = config.Get<AuthenticationConfiguration>();
+        // See InterfoldWebApplicationFactory.CreateToken for the IOptionsMonitor vs
+        // IConfiguration.Get<T>() rationale — we want the AuthenticationSecretsPostConfigure-
+        // patched (cached-in-monitor) instance, not a fresh binding from IConfiguration.
+        var authConfig = factory.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
-        Assert.NotNull(authConfig);
         // Mirror the fixture-side seed of the ES256 keypair so the JWT we issue here verifies
-        // against the API's SecretsBootstrapService-patched configuration on the server side.
+        // against the API's SecretsPreBuildLoader-primed configuration on the server side.
         authConfig.JwtEs256PrivateKeyPem = TestDbCredentials.JwtEs256PrivateKeyPem;
 
         var jti = Guid.NewGuid().ToString("N");
@@ -613,13 +620,29 @@ public class BaseEndpointTest
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
-        await rev.RecordTokenAsync(jti, systemId, expiresAt, CancellationToken.None);
+        // Every JWT reaching an Interfold controller must carry a scoped `{region}:{rawId}`
+        // sub — a raw-sub token 401s at the middleware, the command handler never runs,
+        // the event bus never publishes, and the pump-side push the test is waiting for
+        // never arrives (surfaces as a WebSocket timeout). Compose is idempotent, so
+        // callers that already pass a scoped id get the same value out. Nam is the
+        // default region the InMemory bootstrapper seeds, matching the sibling token
+        // minter InterfoldWebApplicationFactory.CreateToken.
+        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
+        var scopedSystemId = scoped.AsSystemId();
 
-        // Ensure user row exists in backing store (required for Scylla/Cassandra)
+        var token = AuthHelper.CreateToken(authConfig, expiresAt, now, new Jti(jti), scopedSystemId);
+        // Record the same scoped id so any audit column persisted alongside the revocation
+        // row is byte-identical to the JWT sub — future readers cross-referencing revocation
+        // by system id see the wire-canonical shape rather than a raw-id ghost.
+        await rev.RecordTokenAsync(new Jti(jti), scopedSystemId, expiresAt, CancellationToken.None);
+
+        // EnsureUserExistsAsync goes through AttachPrincipalAuth → factory.CreateToken,
+        // which auto-scopes internally, so passing the raw `systemId` here is correct:
+        // the user row is keyed by principal identity, and the auth helper handles the
+        // wire shape.
         using var client = factory.CreateClient();
         await EnsureUserExistsAsync(client, systemId);
-        
+
         return token;
     }
 

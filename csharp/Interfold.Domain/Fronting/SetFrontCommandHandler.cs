@@ -1,5 +1,6 @@
 ﻿using Interfold.Contracts;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
@@ -28,11 +29,11 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
         CommandEnvelope<SetFrontCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.AlterId is < 1 or > 32_767)
-            return RejectInvariant(command, "fronting:invalid_alter_id");
+        if (command.Payload.AlterId.Value is < 1 or > 32_767)
+            return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
 
         if ((command.Payload.Comment?.Length ?? 0) > 50)
-            return RejectInvariant(command, "fronting:invalid_comment");
+            return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -46,7 +47,7 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "fronting:set");
+                return RejectDuplicate(command, EntityRefs.FrontingSet);
 
             var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -86,7 +87,7 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
             await _frontingRepository.EndAsync(command.PrincipalId, other.Front.AlterId, endedAt, cancellationToken);
         }
 
-        string frontId;
+        FrontId frontId;
         if (targetActive is not null)
         {
             // Target was already fronting - preserve its front row (front_id, start_time).
@@ -101,10 +102,10 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
                 DateTimeOffset.UtcNow,
                 cancellationToken);
 
-            if (string.IsNullOrWhiteSpace(started))
-                return RejectInvariant(command, "fronting:start_failed");
+            if (started is null)
+                return RejectInvariant(command, EntityRefs.FrontingStartFailed);
 
-            frontId = started;
+            frontId = started.Value;
         }
 
         // "set" semantics: after the call there's a single fronter, so any primary designation
@@ -156,13 +157,13 @@ public sealed class SetFrontCommandHandler : ICommandHandler<SetFrontCommand, Fr
 
     private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
         CommandEnvelope<SetFrontCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
         CommandEnvelope<SetFrontCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

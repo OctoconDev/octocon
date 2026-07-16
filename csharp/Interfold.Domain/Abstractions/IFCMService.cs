@@ -1,3 +1,5 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Domain.Abstractions;
 
 /// <summary>
@@ -13,7 +15,7 @@ public interface IFCMService
     /// <param name="currentAlterIds">The alter IDs currently fronting (may be empty if all ended).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task NotifyFrontingChangedAsync(
-        string systemId,
-        IReadOnlyList<int> currentAlterIds,
+        SystemId systemId,
+        IReadOnlyList<AlterId> currentAlterIds,
         CancellationToken cancellationToken = default);
 }

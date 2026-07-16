@@ -12,6 +12,15 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# jq and systemd are pre-installed here (not on-demand at test time) so parallel
+# tests in SystemdInstallTests can never race on /var/lib/dpkg/lock-frontend inside
+# the session-shared DinD. Two tests in that class used to call apt-get install jq
+# and apt-get install systemd on-demand under >/dev/null 2>&1, and CI would flake
+# with exit 100 whenever the schedule interleaved them. Baking both packages here
+# also makes those tests ~10s faster and keeps PID 1 unchanged: systemd is present
+# as a binary on PATH (so systemd-analyze verify works during install-service),
+# but the ENTRYPOINT stays dockerd-entrypoint.sh — nothing switches to systemd as
+# PID 1, which is the invariant SystemdInstallTests' class docstring pins.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -19,9 +28,11 @@ RUN apt-get update \
         gnupg \
         iptables \
         iproute2 \
+        jq \
         kmod \
         openssl \
         sudo \
+        systemd \
         xz-utils \
  && install -m 0755 -d /etc/apt/keyrings \
  && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \

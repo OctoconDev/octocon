@@ -9,11 +9,14 @@ using Microsoft.AspNetCore.Hosting;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Interfold.IntegrationTests.TestServices;
@@ -142,13 +145,20 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
 
     internal string CreateToken(string systemId)
     {
-        var config = Services.GetRequiredService<IConfiguration>();
-        var authConfig = config.Get<AuthenticationConfiguration>()
-            ?? throw new InvalidOperationException("Authentication configuration was not available for token creation.");
+        // IOptionsMonitor.CurrentValue is the cached instance the SecretsPreBuildLoader
+        // populated (via AuthenticationSecretsPostConfigure), so we get the live signing
+        // material (JwtAuthority, deep-link secret, etc.) that the API is using.
+        // IConfiguration.Get<T>() would allocate a fresh binding that bypasses those
+        // patches.
+        var authConfig = Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
 
-        // ApplyAuthentication leaves the signing material null on purpose (the API consumes
-        // it via SecretsBootstrapService at runtime). For the client-side token mint, plug
-        // in the same PEM that the fixtures seeded into internal.secrets.
+        // ApplyAuthentication leaves the ES256 signing material at its default on purpose
+        // (the API consumes it via SecretsPreBuildLoader + AuthenticationSecretsPostConfigure
+        // at runtime). For the client-side token mint, plug in the same PEM that the
+        // fixtures seeded into internal.secrets. Safe to mutate CurrentValue here — the
+        // factory has already forced host start (so PostConfigure has run and the monitor
+        // cache is warm); this read-after-write on the cached instance is observable to
+        // every downstream consumer via the same OptionsMonitor cache.
         authConfig.JwtEs256PrivateKeyPem = TestDbCredentials.JwtEs256PrivateKeyPem;
 
         if (string.IsNullOrWhiteSpace(authConfig.JwtAuthority))
@@ -158,7 +168,16 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.AddDays(1);
 
-        return AuthHelper.CreateToken(authConfig, expiresAt, now, jti, systemId);
+        // Every JWT reaching the middleware must carry a scoped `{region}:{rawId}` sub.
+        // Real production JWTs always do because the account repositories mint scoped
+        // ids; a raw id like "sys-foo-bar" would 401. Compose is idempotent, so callers
+        // that already pass a scoped id like "nam:sys-foo-bar" get the same value out.
+        // Nam is the default region ParseScyllaKeyspace resolves for null/empty input,
+        // matching the assumption InProcess tests carry when they don't set
+        // OCTOCON_REGION explicitly.
+        var scoped = ScopedSystemId.Compose(ScyllaKeyspace.Nam, systemId);
+
+        return AuthHelper.CreateToken(authConfig, expiresAt, now, new(jti), scoped.AsSystemId());
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -203,18 +222,21 @@ public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
             // factory host so the heavy DDL doesn't replay on every WebApplicationFactory
             // build — those rebuilds add tens of seconds of cold start otherwise.
             //
-            // SecretsBootstrapService stays registered on purpose: it's the production
-            // path that reads internal.secrets and patches IOptionsMonitor<*Configuration>
-            // (notably the JWT verification keys IssuingKeyPem / JwtEs256PublicKeyPem and
-            // the encryption pepper). Re-running it per factory is cheap (a single
-            // SELECT round-trip against the already-seeded msg-db) and exercises the same
-            // hosted-service ordering production relies on, so any regression in that
-            // service surfaces in tests instead of staging.
+            // There's no secrets-snapshot hosted service to strip anymore: SecretsPreBuildLoader
+            // runs unconditionally as part of Program.cs's top-level statements, before
+            // builder.Build(), so every factory rebuild re-reads internal.secrets fresh (a
+            // single batched SELECT against the already-seeded msg-db for DB-backed runs). That
+            // re-read is what AuthenticationSecretsPostConfigure / FirebaseClientSecretsPostConfigure
+            // / FcmSecretsPostConfigure then fold into the options pipeline (notably the JWT
+            // verification keys and the encryption pepper) — re-running it per factory exercises
+            // the same pre-Build ordering production relies on, so any regression surfaces in
+            // tests instead of staging.
             //
             // In-memory persistence does NOT participate in this strip: there are no
-            // migration hosted services to remove, and the secrets-store seed flows through
-            // the production lookup path (set in this factory's constructor via the
-            // `:`-form keys that EnvironmentVariablesConfigurationProvider would expose for
+            // migration hosted services to remove, and SecretsPreBuildLoader reads the
+            // OCTOCON_INMEMORY_SECRETS_SEED:* keys directly off IConfiguration in that branch
+            // (set in this factory's constructor via the `:`-form keys that
+            // EnvironmentVariablesConfigurationProvider would expose for
             // `OCTOCON_INMEMORY_SECRETS_SEED__*` env vars) — the same IConfiguration lookup
             // an external container runner triggers via real env vars, so tests exercise the
             // published code path end-to-end.

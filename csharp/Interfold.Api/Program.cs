@@ -5,13 +5,17 @@ using Interfold.Api;
 using Interfold.Api.Auth;
 using Interfold.Api.Helpers;
 using Interfold.Api.Middleware;
+using Interfold.Api.ModelBinding;
+using Interfold.Api.Models;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Http;
 using Interfold.Api.Services.ImportJobs;
+using Interfold.Api.Services.Secrets;
 using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
@@ -25,7 +29,6 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Npgsql;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -34,10 +37,11 @@ var builder = WebApplication.CreateBuilder(args);
 // --- Aspire ServiceDefaults (OTel, resilience, service discovery) ---
 builder.AddServiceDefaults();
 
-// Self-host only: patch the leaf PFX password into IConfiguration before the host builds
-// so Kestrel can unlock /certs/leaf.pfx at HTTPS-bind time. See LoadLeafPfxPasswordFromStoreIfNeeded
-// below for the self-host trigger + ordering rationale.
-LoadLeafPfxPasswordFromStoreIfNeeded(builder.Configuration);
+// Unified secrets snapshot: fetches every internal.secrets row the API's PostConfigure
+// patchers need (auth, Firebase client, FCM) plus the leaf PFX password, all before the
+// host builds. See SecretsPreBuildLoader for the Postgres-vs-InMemory branch + ordering
+// rationale. The returned snapshot is registered as a singleton instance below.
+var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
 
 //Database connections which have been implemented
 ScyllaServiceCollectionExtensions.Register();
@@ -45,22 +49,51 @@ InMemoryServiceCollectionExtensions.Register();
 PostgresServiceCollectionExtensions.Register();
 
 // --- Configuration ---
-// Register all typed options. consumed via IOptionsMonitor in services. 
-// or by their registration helpers below.
+// Register every typed option (bound via AddInterfoldOptions) BEFORE we take any startup
+// snapshots — the CORS + persistence + cluster wiring below all read one-shot values that
+// must go through the IOptions pipeline so tests can override them via the
+// FactoryConfigurationProvider without a bespoke Bind*() helper.
 IOptionsMonitor<AuthenticationConfiguration>? authOptionsMonitor = null;
-var authConfig = builder.Configuration.BindAuthenticationConfiguration();
-var persistenceConfig = builder.Configuration.BindPersistenceConfiguration();
 builder.Services.AddInterfoldOptions();
 
-// Comma-separated allow-list from OCTOCON_CORS_ALLOWED_ORIGINS; blank falls back to
-// allow-any (dev-only — production stacks must set it explicitly). Trailing slashes
-// trimmed for parity with the ASP.NET Core CORS matcher.
-var configuredCorsOrigins = (builder.Configuration["OCTOCON_CORS_ALLOWED_ORIGINS"] ?? string.Empty)
-    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-    .Select(static origin => origin.TrimEnd('/'))
-    .Where(static origin => !string.IsNullOrWhiteSpace(origin))
-    .Distinct(StringComparer.OrdinalIgnoreCase)
-    .ToArray();
+// Startup snapshots for the three purely-env-bound options. AuthenticationConfiguration is
+// deliberately absent: it goes through the AuthenticationSecretsPostConfigure pipeline which
+// pulls from an ISecretsSnapshot populated pre-Build by SecretsPreBuildLoader — probing it
+// here would resolve validation before the secret-store-sourced fields are patched in and
+// trip [Required] on the mandatory secret fields. The two probe consumers (JWT bearer
+// ValidAudience and AddInterfoldAuthChallengeSchemes) read directly from builder.Configuration
+// for the four env-bound values they need, below.
+//
+// ASP0000: BuildServiceProvider inside application code duplicates singleton graphs — that
+// is the intended cost here. The alternative (hand-maintained Bind*(IConfiguration)
+// helpers) reintroduces the drift that the options pipeline exists to eliminate.
+//
+// The probe SP is built off a CLONE of builder.Services in which the framework's factory
+// IConfiguration registration ("services.AddSingleton(_ => appConfiguration)", intentionally
+// set up so the SP owns configuration disposal) is swapped for a non-owning proxy. Without
+// that swap, disposing the probe SP would also dispose the shared ConfigurationManager, and
+// any subsequent ConfigureAppConfiguration callback — notably the one WebApplicationFactory<T>
+// registers during integration tests — would throw ObjectDisposedException at builder.Build()
+// when it tries to Add() a source to the disposed manager. See
+// StartupProbeConfigurationProxy for the full rationale.
+PersistenceConfiguration persistenceConfig;
+CorsOptions corsOptions;
+ClusterConfiguration clusterConfig;
+var probeServices = StartupProbeConfigurationProxy.SwapInto(builder.Services, builder.Configuration);
+#pragma warning disable ASP0000
+using (var probeProvider = probeServices.BuildServiceProvider(validateScopes: false))
+#pragma warning restore ASP0000
+{
+    persistenceConfig = probeProvider.GetRequiredService<IOptions<PersistenceConfiguration>>().Value;
+    corsOptions = probeProvider.GetRequiredService<IOptions<CorsOptions>>().Value;
+    clusterConfig = probeProvider.GetRequiredService<IOptions<ClusterConfiguration>>().Value;
+}
+
+// Comma-separated allow-list from OCTOCON_CORS_ALLOWED_ORIGINS via IOptions<CorsOptions>;
+// blank falls back to allow-any (dev-only — production stacks must set it explicitly).
+// Trailing-slash trimming and de-dup live inside ApplyCors for parity with the ASP.NET Core
+// CORS matcher.
+var configuredCorsOrigins = corsOptions.AllowedOrigins.ToArray();
 
 builder.Services.AddCors(options =>
 {
@@ -80,13 +113,24 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Registered BEFORE persistence services so its StartingAsync runs before migration services
-// try to read admin creds / OAuth secrets out of IConfiguration.
-builder.Services.AddHostedService<SecretsBootstrapService>();
+// Registered BEFORE persistence services so the snapshot (already populated pre-Build by
+// SecretsPreBuildLoader) is visible before migration services try to read admin creds /
+// OAuth secrets out of IConfiguration, and before ValidationHostedService dereferences
+// AuthenticationConfiguration / FirebaseClientConfiguration / FcmConfiguration to enforce
+// [Required] via .ValidateOnStart().
+builder.Services.AddSingleton<ISecretsSnapshot>(secretsSnapshot);
+builder.Services.AddSingleton(secretsSnapshot);
+builder.Services.AddSingleton<IPostConfigureOptions<AuthenticationConfiguration>, AuthenticationSecretsPostConfigure>();
+builder.Services.AddSingleton<IPostConfigureOptions<FirebaseClientConfiguration>, FirebaseClientSecretsPostConfigure>();
+builder.Services.AddSingleton<IPostConfigureOptions<FcmConfiguration>, FcmSecretsPostConfigure>();
 
 // --- Dependency Injection ---
-builder.Services.AddInterfoldCluster(builder.Configuration);
-builder.Services.AddInterfoldPersistence(builder.Configuration);
+// The snapshots above already reflect the env-bound IOptions<T> values; passing them into
+// the mode/role-scoped extension methods layers them onto the mode-registration lambdas
+// (which capture PersistenceConfiguration synchronously) while every other consumer still
+// resolves IOptions<PersistenceConfiguration> from the DI container.
+builder.Services.AddInterfoldCluster(clusterConfig.NodeGroup);
+builder.Services.AddInterfoldPersistence(persistenceConfig.Mode, persistenceConfig);
 builder.Services.AddInterfoldDomainHandlers();
 
 // --- Health Checks ---
@@ -94,20 +138,20 @@ builder.Services.AddInterfoldDomainHandlers();
 // Startup checks use a longer timeout (30s) — databases may still be initializing at boot.
 var healthChecks = builder.Services.AddHealthChecks();
 
-if (persistenceConfig.Mode == "scylla-postgres")
+if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
 {
-    healthChecks.AddCheck<Interfold.Infrastructure.Scylla.ScyllaHealthChecker>(
-        "scylla-ready", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<Interfold.Infrastructure.Scylla.ScyllaHealthChecker>(
-        "scylla-startup", tags: ["startup"], timeout: TimeSpan.FromSeconds(30));
-    healthChecks.AddCheck<Interfold.Infrastructure.Postgres.PostgresHealthChecker>(
-        "postgres-ready", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<Interfold.Infrastructure.Postgres.PostgresHealthChecker>(
-        "postgres-startup", tags: ["startup"], timeout: TimeSpan.FromSeconds(30));
+    healthChecks.AddCheck<ScyllaHealthChecker>(
+        "scylla-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
+    healthChecks.AddCheck<ScyllaHealthChecker>(
+        "scylla-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
+    healthChecks.AddCheck<PostgresHealthChecker>(
+        "postgres-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
+    healthChecks.AddCheck<PostgresHealthChecker>(
+        "postgres-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
 }
 builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<Interfold.Api.Socket.SocketJoinRateLimiter>();
+builder.Services.AddSingleton<SocketJoinRateLimiter>();
 
 builder.Services.AddTransient<HttpLoggingHandler>();
 
@@ -115,7 +159,7 @@ builder.Services.AddTransient<HttpLoggingHandler>();
 builder.Services.AddHttpClient<GoogleOAuthService>();
 builder.Services.AddHttpClient<DiscordOAuthService>();
 builder.Services.AddHttpClient<AppleOAuthService>();
-builder.Services.AddHttpClient("SimplyPlural").AddHttpMessageHandler<HttpLoggingHandler>();
+builder.Services.AddHttpClient(HttpClientNames.SimplyPlural).AddHttpMessageHandler<HttpLoggingHandler>();
 builder.Services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
 
 // Async-import worker stack. The queue itself is registered in
@@ -147,6 +191,16 @@ builder.Services.AddHttpClient(LoopbackHttpClient.Name)
 // JWTs are self-issued post-OAuth (the provider only identifies the user); no external OIDC
 // authority to validate iss against, so issuer validation is off and we rely on aud + lifetime.
 // TODO: Look into how we can make this better WITHOUT breaking existing clients
+//
+// ValidAudience and the OAuth client IDs are env-bound values that must be read at
+// registration time to wire into the JWT handler / challenge schemes. We deliberately do
+// not resolve IOptions<AuthenticationConfiguration>.Value here — that would trigger
+// .ValidateOnStart() before AuthenticationSecretsPostConfigure patches in the [Required]
+// secret fields (already populated in the snapshot pre-Build by SecretsPreBuildLoader).
+// builder.Configuration is the same source ApplyAuthentication reads from, so this is
+// byte-identical to the options-pipeline probe for the four public fields we still need at
+// boot.
+var jwtAudienceAtBoot = builder.Configuration[OctoconEnvKeys.JwtAudience] ?? "octocon";
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -157,23 +211,32 @@ builder.Services
             NameClaimType = "sub",
             ValidateIssuer = false,
             ValidateAudience = false,
-            ValidAudience = authConfig.JwtAudience, //Has to be done at startup to wire into the JWT handler
+            ValidAudience = jwtAudienceAtBoot, //Has to be done at startup to wire into the JWT handler
             ValidateLifetime = true,
             RequireExpirationTime = true,
             ClockSkew = TimeSpan.FromMinutes(1),
             ValidateIssuerSigningKey = false,
             RequireSignedTokens = true,
+            // authOptionsMonitor is assigned right after app.Build() and this closure only
+            // fires at request time (long after startup completes and PostConfigure has
+            // patched the ES256 verification key from the snapshot), so a null-forgive is
+            // safe here.
             SignatureValidator = (token, _) =>
                 ValidateJwtTokenSignatureForBearer(
                     token,
-                    authOptionsMonitor?.CurrentValue ?? authConfig)
+                    authOptionsMonitor!.CurrentValue)
         };
         // JTI revocation check is wired after app.Build() to access IAuthTokenRevocationRepository
     });
 
-// OAuth challenge schemes are registered once at startup; only the parameters in
-// IOptionsMonitor<AuthenticationConfiguration> are live-reloadable per request.
-builder.Services.AddInterfoldAuthChallengeSchemes(builder.Configuration);
+// OAuth challenge schemes are registered once at startup; only the client_id per provider is
+// per-deployment, and each ClientId is env-bound (ApplyAuthentication:275/277/279). Reading
+// builder.Configuration directly here mirrors that binding without materialising an
+// AuthenticationConfiguration snapshot — same rationale as jwtAudienceAtBoot above.
+builder.Services.AddInterfoldAuthChallengeSchemes(
+    discordOAuthClientId: builder.Configuration[OctoconEnvKeys.DiscordOAuthClientId],
+    googleOAuthClientId: builder.Configuration[OctoconEnvKeys.GoogleOAuthClientId],
+    appleOAuthClientId: builder.Configuration[OctoconEnvKeys.AppleOAuthClientId]);
 
 builder.Services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new AuthorizationPolicyBuilder()
@@ -200,7 +263,15 @@ builder.Services
     });
 
 // --- MVC ---
-builder.Services.AddControllers()
+// The UnixSecondsModelBinderProvider is inserted at position 0 so it takes precedence
+// over MVC's built-in SimpleType / ComplexObject providers for UnixSeconds parameters.
+// Without the front-of-queue insert, MVC would try to shape UnixSeconds as a complex
+// object (looking for a `Value` constructor arg on the query string) instead of using
+// the string TryParse path our custom binder owns.
+builder.Services.AddControllers(mvcOptions =>
+    {
+        mvcOptions.ModelBinderProviders.Insert(0, new UnixSecondsModelBinderProvider());
+    })
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
@@ -208,6 +279,42 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
         options.JsonSerializerOptions.Converters.Add(new UtcDateTimeOffsetConverter());
     });
+
+// Route DataAnnotations-driven 400s (e.g. `[ValidAlterId]` on request records) through
+// the same `ErrorResponse` shape the rest of the API returns, using
+// `ValidationErrorCodeRegistry` to preserve stable wire codes (`invalid_alter_id`,
+// falling back to `bad_request`). Without this the framework default is
+// `ValidationProblemDetails`, which the Kotlin client does not decode.
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        // Prefer the first field with an error so we can pair its message with the
+        // matching UnixSecondsBinding stash on HttpContext.Items. Falling back to a
+        // synthetic entry keeps the payload shape stable when ModelState is empty
+        // (defensive — the factory only runs when at least one error is present).
+        var firstBadField = context.ModelState
+            .FirstOrDefault(kv => kv.Value?.Errors.Count > 0
+                && !string.IsNullOrWhiteSpace(kv.Value.Errors[0].ErrorMessage));
+
+        var firstError = firstBadField.Value?.Errors[0].ErrorMessage
+            ?? "The request payload was invalid.";
+
+        // UnixSecondsModelBinder stashes the intended ErrorCode string on HttpContext.Items
+        // under a well-known per-field key. Preferring it over the message-keyed registry
+        // preserves the invalid_end_anchor / invalid_anchor wire codes verbatim without
+        // requiring the human-readable message to be globally unique.
+        var stashedCode = context.HttpContext.Items[
+            UnixSecondsBindingAttribute.ItemsKey(firstBadField.Key ?? string.Empty)] as string;
+
+        var code = stashedCode is not null
+            ? new ErrorCode(stashedCode)
+            : ValidationErrorCodeRegistry.LookupOrDefault(firstError);
+
+        var body = new ErrorResponse(firstError, code, System.Net.HttpStatusCode.BadRequest);
+        return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(body);
+    };
+});
 
 // --- Swagger/OpenAPI ---
 builder.Services.AddEndpointsApiExplorer();
@@ -217,7 +324,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Interfold API",
         Version = "v1",
-        Description = "Interfold API - Contract Version: 2026-03-v1"
+        Description = $"Interfold API - Contract Version: {InterfoldContractVersions.Current}"
     });
 
     options.ResolveConflictingActions(apiDescriptions =>
@@ -225,14 +332,23 @@ builder.Services.AddSwaggerGen(options =>
         var first = apiDescriptions.First();
         var route = first.RelativePath?.ToLowerInvariant();
 
-        // Only allow conflicts for avatar upload endpoints
+        // Normalise any route-parameter placeholder to a fixed sentinel so the allow-list is
+        // token-agnostic. Otherwise renaming a route parameter (e.g. `{id}` → `{alterId}` on
+        // AltersController.UploadAvatar*) silently pushes the route out of the allow-list and
+        // Swagger throws NotSupportedException on every doc generation — which propagates as
+        // an unhandled 500 through the ExceptionHandler pipeline on any request.
+        var normalisedRoute = route is null
+            ? null
+            : System.Text.RegularExpressions.Regex.Replace(route, @"\{[^/{}]+\}", "{*}");
+
+        // Only allow conflicts for avatar upload endpoints (multipart vs JSON siblings).
         var allowedConflicts = new[]
         {
             "api/settings/avatar",
-            "api/systems/me/alters/{id}/avatar"
+            "api/systems/me/alters/{*}/avatar"
         };
 
-        if (allowedConflicts.All(allowed => route?.Contains(allowed) != true))
+        if (allowedConflicts.All(allowed => normalisedRoute?.Contains(allowed) != true))
         {
             var actionNames = string.Join(", ", apiDescriptions.Select(d => $"{d.ActionDescriptor.DisplayName}"));
             throw new NotSupportedException(
@@ -276,15 +392,27 @@ builder.Services.AddExceptionHandler<ExceptionHandler>();
 
 var app = builder.Build();
 
-// Capture once after Build so we can log ES256 configuration details.
+// Capture the monitor once so the JWT SignatureValidator closure has a stable handle. The
+// closure only fires at request time (after startup completes and PostConfigure has run),
+// so this assignment is safe even though the monitor's CurrentValue isn't dereferenced yet.
 authOptionsMonitor = app.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>();
 
+// Defer the ES256 verification-key log to ApplicationStarted so we don't dereference
+// IOptionsMonitor<AuthenticationConfiguration>.CurrentValue between app.Build() and
+// app.Run(). .ValidateOnStart() + [Required] on the secret fields means an early
+// CurrentValue resolution would trip validation before the ValidateOnStart hosted service
+// has run — the log fires after that hosted service completes, so the count reflects the
+// fully-patched configuration (the snapshot itself is already populated pre-Build by
+// SecretsPreBuildLoader, well before this point).
 var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthStartup");
-var effectiveAuthConfig = authOptionsMonitor.CurrentValue;
-var verificationKeyCount = effectiveAuthConfig.JwtEs256VerificationKeyPems?.Length ?? 0;
-startupLogger.LogInformation(
-    "ES256 token issuance is enabled. Verification key count: {VerificationKeyCount}.",
-    verificationKeyCount);
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    var effectiveAuthConfig = authOptionsMonitor.CurrentValue;
+    var verificationKeyCount = effectiveAuthConfig.JwtEs256VerificationKeyPems?.Length ?? 0;
+    startupLogger.LogInformation(
+        "ES256 token issuance is enabled. Verification key count: {VerificationKeyCount}.",
+        verificationKeyCount);
+});
 
 app.UseExceptionHandler("/error");
 
@@ -313,17 +441,18 @@ app.Use(async (context, next) =>
 {
     if (context.User?.Identity?.IsAuthenticated == true)
     {
-        if (context.User.FindFirst("jti")?.Value is { } jti && !string.IsNullOrWhiteSpace(jti))
+        if (context.User.FindFirst(JwtClaimNames.Jti)?.Value is { } jti && !string.IsNullOrWhiteSpace(jti))
         {
             var revocationRepository = context.RequestServices.GetRequiredService<IAuthTokenRevocationRepository>();
-            var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(jti, context.RequestAborted);
+            var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(new Jti(jti), context.RequestAborted);
             
             if (!isTokenValid)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
-                var error = new { error = "Token has been revoked.", code = "token_revoked" };
-                var json = JsonSerializer.Serialize(error);
+                var error = new ErrorResponse("Token has been revoked.", ErrorCodes.TokenRevoked);
+                // Web options keep the historical lowercase member names ("error"/"code").
+                var json = JsonSerializer.Serialize(error, JsonSerializerOptions.Web);
                 await context.Response.WriteAsync(json, context.RequestAborted);
                 return;
             }
@@ -349,7 +478,7 @@ app.Use(async (ctx, next) =>
 {
     ctx.Response.OnStarting(() =>
     {
-        ctx.Response.Headers["X-Interfold-Contract"] = "2026-03-v1";
+        ctx.Response.Headers[InterfoldHeaders.Contract] = InterfoldContractVersions.Current;
         return Task.CompletedTask;
     });
     await next();
@@ -464,23 +593,17 @@ static SecurityToken ValidateJwtTokenSignatureForBearer(
     }
 
     var headerJson = Encoding.UTF8.GetString(parts[0].Base64UrlDecode());
-    string alg;
-    using (var headerDoc = JsonDocument.Parse(headerJson))
+    var header = JsonSerializer.Deserialize<JwsHeader>(headerJson);
+    if (header is null || string.IsNullOrWhiteSpace(header.Alg))
     {
-        if (!headerDoc.RootElement.TryGetProperty("alg", out var algProp)
-            || string.IsNullOrWhiteSpace(algProp.GetString()))
-        {
-            throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");
-        }
-
-        alg = algProp.GetString()!;
+        throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");
     }
 
     var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
     var signatureBytes = parts[2].Base64UrlDecode();
 
     // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(alg, "ES256", StringComparison.Ordinal))
+    if (!string.Equals(header.Alg, JwsHeader.Es256, StringComparison.Ordinal))
     {
         throw new SecurityTokenInvalidSignatureException("Only ES256 algorithm is supported.");
     }
@@ -531,63 +654,4 @@ static string NormalizePem(string pem)
         .Replace("\r", "\n", StringComparison.Ordinal);
 
     return normalized;
-}
-
-/// <summary>
-/// Fetches <c>certs:leaf_pfx_password</c> from <c>internal.secrets</c> via a transient
-/// Npgsql connection and writes it into <c>Kestrel:Certificates:Default:Password</c> so
-/// Kestrel's built-in PFX loader can unlock the leaf cert at HTTPS-endpoint bind time.
-///
-/// Self-host only: triggered solely when the AppHost has injected a Kestrel default-cert
-/// path AND a Postgres connection string. Local dev (which uses the default dotnet dev
-/// cert) sees neither and the loader becomes a no-op.
-/// </summary>
-static void LoadLeafPfxPasswordFromStoreIfNeeded(IConfigurationBuilder cfg)
-{
-    var config = (IConfigurationRoot)((IConfigurationBuilder)cfg).Build();
-    var pfxPath = config["Kestrel:Certificates:Default:Path"]
-                  ?? Environment.GetEnvironmentVariable("ASPNETCORE_Kestrel__Certificates__Default__Path");
-    if (string.IsNullOrWhiteSpace(pfxPath)) return;
-
-    // If the operator pinned a password via env (the legacy path) prefer that over the
-    // store lookup. Lets local dev or one-off recovery flows bypass the DB roundtrip.
-    var existingPassword = config["Kestrel:Certificates:Default:Password"];
-    if (!string.IsNullOrWhiteSpace(existingPassword)) return;
-
-    var pgConn = config["OCTOCON_POSTGRES_CONNECTION"];
-    if (string.IsNullOrWhiteSpace(pgConn))
-    {
-        throw new InvalidOperationException(
-            "Kestrel default-cert path is set but OCTOCON_POSTGRES_CONNECTION is missing; " +
-            "cannot fetch certs:leaf_pfx_password from internal.secrets.");
-    }
-
-    string? password;
-    try
-    {
-        using var conn = new NpgsqlConnection(pgConn);
-        conn.Open();
-        using var cmd = new NpgsqlCommand(
-            "SELECT value FROM internal.secrets WHERE key = 'certs:leaf_pfx_password' LIMIT 1",
-            conn);
-        password = cmd.ExecuteScalar() as string;
-    }
-    catch (Exception ex)
-    {
-        throw new InvalidOperationException(
-            "Failed to fetch certs:leaf_pfx_password from internal.secrets. Ensure Postgres " +
-            "is reachable at startup and that DatabaseInitPhase has seeded the row.", ex);
-    }
-
-    if (string.IsNullOrEmpty(password))
-    {
-        throw new InvalidOperationException(
-            "Row internal.secrets[certs:leaf_pfx_password] is missing or empty; " +
-            "re-run the bootstrapper so SecretsPhase + DatabaseInitPhase seed it.");
-    }
-
-    cfg.AddInMemoryCollection(new Dictionary<string, string?>
-    {
-        ["Kestrel:Certificates:Default:Password"] = password,
-    });
 }

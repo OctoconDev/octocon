@@ -1,4 +1,5 @@
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Configuration;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -62,11 +63,11 @@ public sealed class RestoreCommandBuildingTests
         // must precede the container:path spec, not the other way around.
         var args = RestorePhase.BuildContainerCpWriteArgs(
             containerId: "63fe606f0e95",
-            dataPath: "/var/lib/scylla");
+            dataPath: ContainerMountPaths.ScyllaData);
 
         await Assert.That(args).IsEquivalentTo(new[]
         {
-            "cp", "-", "63fe606f0e95:/var/lib/scylla",
+            "cp", "-", $"63fe606f0e95:{ContainerMountPaths.ScyllaData}",
         });
     }
 
@@ -74,7 +75,7 @@ public sealed class RestoreCommandBuildingTests
     public async Task BuildContainerCpWriteArgsRejectsBlankInputs()
     {
         Assert.Throws<ArgumentException>(
-            () => RestorePhase.BuildContainerCpWriteArgs(containerId: "", dataPath: "/var/lib/scylla"));
+            () => RestorePhase.BuildContainerCpWriteArgs(containerId: "", dataPath: ContainerMountPaths.ScyllaData));
         Assert.Throws<ArgumentException>(
             () => RestorePhase.BuildContainerCpWriteArgs(containerId: "abc", dataPath: "   "));
         await Task.CompletedTask;

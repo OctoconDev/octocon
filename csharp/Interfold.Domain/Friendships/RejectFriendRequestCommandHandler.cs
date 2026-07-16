@@ -6,6 +6,8 @@ using Interfold.Contracts.Models.Read;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Friendships;
 
@@ -39,7 +41,7 @@ public sealed class RejectFriendRequestCommandHandler : ICommandHandler<RejectFr
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
-                return RejectDuplicate(command, "friend_request:reject");
+                return RejectDuplicate(command, EntityRefs.FriendRequestReject);
             }
 
             var replay = CommandSerialization.Deserialize<FriendshipCommandResult>(previous.OutcomePayload);
@@ -63,23 +65,23 @@ public sealed class RejectFriendRequestCommandHandler : ICommandHandler<RejectFr
 
         if (outcome is FriendRequestMutationOutcome.AlreadyFriends)
         {
-            return RejectInvariant(command, "friend_request:already_friends");
+            return RejectInvariant(command, EntityRefs.FriendRequestAlreadyFriends);
         }
 
         if (outcome is FriendRequestMutationOutcome.NotRequested)
         {
-            return RejectInvariant(command, "friend_request:not_requested");
+            return RejectInvariant(command, EntityRefs.FriendRequestNotRequested);
         }
 
         if (outcome is FriendRequestMutationOutcome.NoUser)
         {
-            return RejectInvariant(command, "friend_request:no_user");
+            return RejectInvariant(command, EntityRefs.FriendRequestNoUser);
         }
 
         var result = new FriendshipCommandResult(
             command.PrincipalId,
             canonicalSourceSystemId,
-            "rejected",
+            FriendshipAction.Rejected,
             Replay: false);
 
         var resultJson = CommandSerialization.Serialize(result);
@@ -106,13 +108,13 @@ public sealed class RejectFriendRequestCommandHandler : ICommandHandler<RejectFr
 
     private static CommandExecutionResult<FriendshipCommandResult> RejectDuplicate(
         CommandEnvelope<RejectFriendRequestCommand> command,
-        string entityRef)
+        EntityRef entityRef)
         => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FriendshipCommandResult> RejectInvariant(
         CommandEnvelope<RejectFriendRequestCommand> command,
-        string entityRef)
+        EntityRef entityRef)
         => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

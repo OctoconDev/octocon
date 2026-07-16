@@ -26,6 +26,9 @@
                       ReferenceOutputAssembly="false"
                       Private="false"
                       ExcludeAssets="all" />
+    <!-- Contracts is compile-linked so the test assertions can reference shared wire-value
+         constants (e.g. PostgresRoles.Init) without duplicating the literal in the test copy. -->
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -4,8 +4,8 @@ using System.Text.Json;
 using Interfold.Contracts.Configuration;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -155,9 +155,8 @@ public sealed class AuthControllerTests(IWebFactoryFixture fixture) : BaseEndpoi
         using var payloadDoc = JsonDocument.Parse(payloadBytes);
         var root = payloadDoc.RootElement;
 
-        var config = fixture.Factory.Services.GetRequiredService<IConfiguration>();
-        var authConfig = config.Get<AuthenticationConfiguration>();
-        var expectedIssuer = authConfig?.JwtAuthority;
+        var authConfig = fixture.Factory.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>().CurrentValue;
+        var expectedIssuer = authConfig.JwtAuthority;
 
         using (Assert.Multiple())
         {

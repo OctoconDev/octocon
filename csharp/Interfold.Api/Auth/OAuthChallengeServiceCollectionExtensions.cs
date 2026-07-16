@@ -51,8 +51,8 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> DiscordParams = new Dictionary<string, string>
     {
-        ["response_type"] = "code",
-        ["scope"] = "identify",
+        [OAuthQueryKeys.ResponseType] = OAuthQueryKeys.Code,
+        [OAuthQueryKeys.Scope] = "identify",
     };
 
     /// <summary>
@@ -63,8 +63,8 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> GoogleParams = new Dictionary<string, string>
     {
-        ["response_type"] = "code",
-        ["scope"] = "https://www.googleapis.com/auth/userinfo.email",
+        [OAuthQueryKeys.ResponseType] = OAuthQueryKeys.Code,
+        [OAuthQueryKeys.Scope] = "https://www.googleapis.com/auth/userinfo.email",
     };
 
     /// <summary>
@@ -76,29 +76,37 @@ internal static class OAuthChallengeServiceCollectionExtensions
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> AppleParams = new Dictionary<string, string>
     {
-        ["response_type"] = "code",
-        ["response_mode"] = "form_post",
-        ["scope"] = "name email",
+        [OAuthQueryKeys.ResponseType] = OAuthQueryKeys.Code,
+        [OAuthQueryKeys.ResponseMode] = "form_post",
+        [OAuthQueryKeys.Scope] = "name email",
     };
 
     /// <summary>
     /// Registers the Discord / Google / Apple challenge schemes against the hardcoded
     /// provider endpoints + static parameter sets. A scheme is only registered when the
-    /// matching OAuth client ID is set in <see cref="AuthenticationConfiguration"/>; that's
-    /// the operator's signal that they intend to use the provider. When the client ID is
-    /// absent the scheme stays unregistered and
+    /// matching OAuth client ID is set; that's the operator's signal that they intend to
+    /// use the provider. When the client ID is absent the scheme stays unregistered and
     /// <see cref="Controllers.Base.OAuthControllerBase.IssueChallengeIfRegisteredAsync"/>
     /// falls through to a 403.
+    /// <para>
+    /// Takes the three client IDs individually rather than a whole
+    /// <see cref="AuthenticationConfiguration"/> snapshot so the boundary between "env-bound,
+    /// safe to read at builder-time" and "secret-store-sourced, requires the post-configure
+    /// pipeline" is explicit at the call site — the caller reads directly from
+    /// <c>builder.Configuration</c> to avoid resolving the options monitor before
+    /// <c>AuthenticationSecretsPostConfigure</c> patches in the <see cref="RequiredAttribute"/>
+    /// secret fields (already populated in the snapshot pre-Build by <c>SecretsPreBuildLoader</c>).
+    /// </para>
     /// </summary>
     public static IServiceCollection AddInterfoldAuthChallengeSchemes(
         this IServiceCollection services,
-        IConfiguration config)
+        string? discordOAuthClientId,
+        string? googleOAuthClientId,
+        string? appleOAuthClientId)
     {
-        var authConfig = config.BindAuthenticationConfiguration();
-
-        AddSchemeIfConfigured(services, DiscordSchemeName, DiscordEndpoint, authConfig.DiscordOAuthClientId, DiscordParams);
-        AddSchemeIfConfigured(services, GoogleSchemeName,  GoogleEndpoint,  authConfig.GoogleOAuthClientId,  GoogleParams);
-        AddSchemeIfConfigured(services, AppleSchemeName,   AppleEndpoint,   authConfig.AppleOAuthClientId,   AppleParams);
+        AddSchemeIfConfigured(services, DiscordSchemeName, DiscordEndpoint, discordOAuthClientId, DiscordParams);
+        AddSchemeIfConfigured(services, GoogleSchemeName,  GoogleEndpoint,  googleOAuthClientId,  GoogleParams);
+        AddSchemeIfConfigured(services, AppleSchemeName,   AppleEndpoint,   appleOAuthClientId,   AppleParams);
 
         return services;
     }
@@ -118,7 +126,7 @@ internal static class OAuthChallengeServiceCollectionExtensions
         // per scheme registration is enough.
         var parameters = new Dictionary<string, string>(baseParameters, StringComparer.Ordinal)
         {
-            ["client_id"] = clientId,
+            [OAuthQueryKeys.ClientId] = clientId,
         };
 
         services

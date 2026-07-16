@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -26,7 +28,7 @@ public sealed class UploadAvatarCommandHandler : ICommandHandler<UploadAvatarCom
         if (string.IsNullOrWhiteSpace(command.Payload.AvatarUrl))
         {
             return Task.FromResult(CommandExecutionResult<SettingsCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, "settings:avatar_invalid", "manual_merge_required")));
+                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsAvatarInvalid, ResolutionHint.ManualMergeRequired)));
         }
 
         return ExecuteAndPublishAsync(command, cancellationToken);
@@ -38,8 +40,8 @@ public sealed class UploadAvatarCommandHandler : ICommandHandler<UploadAvatarCom
     {
         var result = await SettingsCommandHelper.ExecuteAsync(
             command,
-            "avatar_uploaded",
-            "settings:avatar:upload",
+            SettingsAction.AvatarUploaded,
+            EntityRefs.SettingsAvatarUpload,
             _idempotencyStore,
             ct => _accountRepository.UpdateAvatarAsync(command.PrincipalId, command.Payload.AvatarUrl, command.Payload.Source, ct),
             cancellationToken);

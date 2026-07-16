@@ -1,3 +1,5 @@
-﻿namespace Interfold.Contracts.Models;
+﻿using Interfold.Contracts.Ids;
 
-public sealed record EncryptionState(bool Initialized, string? KeyChecksum, string? Salt);
+namespace Interfold.Contracts.Models;
+
+public sealed record EncryptionState(bool Initialized, KeyChecksum? KeyChecksum, EncryptionSalt? Salt);

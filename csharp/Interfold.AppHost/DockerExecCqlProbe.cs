@@ -53,7 +53,7 @@ internal static class DockerExecCqlProbe
     /// directly, so single <c>$</c> is correct.
     /// </summary>
     private const string ReadinessScript =
-        "cqlsh -u \"$CQLSH_USER\" -p \"$CQLSH_PASSWORD\" -e 'DESCRIBE CLUSTER' >/dev/null 2>&1 " +
+        $"cqlsh -u \"${ContainerEnvNames.CqlshUser}\" -p \"${ContainerEnvNames.CqlshPassword}\" -e 'DESCRIBE CLUSTER' >/dev/null 2>&1 " +
         "|| nodetool status | grep -q '^UN'";
 
     /// <summary>

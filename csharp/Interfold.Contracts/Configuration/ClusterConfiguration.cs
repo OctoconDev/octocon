@@ -1,3 +1,5 @@
+using Interfold.Contracts.Enums;
+
 namespace Interfold.Contracts.Configuration;
 
 /// <summary>
@@ -11,8 +13,9 @@ public sealed class ClusterConfiguration
     public const string SectionName = "Cluster";
 
     /// <summary>
-    /// Resolved node group (Primary, Auxiliary, or Sidecar).
-    /// Resolution order: FLY_PROCESS_GROUP → OCTOCON_NODE_GROUP → Auxiliary (default)
+    /// Resolved node group. Bound from <c>FLY_PROCESS_GROUP</c> or <c>OCTOCON_NODE_GROUP</c> via
+    /// <see cref="EnumWireExtensions.ParseNodeGroup"/>; wire values are <c>"primary"</c>,
+    /// <c>"auxiliary"</c>, <c>"sidecar"</c>.
     /// </summary>
-    public string NodeGroup { get; set; } = "auxiliary";
+    public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;
 }

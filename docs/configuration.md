@@ -220,6 +220,49 @@ Shape lives on `[BootstrapConfig](../csharp/Interfold.Bootstrapper/Configuration
                                      //   interfold.service so `docker compose up -d`
                                      //   runs on every boot after docker.service.
                                      //   Independent of `enabled`.
+  },
+  "update": {
+    // Docker image update preferences consumed by the `update-images` subcommand and by
+    // the systemd OnSuccess= drop-in that chains updates after successful backups. Every
+    // field defaults to a "manual updates only, no automatic rollback" stance — flip the
+    // toggles you want and re-run `install-service` to materialise the systemd chain.
+    // See README.md "Updating images" for the operator walkthrough.
+    "enabled":                    false, // master toggle for the systemd chain. When true,
+                                         //   install-service writes
+                                         //   interfold-backup.service.d/50-chain-update.conf
+                                         //   with an OnSuccess=interfold-update.service
+                                         //   directive so every successful scheduled backup
+                                         //   triggers `update-images`. Requires systemd
+                                         //   >= 249 (Ubuntu 22.04+ / Debian 12+); the
+                                         //   install phase preflights the version and
+                                         //   refuses on older hosts. Manual `update-images`
+                                         //   works regardless of this toggle.
+    "healthCheckTimeoutSeconds":  180,   // bounded 1..3600. Post-recreate deadline
+                                         //   for the pg_isready + nodetool status +
+                                         //   /health/ready probes combined. Any tier
+                                         //   that doesn't clear its check by the deadline
+                                         //   triggers the log-and-stop / auto-restore
+                                         //   branch.
+    "autoRestoreOnFailure":       false, // when true, a failed health check invokes
+                                         //   `restore --force` against the pre-update
+                                         //   archives inline. Default false: the phase
+                                         //   just prints a copy-pasteable restore command
+                                         //   and exits non-zero — operator decides. The
+                                         //   CLI --auto-restore flag overrides this
+                                         //   per-invocation.
+    "recreateOnUpdate":           true,  // when true (default), the phase runs
+                                         //   `docker compose up -d` after a pull so
+                                         //   compose recreates containers whose image
+                                         //   ID moved. Set false only if you want a
+                                         //   two-step manual recreate (pull now, `up -d`
+                                         //   later during a maintenance window).
+    "services":                   []     // empty -> every compose service is pulled +
+                                         //   recreated. Non-empty is a whitelist
+                                         //   validated against the known compose service
+                                         //   names (msg-db, scylla, scylla-*, cassandra,
+                                         //   interfold-api, octocon-web). Use to update
+                                         //   just the API without touching Postgres or
+                                         //   Scylla, for example.
   }
 }
 ```
@@ -237,8 +280,9 @@ appear in `.env`.
 First-time operators don't need to hand-author this file — running `interfold-bootstrap` on
 a real TTY without an existing `interfold.bootstrap.json` drops into a Spectre.Console
 navigable form: every field on `BootstrapConfig` is shown as a menu row with its current
-value next to its label, grouped under eight section headers (Deployment / Ports /
-Database / API / Cluster & telemetry / Storage / Performance tuning / OAuth credentials).
+value next to its label, grouped under ten section headers (Deployment / Ports /
+Database / API / Cluster & telemetry / Storage / Performance tuning / OAuth credentials /
+Backup & autostart / Updates).
 The operator arrow-keys between rows and presses Enter to edit any field (inline validation
 re-prompts on bad input, OAuth client secrets are masked in both the editor echo and the
 menu row; client IDs are shown verbatim because they're public), then chooses `Confirm and
@@ -346,6 +390,42 @@ pin to the same `/32`, and devices on the LAN that install the root CA validate
 > with a JSON file) does **not** consult the detector — a file with an empty `hosts` list
 > still fails fast with a clear validation error, by design.
 
+> **mDNS preflight for `.local` names (Linux only).** The bootstrapper runs a two-tier
+> check whenever the finalised `deployment.hosts` list contains a `.local` entry:
+>
+> - **Pre-prompt banner (interactive fresh-config only).** Before the hosts row appears,
+>   the bootstrapper detects the device's short hostname, qualifies it as
+>   `{hostname}.local`, and probes whether it resolves via `getent hosts` (which
+>   traverses `nsswitch.conf` → `mdns_minimal` → avahi). If it does, the qualified name
+>   joins the auto-default alongside the primary IP. If it doesn't, a banner explains
+>   that mDNS is unavailable and offers to install `avahi-daemon` + the platform's NSS
+>   mdns module (`libnss-mdns` on Debian/Ubuntu, `nss-mdns` on Fedora/RHEL). Decline the
+>   offer and the `.local` name is simply omitted from the pre-fill — the row is still
+>   editable so the operator can type any host they like.
+> - **Post-fill safety gate (all `bootstrap` runs).** After the hosts list is finalised
+>   (either by the interactive prompt or loaded from JSON), every `.local` entry is
+>   re-probed. Unresolvable ones are removed from `deployment.hosts` with a warning
+>   naming the specific hosts + a copy-pasteable install hint, and **the current
+>   `bootstrap` run continues to completion** with the reduced list. It never halts on
+>   this — the mutation is re-persisted so subsequent runs see the pruned list without
+>   re-emitting the warning. Re-running `bootstrap` after installing mDNS is *optional
+>   recovery* to restore the stripped entries, not a required next step.
+>
+> `--non-interactive` skips the pre-prompt banner (there's no operator to talk to) but
+> the post-fill gate still runs and applies the same strip-and-continue behaviour to
+> `.local` entries in the supplied config. Non-Linux platforms short-circuit both tiers
+> because `getent`'s exit-code contract doesn't translate to Windows / macOS resolvers.
+>
+> To enable mDNS ahead of time so the strip never fires:
+>
+> ```bash
+> # Debian / Ubuntu
+> sudo apt-get install -y avahi-daemon libnss-mdns && sudo systemctl enable --now avahi-daemon
+>
+> # Fedora / RHEL
+> sudo dnf install -y avahi nss-mdns && sudo systemctl enable --now avahi-daemon
+> ```
+
 ## Layer 3 — Environment variables
 
 Two flavours:
@@ -360,9 +440,9 @@ short operator-facing list.
 
 ### Bootstrapper-installed systemd units
 
-`interfold-bootstrap install-service` materialises three systemd units to
+`interfold-bootstrap install-service` materialises four systemd units to
 `/etc/systemd/system/` (overridable via `--systemd-unit-dir`, used by integration tests).
-All three are rendered from templates embedded in the bootstrapper binary; see
+All four are rendered from templates embedded in the bootstrapper binary; see
 `csharp/Interfold.Bootstrapper/Phases/SystemdTemplates/` for the source.
 
 | Unit                       | Type                       | What it does |
@@ -370,6 +450,20 @@ All three are rendered from templates embedded in the bootstrapper binary; see
 | `interfold.service`        | `oneshot` `RemainAfterExit=yes` | Brings the compose stack up via `/usr/bin/docker compose -f {outputDir}/docker-compose.yaml up -d` after `docker.service` on boot. Deliberately does NOT shell out to `interfold-bootstrap up` — that would re-run the 5-minute `/health/ready` wait inside systemd's boot critical path. Compose's own restart policy + the API container's healthcheck handle steady-state recovery. |
 | `interfold-backup.service` | `oneshot`                  | Runs `interfold-bootstrap backup --config {configPath} --output-dir {outputDir} --component all`. Inherits the bootstrapper's `phase=...` log line format. Operators add drop-in overrides via `/etc/systemd/system/interfold-backup.service.d/*.conf`; the bootstrapper never edits drop-ins on rerun. |
 | `interfold-backup.timer`   | `timer`                    | Fires `interfold-backup.service` on `OnCalendar={config.backup.schedule}` with `Persistent=true` so a missed run (host powered off at the scheduled time) fires on next boot. |
+| `interfold-update.service` | `oneshot`                  | Runs `interfold-bootstrap update-images --config {configPath} --output-dir {outputDir}`. Always rendered so manual invocations always have a target service; only the `OnSuccess=` drop-in that fires it from the backup schedule is conditional on `config.update.enabled`. Never enabled independently — the drop-in is what schedules it. |
+
+Conditional drop-in — written only when `config.update.enabled=true`:
+
+| Path                                                                    | Contents                                             |
+| ----------------------------------------------------------------------- | ---------------------------------------------------- |
+| `/etc/systemd/system/interfold-backup.service.d/50-chain-update.conf`   | `[Unit]\nOnSuccess=interfold-update.service`         |
+
+The drop-in makes a successful `interfold-backup.service` run trigger
+`interfold-update.service`. Rendered idempotently: flipping `config.update.enabled` from
+`true` to `false` and re-running `install-service` deletes the drop-in (the update
+`.service` file stays for manual use). The `50-` numeric prefix leaves headroom for
+operator-managed higher-priority drop-ins to override the chain via a
+`90-local.conf` sibling.
 
 Enable/disable contract:
 
@@ -379,9 +473,16 @@ Enable/disable contract:
   plain `install-service` invocation.
 - `install-service --enable-backup-timer` runs `systemctl enable --now interfold-backup.timer`.
   Defaults to `config.backup.enabled`.
+- `interfold-update.service` is **never** enabled directly — the `OnSuccess=` drop-in is
+  what schedules it. Enabling it manually would create a boot-time update pass, which is
+  not the design goal.
 - Both flags require `systemctl` to be on PATH; if it isn't (Windows / macOS dev box,
   unprivileged container) the units still get written but no enable-step runs and the
   log says `systemctl not on PATH; units written but not enabled`.
+- `config.update.enabled=true` requires systemd >= 249 (the minimum version for the
+  `OnSuccess=` directive). The install phase parses `systemctl --version`, fails fast
+  on older hosts with a clear error naming Ubuntu 22.04 / Debian 12 as the minimum, and
+  skips the preflight entirely when update is disabled.
 
 Validation happens at install time: `systemd-analyze verify` runs against each rendered
 unit and `systemd-analyze calendar` against the schedule string. Either failing aborts
@@ -721,7 +822,11 @@ Row inventory (see `[SeedKeys.cs](../csharp/Interfold.DatabaseBootstrap/SeedKeys
 | `auth:jwt_rsa256_private_pem` | `GeneratedSecrets.JwtRsa256PrivateKeyPem`   | `SecretsBootstrapService.PatchRsa256` — populates `Rsa256PrivateKey` + derives `Rsa256PublicKey`                                         | yes         |
 | `auth:jwt_es256_private_pem`  | `GeneratedSecrets.JwtEs256PrivateKeyPem`    | `SecretsBootstrapService.PatchEs256` — populates `JwtEs256PrivateKeyPem` + seeds `JwtEs256VerificationKeyPems[0]`                        | yes         |
 | `auth:deep_link_secret`       | `GeneratedSecrets.DeepLinkSecret`           | `SecretsBootstrapService` → `AuthenticationConfiguration.DeepLinkSecret`                                                                 | yes         |
-| `certs:leaf_pfx_password`     | `GeneratedSecrets.LeafPfxPassword`          | `Program.LoadLeafPfxPasswordFromStoreIfNeeded` — injected into `IConfiguration[Kestrel:Certificates:Default:Password]` before host build | yes         |
+| `certs:leaf_pfx_password`     | `GeneratedSecrets.LeafPfxPassword`          | `SecretsPreBuildLoader` — injected into `IConfiguration[Kestrel:Certificates:Default:Password]` before host build | yes         |
+| `firebase:client:android`     | `FirebasePhase` parses `google-services.json` | `SecretsBootstrapService` → `FirebaseClientConfiguration.Android` — served by `GET /api/settings/firebase-config?platform=android`      | yes         |
+| `firebase:client:ios`         | `FirebasePhase` parses `GoogleService-Info.plist` | `SecretsBootstrapService` → `FirebaseClientConfiguration.Ios` — served by `GET /api/settings/firebase-config?platform=ios`          | yes         |
+| `firebase:client:web`         | `FirebasePhase` reads `firebase-web-config.json` | `SecretsBootstrapService` → `FirebaseClientConfiguration.Web` — served by `GET /api/settings/firebase-config?platform=web`         | yes         |
+| `fcm:service_account_json`    | `FirebasePhase` reads verbatim from operator-supplied file | `IFCMService` DI factory in `ClusterServiceCollectionExtensions` — absent row → `NullFCMService` fallback, present → `FirebaseFCMService` | yes         |
 
 
 > **Deliberately absent:** there is no `scylla:keyspace` row. Keyspace is per-node region
@@ -730,6 +835,46 @@ Row inventory (see `[SeedKeys.cs](../csharp/Interfold.DatabaseBootstrap/SeedKeys
 
 The OAuth client-IDs do **not** appear in this table by design. They are public values; the
 asymmetric split (IDs in env, secrets in store) is intentional and the seed list reflects it.
+
+### Firebase / FCM
+
+Push notifications are optional — a deployment can ship without any of the four Firebase
+rows seeded and the whole flow degrades gracefully:
+
+- The three `firebase:client:*` rows carry the **public** per-platform init payloads that
+  the mobile / wasm clients fetch at runtime via `GET /api/settings/firebase-config?platform=…`
+  instead of baking the values into each build. They are safe to hand out anonymously —
+  they authorise nothing on their own. An absent row makes the endpoint return `503
+  firebase_config_unavailable` for that platform; the client's `FirebaseConfigProvider`
+  falls back to its offline behaviour (no push, but the rest of the app still works).
+- `fcm:service_account_json` carries the **private** FCM v1 service-account credential
+  the API uses to *send* notifications. This is a full Google Cloud IAM credential and
+  must be protected as such. When absent, the `IFCMService` DI factory selects
+  `NullFCMService` so `FrontNotifierBackgroundService` no-ops the send path — no
+  fronting-change push, no crash, no operator action required.
+
+Operators supply the source files via `BootstrapConfig.firebase.*`:
+
+| Field                                | File the operator points at                                         | How to obtain it                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `firebase.androidConfigPath`         | `google-services.json`                                              | Firebase Console → Project Settings → General → Your apps → Android → *google-services.json*                           |
+| `firebase.iosConfigPath`             | `GoogleService-Info.plist`                                          | Firebase Console → Project Settings → General → Your apps → iOS → *GoogleService-Info.plist*                           |
+| `firebase.webConfigPath`             | flat `firebase-web-config.json` (matches the client DTO 1:1)         | Firebase Console → Project Settings → General → Your apps → Web → *SDK setup and configuration* + inject the VAPID key from Cloud Messaging → Web configuration → Web Push certificates |
+| `firebase.serviceAccountPath`        | FCM v1 service-account credential JSON                              | Firebase Console → Project Settings → Service accounts → *Generate new private key*                                    |
+
+The `firebase-phase` in the bootstrapper (`Interfold.Bootstrapper/Phases/FirebasePhase.cs`)
+ingests each configured file, reshapes the platform-specific inputs into the snake-case
+JSON the API deserialises, and threads the four resulting seed strings into
+`PostgresSeedOptions.FirebaseAndroidClientJson`/`FirebaseIosClientJson`/
+`FirebaseWebClientJson`/`FcmServiceAccountJson`. `PostgresSeeder.BootstrapAsync` then
+writes them as `internal.secrets` rows in the same idempotent pass as the OAuth secrets.
+
+Every path is optional — leaving one blank is the supported "skip this input" shape.
+A non-empty path that doesn't resolve to a file OR that fails to parse is a hard
+bootstrap failure, so a typo surfaces at bootstrap time rather than at first API
+request. Store the source files with the same 0600 filesystem mode as
+`secrets/secrets.json` — the FCM service-account credential in particular is a
+long-lived Google Cloud IAM key.
 
 ## Boot ordering
 
@@ -879,7 +1024,7 @@ followed by an API restart. The bootstrapper will catch up on the next run.
 | ----------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | Encryption pepper | `GeneratedSecrets.EncryptionPepper` → `internal.secrets:encryption:pepper` (no env, no AppHost parameter) | Same                                                                                                 | Postgres fixtures seed `"TEST"` into the row via `PostgresSeedOptions`; the in-memory store is pre-seeded with `"TEST"` for inmemory mode |
 | JWT keys          | Generated lazily by `SecretsPhase` and round-tripped through Postgres                                     | Same                                                                                                 | Seeded into the real store for Scylla/Postgres fixtures; in-memory store pre-seeded with `TestDbCredentials` PEMs for inmemory mode       |
-| Leaf PFX password | *no leaf PFX in dev* (ASP.NET dev cert)                                                                   | `internal.secrets:certs:leaf_pfx_password`, loaded by `Program.LoadLeafPfxPasswordFromStoreIfNeeded` | not exercised                                                                                                                             |
+| Leaf PFX password | *no leaf PFX in dev* (ASP.NET dev cert)                                                                   | `internal.secrets:certs:leaf_pfx_password`, loaded by `SecretsPreBuildLoader` | not exercised                                                                                                                             |
 | OAuth secrets     | `Parameters:google-oauth-client-secret` / `Parameters:discord-oauth-client-secret` user-secrets (legacy)  | `internal.secrets:oauth:*:client_secret`                                                             | empty / `"TEST"`                                                                                                                          |
 
 
@@ -918,7 +1063,7 @@ that path, the API defaults to `"nam"` in code — correct for a single-region d
 but the *wrong* answer for a `eur` or `gdpr` node. Failure mode is "wrong region", not
 "crash".
 - **Don't put `ASPNETCORE_Kestrel__Certificates__Default__Password` back in `.env`.** It
-is intentionally not generated. If you set it, `Program.LoadLeafPfxPasswordFromStoreIfNeeded`
+is intentionally not generated. If you set it, `SecretsPreBuildLoader`
 honours it as an override (legacy escape hatch), but you've now bypassed
 `internal.secrets` and rotation via `rotate-secrets` will not propagate.
 - `**internal.secrets:encryption:pepper` must exist before the API starts.** It's the

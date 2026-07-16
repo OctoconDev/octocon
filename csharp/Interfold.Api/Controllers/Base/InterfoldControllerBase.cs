@@ -5,12 +5,15 @@ using Interfold.Api.Middleware;
 using Interfold.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Net.Http.Headers;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Contracts;
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Api.Controllers.Base;
 
@@ -18,12 +21,20 @@ namespace Interfold.Api.Controllers.Base;
 [Authorize]
 public abstract class InterfoldControllerBase : ControllerBase
 {
-    protected string PrincipalId
+    /// <summary>
+    /// The authenticated principal for the current request as a
+    /// <see cref="ScopedSystemId"/>. The middleware guarantees the value is present and
+    /// scoped — any endpoint reaching this getter has already passed the JWT-sub
+    /// validation. <see cref="ScopedSystemId"/> widens implicitly to
+    /// <see cref="SystemId"/> at every persistence / repository call site, so this
+    /// getter's byte value flows unchanged to Postgres idempotency and Scylla PKs.
+    /// </summary>
+    protected ScopedSystemId PrincipalId
     {
         get
         {
             if (HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var value)
-                && value is string principal)
+                && value is ScopedSystemId principal)
             {
                 return principal;
             }
@@ -33,59 +44,108 @@ public abstract class InterfoldControllerBase : ControllerBase
         }
     }
 
-    protected async ValueTask CheckAlterId(int alterId, string? principal = null, CancellationToken? ct = null)
-    {
-        if (alterId <= 0)
-        {
-            throw new InterfoldException("Invalid alter ID.", "invalid_alter_id");
-        }
-
-        if (string.IsNullOrWhiteSpace(principal))
-        {
-            return;
-        }
-
-        if (!ct.HasValue)
-        {
-            throw new InterfoldException("CT is required on alter check", "alter_check_server_issue");
-        }
-
-        var alterRepository = HttpContext.RequestServices.GetRequiredService<IAlterRepository>();
-        var alterExists = await alterRepository.ExistsAsync(principal, alterId, ct.Value);
-        if (!alterExists)
-        {
-            throw new InterfoldException("Alter not found", "alter_not_found");
-        }
-    }
-
-    protected string GetIdempotencyKey(string? bodyKey)
-    {
-        if (!string.IsNullOrWhiteSpace(bodyKey))
-            return bodyKey;
-
-        var header = Request.Headers["X-Interfold-Idempotency-Key"].FirstOrDefault();
-        return !string.IsNullOrWhiteSpace(header) ? header : Guid.NewGuid().ToString("N");
-    }
 
     /// <summary>
-    /// Returns <paramref name="url"/> with the server origin prepended when the stored
-    /// value is a relative path. Already-absolute URLs are returned unchanged.
+    /// Resolves the idempotency key for the current request: the
+    /// <c>X-Interfold-Idempotency-Key</c> header when present, otherwise a fresh GUID
+    /// (each unkeyed request is its own operation). The header is the only client-supplied
+    /// source — payload-level keys were removed.
     /// </summary>
-    /// <remarks>
-    /// Avatar callers should prefer <see cref="QualifyAvatar"/>, which uses the persisted
-    /// <see cref="AvatarSource"/> as the authoritative discriminator instead of inferring
-    /// hosting from the URL prefix.
-    /// </remarks>
-    protected string? QualifyUrl(string? url)
-        => AvatarUrlQualifier.Qualify(url, Request.Scheme, Request.Host);
+    protected IdempotencyKey GetIdempotencyKey()
+    {
+        var header = Request.Headers[InterfoldHeaders.IdempotencyKey].FirstOrDefault();
+        return new(!string.IsNullOrWhiteSpace(header) ? header : Guid.NewGuid().ToString("N"));
+    }
 
     /// <summary>
     /// Source-aware avatar qualification: prepends the server origin only when the avatar
-    /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs are passed
-    /// through verbatim, and a null source (no avatar set) is returned unchanged.
+    /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs pass through
+    /// verbatim; a null / blank input returns unchanged. Non-avatar callers that need
+    /// origin qualification without the <see cref="AvatarSource"/> discriminator can call
+    /// <c>AvatarUrlQualifier.Qualify(string?, string, HostString)</c> directly.
     /// </summary>
-    protected string? QualifyAvatar(string? url, AvatarSource? source)
+    protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)
         => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
+
+    /// <summary>
+    /// Reads a multipart/form-data request body and returns the first file part as an
+    /// <see cref="AvatarUploadPayload"/>. Non-multipart requests, empty bodies, boundary
+    /// parse failures, and mid-read <see cref="IOException"/>s all resolve to
+    /// <see cref="AvatarUploadPayload"/> with a <see langword="null"/> stream — the
+    /// caller is expected to treat this as "no upload landed" and NOT dereference the
+    /// stream. A file part that lands with a zero-byte body flips
+    /// <see cref="AvatarUploadPayload.EmptyFilePart"/> to <see langword="true"/> so the
+    /// caller can distinguish "client attached an empty file" from "client attached no
+    /// file at all" (the two are the same 415-adjacent shape on the wire but distinct
+    /// error codes on the response).
+    ///
+    /// <para>
+    /// Shared by <c>AltersController.UploadAvatar</c> and
+    /// <c>SettingsController.UploadAvatar</c> so a future tweak to multipart parsing
+    /// (a size cap, a MIME allow-list, an <c>Ampersand.NetworkOnlyRequestBody</c>
+    /// substitution during test setup) lands exactly once. Both callers pass
+    /// <see cref="HttpContext.RequestAborted"/> as <paramref name="ct"/>.
+    /// </para>
+    /// </summary>
+    protected async Task<AvatarUploadPayload> ResolveMultipartUploadAsync(CancellationToken ct)
+    {
+        var emptyFilePart = false;
+
+        if (Request.Body is null)
+            return new AvatarUploadPayload(null, emptyFilePart);
+
+        Request.EnableBuffering();
+
+        if (Request.Body.CanSeek)
+            Request.Body.Position = 0;
+
+        if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var mediaType)
+            || !mediaType.MediaType.HasValue
+            || !mediaType.MediaType.Value.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AvatarUploadPayload(null, emptyFilePart);
+        }
+
+        var boundary = HeaderUtilities.RemoveQuotes(mediaType.Boundary).Value;
+        if (string.IsNullOrWhiteSpace(boundary))
+            return new AvatarUploadPayload(null, emptyFilePart);
+
+        try
+        {
+            var reader = new MultipartReader(boundary, Request.Body);
+            MultipartSection? section;
+
+            while ((section = await reader.ReadNextSectionAsync(ct)) is not null)
+            {
+                if (!ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition))
+                    continue;
+
+                var fileName = HeaderUtilities.RemoveQuotes(disposition.FileNameStar).Value
+                               ?? HeaderUtilities.RemoveQuotes(disposition.FileName).Value;
+
+                if (!string.IsNullOrWhiteSpace(fileName))
+                {
+                    var payload = new MemoryStream();
+                    await section.Body.CopyToAsync(payload, ct);
+                    if (payload.Length <= 0)
+                    {
+                        emptyFilePart = true;
+                        await payload.DisposeAsync();
+                        continue;
+                    }
+
+                    payload.Position = 0;
+                    return new AvatarUploadPayload(payload, emptyFilePart);
+                }
+            }
+        }
+        catch (IOException)
+        {
+            return new AvatarUploadPayload(null, emptyFilePart);
+        }
+
+        return new AvatarUploadPayload(null, emptyFilePart);
+    }
 
     /// <summary>
     /// Executes a command handler with:
@@ -128,7 +188,7 @@ public abstract class InterfoldControllerBase : ControllerBase
                     result.Conflict!.Code.ToString()));
         }
 
-        Response.Headers["X-Interfold-Command-Id"] = envelope.CommandId.ToString("N");
+        Response.Headers[InterfoldHeaders.CommandId] = envelope.CommandId.ToString("N");
 
         if (result.Accepted)
             return Ok(result.Result);
@@ -137,7 +197,10 @@ public abstract class InterfoldControllerBase : ControllerBase
         {
             ConflictCode.ConflictDuplicate    => Conflict(result.Conflict),
             ConflictCode.ConflictInvariant    => UnprocessableEntity(result.Conflict),
-            _                                 => StatusCode(500, new { Code = "unknown_error" })
+            _                                 => StatusCode(500, new ErrorResponse(
+                "An unknown error occurred.",
+                ErrorCodes.UnknownError,
+                System.Net.HttpStatusCode.InternalServerError))
         };
     }
 
@@ -181,16 +244,18 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     protected ErrorResponse ConflictToError(Contracts.Operations.ConflictResult conflict)
     {
-        Response.Headers["X-Interfold-OperationId"] = conflict.OperationId;
+        Response.Headers[InterfoldHeaders.OperationId] = conflict.OperationId.Value;
         
         return conflict.Code switch
         {
+            // ResolutionHint doubles as the client-visible error code; ToWire keeps the
+            // exact legacy strings ("no_retry" / "manual_merge_required") on the wire.
             ConflictCode.ConflictDuplicate => new ErrorResponse(
-                "A duplicate conflict occurred.", conflict.ResolutionHint, HttpStatusCode.Conflict, conflict.EntityRef),
+                "A duplicate conflict occurred.", new ErrorCode(conflict.ResolutionHint.ToWire()), HttpStatusCode.Conflict, conflict.EntityRef.Value),
             ConflictCode.ConflictInvariant => new ErrorResponse(
-                "The request could not be processed due to a conflict.", conflict.ResolutionHint,
-                HttpStatusCode.UnprocessableEntity, conflict.EntityRef),
-            _ => new ErrorResponse("An unknown error occurred.", "unknown_error", HttpStatusCode.InternalServerError, conflict.EntityRef)
+                "The request could not be processed due to a conflict.", new ErrorCode(conflict.ResolutionHint.ToWire()),
+                HttpStatusCode.UnprocessableEntity, conflict.EntityRef.Value),
+            _ => new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError, conflict.EntityRef.Value)
         };
     }
 }

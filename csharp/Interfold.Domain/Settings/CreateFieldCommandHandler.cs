@@ -5,13 +5,13 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
 public sealed class CreateFieldCommandHandler : ICommandHandler<CreateFieldCommand, SettingsFieldCommandResult>
 {
-    private static readonly HashSet<string> AllowedTypes = ["text", "number", "boolean", "date", "colour", "plaintext", "month", "year", "month_year", "timestamp", "month_day"];
-    private static readonly HashSet<string> AllowedSecurityLevels = ["public", "friends_only", "trusted_only", "private"];
     private readonly ISettingsFieldRepository _fieldRepository;
     private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
@@ -28,17 +28,13 @@ public sealed class CreateFieldCommandHandler : ICommandHandler<CreateFieldComma
         if (string.IsNullOrWhiteSpace(command.Payload.Name))
         {
             return CommandExecutionResult<SettingsFieldCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, "settings:field_name_required", "manual_merge_required"));
+                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsFieldNameRequired, ResolutionHint.ManualMergeRequired));
         }
 
-        var normalizedType = NormalizeType(command.Payload.Type);
-
-        if (!AllowedSecurityLevels.Contains(command.Payload.SecurityLevel))
-        {
-            return CommandExecutionResult<SettingsFieldCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, "settings:field_security_level_invalid", "manual_merge_required"));
-        }
-
+        // Type and SecurityLevel are enum-typed on the command, so JSON deserialization
+        // has already rejected any unknown wire values before this handler runs. The
+        // previous string whitelists lived here to catch that; the type system now owns
+        // it, and we keep the fallback-to-Text behaviour from the pre-enum NormalizeType.
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
 
@@ -53,7 +49,7 @@ public sealed class CreateFieldCommandHandler : ICommandHandler<CreateFieldComma
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
                 return CommandExecutionResult<SettingsFieldCommandResult>.Rejected(
-                    new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, "settings:field:create", "no_retry"));
+                    new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, EntityRefs.SettingsFieldCreate, ResolutionHint.NoRetry));
             }
 
             var replay = CommandSerialization.Deserialize<SettingsFieldCommandResult>(previous.OutcomePayload);
@@ -72,7 +68,7 @@ public sealed class CreateFieldCommandHandler : ICommandHandler<CreateFieldComma
         var fieldId = await _fieldRepository.CreateAsync(
             command.PrincipalId,
             command.Payload.Name,
-            normalizedType,
+            command.Payload.Type,
             command.Payload.SecurityLevel,
             command.Payload.Locked,
             insertedAtUtc,
@@ -81,10 +77,10 @@ public sealed class CreateFieldCommandHandler : ICommandHandler<CreateFieldComma
         if (fieldId is null)
         {
             return CommandExecutionResult<SettingsFieldCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, "settings:field:create_failed", "manual_merge_required"));
+                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsFieldCreateFailed, ResolutionHint.ManualMergeRequired));
         }
 
-        var result = new SettingsFieldCommandResult(command.PrincipalId, "field_created", fieldId, Replay: false);
+        var result = new SettingsFieldCommandResult(command.PrincipalId, SettingsFieldAction.FieldCreated, fieldId.Value, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
@@ -100,15 +96,5 @@ public sealed class CreateFieldCommandHandler : ICommandHandler<CreateFieldComma
             await _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), cancellationToken);
 
         return CommandExecutionResult<SettingsFieldCommandResult>.Success(result);
-    }
-
-    private static string NormalizeType(string? type)
-    {
-        if (string.IsNullOrWhiteSpace(type))
-        {
-            return "text";
-        }
-
-        return AllowedTypes.Contains(type) ? type : "text";
     }
 }

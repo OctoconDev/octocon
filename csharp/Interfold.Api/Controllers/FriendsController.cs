@@ -1,4 +1,5 @@
 using Interfold.Api.Models;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Models.Read;
 using Microsoft.AspNetCore.Mvc;
@@ -6,6 +7,7 @@ using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Friendships;
 using Interfold.Api.Controllers.Base;
+using Interfold.Contracts;
 
 namespace Interfold.Api.Controllers;
 
@@ -27,30 +29,32 @@ public sealed class FriendsController : InterfoldControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> Index(CancellationToken ct)
+    public async Task<Response<IReadOnlyList<FriendshipReadModel>>> Index(CancellationToken ct)
     {
         var friendships = await _repository.ListFriendshipsAsync(PrincipalId, ct);
         var qualified = friendships.Select(QualifyFriendship).ToArray();
-        return Ok(new { data = qualified });
+        return new SuccessResponse<IReadOnlyList<FriendshipReadModel>>(qualified);
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> Show(string id, CancellationToken ct)
+    public async Task<Response<FriendshipReadModel>> Show(SystemId id, CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (string.Equals(principal, id, StringComparison.Ordinal))
+        // RepresentsSameUserAs is the semantic self-check; a bare `principal == id`
+        // byte compare would miss the raw route shape and let /api/friends/{rawId} slip
+        // past this guard.
+        if (principal.RepresentsSameUserAs(id))
         {
-            return BadRequest(new
-            {
-                error = "I'm pretty sure you don't count as your own friend. (Cannot view friendship status for self.)",
-                code = "cannot_view_own_friendship"
-            });
+            return new ErrorResponse(
+                "I'm pretty sure you don't count as your own friend. (Cannot view friendship status for self.)",
+                ErrorCodes.CannotViewOwnFriendship,
+                System.Net.HttpStatusCode.BadRequest);
         }
 
         var friendship = await _repository.GetFriendshipAsync(principal, id, ct);
         return friendship is null
-            ? NotFound(new { error = "You are not friends with that system.", code = "friendship_not_found" })
-            : Ok(new { data = QualifyFriendship(friendship) });
+            ? new ErrorResponse("You are not friends with that system.", ErrorCodes.FriendshipNotFound, System.Net.HttpStatusCode.NotFound)
+            : QualifyFriendship(friendship);
     }
 
     private FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship)
@@ -65,14 +69,15 @@ public sealed class FriendsController : InterfoldControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Delete(string id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(SystemId id, CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (string.Equals(principal, id, StringComparison.Ordinal))
+        // Semantic self-check — see Show handler for the same rationale.
+        if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse(
                 "I'm pretty sure you don't count as your own friend. (Cannot delete friendship with self.)",
-                "cannot_delete_own_friendship",
+                ErrorCodes.CannotDeleteOwnFriendship,
                 System.Net.HttpStatusCode.BadRequest);
         }
 
@@ -80,7 +85,7 @@ public sealed class FriendsController : InterfoldControllerBase
             OperationIds.FriendDelete,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new RemoveFriendshipCommand(id));
 
@@ -88,23 +93,23 @@ public sealed class FriendsController : InterfoldControllerBase
     }
 
     [HttpPost("{id}/trust")]
-    public async Task<Response> Trust(string id, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetTrustInternal(id, true, OperationIds.FriendTrust, "cannot_trust_self", req, ct);
+    public async Task<Response> Trust(SystemId id, CancellationToken ct)
+        => await SetTrustInternal(id, true, OperationIds.FriendTrust, ErrorCodes.CannotTrustSelf, ct);
 
     [HttpPost("{id}/untrust")]
-    public async Task<Response> Untrust(string id, [FromBody] BaseRequest? req, CancellationToken ct)
-        => await SetTrustInternal(id, false, OperationIds.FriendUntrust, "cannot_untrust_self", req, ct);
+    public async Task<Response> Untrust(SystemId id, CancellationToken ct)
+        => await SetTrustInternal(id, false, OperationIds.FriendUntrust, ErrorCodes.CannotUntrustSelf, ct);
 
     private async Task<Response> SetTrustInternal(
-        string id,
+        SystemId id,
         bool trusted,
-        string operationId,
-        string selfErrorCode,
-        BaseRequest? req,
+        OperationId operationId,
+        ErrorCode selfErrorCode,
         CancellationToken ct)
     {
         var principal = PrincipalId;
-        if (string.Equals(principal, id, StringComparison.Ordinal))
+        // Semantic self-check — see Show handler for the same rationale.
+        if (principal.RepresentsSameUserAs(id))
         {
             return new ErrorResponse("Cannot trust self.", selfErrorCode, System.Net.HttpStatusCode.BadRequest);
         }
@@ -113,7 +118,7 @@ public sealed class FriendsController : InterfoldControllerBase
             operationId,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new SetFriendTrustCommand(id, trusted));
 

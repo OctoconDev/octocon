@@ -2,7 +2,9 @@ using Aspire.Hosting;
 using Interfold.AppHostGraph;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
+using Interfold.Contracts.Enums;
 using Microsoft.Extensions.Configuration;
+using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -50,17 +52,17 @@ internal static class PublishPhase
             Directory.SetCurrentDirectory(previousCwd);
         }
 
-        var composePath = Path.Combine(options.OutputDir, "docker-compose.yaml");
+        var composePath = Path.Combine(options.OutputDir, BootstrapArtifactPaths.ComposeFileName);
         if (!File.Exists(composePath))
         {
             // Aspire >=13 sometimes emits to a subdirectory keyed by the environment name.
             // Look one level deeper before giving up.
-            var nested = Directory.EnumerateFiles(options.OutputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
+            var nested = BootstrapArtifactPaths.FindComposeFile(options.OutputDir);
             if (nested is null)
             {
-                logger.PhaseFail(Phase, "compose-not-emitted");
+                logger.PhaseFail(Phase, PhaseFailureReasons.ComposeNotEmitted);
                 throw new InvalidOperationException(
-                    $"Aspire publish completed but no docker-compose.yaml was produced under {options.OutputDir}.");
+                    $"Aspire publish completed but no {BootstrapArtifactPaths.ComposeFileName} was produced under {options.OutputDir}.");
             }
             logger.Info($"    compose emitted at {nested}");
             composePath = nested;
@@ -122,12 +124,12 @@ internal static class PublishPhase
     /// rejected any value outside this switch in normal flows; the throw guards internal callers
     /// (notably the unit tests) from silently bypassing validation.
     /// </summary>
-    internal static (string IncludeScylla, string IncludeCassandra, string ScyllaTopology) TranslateDatabaseMode(
-        string databaseMode) => databaseMode switch
+    internal static (bool IncludeScylla, bool IncludeCassandra, ScyllaTopology ScyllaTopology) TranslateDatabaseMode(
+        DatabaseMode databaseMode) => databaseMode switch
         {
-            "single" => ("true", "false", "single"),
-            "multi" => ("true", "false", "multi"),
-            "cassandra" => ("false", "true", "single"),
+            DatabaseMode.Single => (true, false, ScyllaTopology.Single),
+            DatabaseMode.Multi => (true, false, ScyllaTopology.Multi),
+            DatabaseMode.Cassandra => (false, true, ScyllaTopology.Single),
             _ => throw new InvalidOperationException(
                 $"Unhandled databaseMode '{databaseMode}'. Expected: single | multi | cassandra."),
         };
@@ -187,7 +189,7 @@ internal static class PublishPhase
             // match InterfoldAppHost.Configure's AddParameter calls (scylla-keyspace,
             // oauth-callback-base-url, jwt-authority, jwt-audience, cors-allowed-origins) and
             // Aspire upper-snake-cases each into the matching .env key.
-            ["SCYLLA_KEYSPACE"] = config.ScyllaKeyspace,
+            ["SCYLLA_KEYSPACE"] = config.ScyllaKeyspace.ToWire(),
             ["OAUTH_CALLBACK_BASE_URL"] = config.ApiRuntime.CallbackBaseUrl,
             ["JWT_AUTHORITY"] = config.ApiRuntime.JwtAuthority,
             ["JWT_AUDIENCE"] = config.ApiRuntime.JwtAudience,
@@ -203,7 +205,7 @@ internal static class PublishPhase
             // InterfoldAppHost.Configure's AddParameter calls (node-group,
             // avatar-storage-root, …) and Aspire upper-snake-cases each into the
             // matching .env key.
-            ["NODE_GROUP"] = config.Cluster.NodeGroup,
+            ["NODE_GROUP"] = config.Cluster.NodeGroup.ToWire(),
             ["AVATAR_STORAGE_ROOT"] = config.Storage.AvatarStorageRoot ?? string.Empty,
             ["AVATAR_PUBLIC_BASE"] = config.Storage.AvatarPublicBase ?? string.Empty,
             ["OTLP_ENDPOINT"] = config.Observability.OtlpEndpoint ?? string.Empty,
@@ -234,7 +236,7 @@ internal static class PublishPhase
             // the API container reads leaf.pfx via the path env var set in ConfigureApiSelfHostEnv.
             // The JWT signing PEMs that used to live under secrets/keys/ are now part of
             // internal.secrets (see SeedKeys.cs) — no bind mount needed.
-            ["interfold-api:/certs"] = Path.Combine(outputDir, "certs"),
+            [$"{ComposeServices.InterfoldApi}:/certs"] = Path.Combine(outputDir, "certs"),
         };
 
         // When the operator opts in to web TLS, InterfoldAppHost.Configure adds two extra
@@ -245,20 +247,21 @@ internal static class PublishPhase
         // BootstrapperBuild also stages it for the integration tests).
         if (config.Deployment.WebHttps)
         {
-            bindMountLookup["octocon-web:/certs"] = Path.Combine(outputDir, "certs");
-            bindMountLookup["octocon-web:/etc/nginx/templates/default.conf.template"] =
+            bindMountLookup[$"{ComposeServices.OctoconWeb}:/certs"] = Path.Combine(outputDir, "certs");
+            bindMountLookup[$"{ComposeServices.OctoconWeb}:/etc/nginx/templates/default.conf.template"] =
                 Path.Combine(baseDir, "web", "nginx", "default.conf.template");
         }
 
         // Scylla rackdc.properties bind mount is region-keyed. Single mode uses one node named
         // "scylla" with the "nam" region (default); multi mode emits one node per region.
-        // The region list mirrors InterfoldAppHost.Configure().
-        string[] scyllaRegions = string.Equals(config.DatabaseMode, "multi", StringComparison.OrdinalIgnoreCase)
-            ? ["nam", "eur", "sam", "sas", "eas", "ocn", "gdpr"]
-            : ["nam"];
+        // The region list mirrors InterfoldAppHost.Configure(), derived from the ScyllaKeyspace
+        // enum so it can't drift from the typed region vocabulary.
+        string[] scyllaRegions = config.DatabaseMode == DatabaseMode.Multi
+            ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
+            : [ScyllaKeyspace.Nam.ToWire()];
         foreach (var region in scyllaRegions)
         {
-            var nodeName = scyllaRegions.Length > 1 ? $"scylla-{region}" : "scylla";
+            var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: scyllaRegions.Length > 1);
             bindMountLookup[$"{nodeName}:/etc/scylla/cassandra-rackdc.properties"] =
                 Path.Combine(baseDir, "db", "scylla", $"cassandra-rackdc.{region}.properties");
         }
@@ -463,24 +466,24 @@ internal static class PublishPhase
         // values into the sibling .env file rather than embedding them in the compose YAML.
         var injected = new Dictionary<string, string?>
         {
-            ["Parameters:postgres-user"] = secrets.PostgresUser,
-            ["Parameters:postgres-password"] = secrets.PostgresPassword,
-            ["Parameters:postgres-init-password"] = secrets.PostgresInitPassword,
+            [AppHostParameterKeys.PostgresUser] = secrets.PostgresUser,
+            [AppHostParameterKeys.PostgresPassword] = secrets.PostgresPassword,
+            [AppHostParameterKeys.PostgresInitPassword] = secrets.PostgresInitPassword,
             // Pushes the operator's database-name choice into the AppHost graph; the matching
             // AddParameter("postgres-db", "interfold", publishValueAsDefault: true) in
             // InterfoldAppHost picks this up via IConfiguration and Aspire writes it through
             // to .env as POSTGRES_DB= (filled in by BuildEnvReplacements above).
-            ["Parameters:postgres-db"] = config.PostgresDatabase,
+            [AppHostParameterKeys.PostgresDb] = config.PostgresDatabase,
             // ClusterName is read directly from IConfiguration in InterfoldAppHost (matching
             // the include-scylla / scylla-topology pattern) rather than as an Aspire parameter
             // resource, because the value also has to land on Scylla's WithArgs list and that
             // overload takes plain strings. The value gets baked into the compose YAML at
             // publish time as both CASSANDRA_CLUSTER_NAME and --cluster-name; no .env round
             // trip needed.
-            ["Parameters:cluster-name"] = config.ClusterName,
-            ["Parameters:scylla-user"] = secrets.ScyllaUser,
-            ["Parameters:scylla-password"] = secrets.ScyllaPassword,
-            ["Parameters:encryption-private-key"] = secrets.EncryptionPrivateKeyB64,
+            [AppHostParameterKeys.ClusterName] = config.ClusterName,
+            [AppHostParameterKeys.ScyllaUser] = secrets.ScyllaUser,
+            [AppHostParameterKeys.ScyllaPassword] = secrets.ScyllaPassword,
+            [AppHostParameterKeys.EncryptionPrivateKey] = secrets.EncryptionPrivateKeyB64,
             // The encryption pepper and OAuth client secrets used to be Aspire parameters
             // too, but the API now reads them from internal.secrets exclusively (see
             // SeedKeys / SecretsBootstrapService), so we no longer inject them into the
@@ -490,9 +493,9 @@ internal static class PublishPhase
             // them here pushes the operator-supplied values from BootstrapConfig through to
             // the .env entry that ConfigureApiSelfHostEnv's WithEnvironment("OCTOCON_*_OAUTH_CLIENT_ID")
             // references — see BuildEnvReplacements above for the matching .env rewrite.
-            ["Parameters:google-oauth-client-id"] = config.OAuth.GoogleClientId ?? string.Empty,
-            ["Parameters:discord-oauth-client-id"] = config.OAuth.DiscordClientId ?? string.Empty,
-            ["Parameters:apple-oauth-client-id"] = config.OAuth.AppleClientId ?? string.Empty,
+            [AppHostParameterKeys.GoogleOAuthClientId] = config.OAuth.GoogleClientId ?? string.Empty,
+            [AppHostParameterKeys.DiscordOAuthClientId] = config.OAuth.DiscordClientId ?? string.Empty,
+            [AppHostParameterKeys.AppleOAuthClientId] = config.OAuth.AppleClientId ?? string.Empty,
             // API runtime config: ScyllaKeyspace + ApiRuntimeSection (CallbackBaseUrl,
             // JwtAuthority, JwtAudience, CorsAllowedOrigins). All five are non-secret Aspire
             // parameters declared in InterfoldAppHost.Configure. ConfigPhase has already run
@@ -500,11 +503,11 @@ internal static class PublishPhase
             // non-empty (the .env rewrite in BuildEnvReplacements above writes the same five
             // keys onto the matching SCYLLA_KEYSPACE / OAUTH_CALLBACK_BASE_URL / ... entries
             // Aspire emits unfilled in publish mode).
-            ["Parameters:scylla-keyspace"] = config.ScyllaKeyspace,
-            ["Parameters:oauth-callback-base-url"] = config.ApiRuntime.CallbackBaseUrl,
-            ["Parameters:jwt-authority"] = config.ApiRuntime.JwtAuthority,
-            ["Parameters:jwt-audience"] = config.ApiRuntime.JwtAudience,
-            ["Parameters:cors-allowed-origins"] = string.Join(",", config.ApiRuntime.CorsAllowedOrigins),
+            [AppHostParameterKeys.ScyllaKeyspace] = config.ScyllaKeyspace.ToWire(),
+            [AppHostParameterKeys.OAuthCallbackBaseUrl] = config.ApiRuntime.CallbackBaseUrl,
+            [AppHostParameterKeys.JwtAuthority] = config.ApiRuntime.JwtAuthority,
+            [AppHostParameterKeys.JwtAudience] = config.ApiRuntime.JwtAudience,
+            [AppHostParameterKeys.CorsAllowedOrigins] = string.Join(",", config.ApiRuntime.CorsAllowedOrigins),
             // Operator tuning parameters — see BuildEnvReplacements above for the
             // wire-side documentation. The four optional fields serialise empty/null
             // as the empty string; ApplyStorage / ApplyObservability / TryParseInt
@@ -512,25 +515,25 @@ internal static class PublishPhase
             // fire. Parameter names match InterfoldAppHost.Configure's AddParameter
             // calls; injecting them through IConfiguration here lets the AppHost graph
             // (and any future code path that reads Parameters:*) pick them up.
-            ["Parameters:node-group"] = config.Cluster.NodeGroup,
-            ["Parameters:avatar-storage-root"] = config.Storage.AvatarStorageRoot ?? string.Empty,
-            ["Parameters:avatar-public-base"] = config.Storage.AvatarPublicBase ?? string.Empty,
-            ["Parameters:otlp-endpoint"] = config.Observability.OtlpEndpoint ?? string.Empty,
-            ["Parameters:socket-batch-bytes-threshold"] = config.Socket.BatchBytesThreshold?.ToString() ?? string.Empty,
-            ["Parameters:db-retry-attempts"] = config.Persistence.DbRetryAttempts.ToString(),
-            ["Parameters:db-retry-initial-delay-ms"] = config.Persistence.DbRetryInitialDelayMs.ToString(),
-            ["Parameters:db-retry-max-delay-ms"] = config.Persistence.DbRetryMaxDelayMs.ToString(),
-            ["Parameters:hydration-max-concurrency"] = config.Persistence.HydrationMaxConcurrency.ToString(),
-            ["Parameters:include-scylla"] = includeScylla,
-            ["Parameters:include-cassandra"] = includeCassandra,
-            ["Parameters:scylla-topology"] = scyllaTopology,
+            [AppHostParameterKeys.NodeGroup] = config.Cluster.NodeGroup.ToWire(),
+            [AppHostParameterKeys.AvatarStorageRoot] = config.Storage.AvatarStorageRoot ?? string.Empty,
+            [AppHostParameterKeys.AvatarPublicBase] = config.Storage.AvatarPublicBase ?? string.Empty,
+            [AppHostParameterKeys.OtlpEndpoint] = config.Observability.OtlpEndpoint ?? string.Empty,
+            [AppHostParameterKeys.SocketBatchBytesThreshold] = config.Socket.BatchBytesThreshold?.ToString() ?? string.Empty,
+            [AppHostParameterKeys.DbRetryAttempts] = config.Persistence.DbRetryAttempts.ToString(),
+            [AppHostParameterKeys.DbRetryInitialDelayMs] = config.Persistence.DbRetryInitialDelayMs.ToString(),
+            [AppHostParameterKeys.DbRetryMaxDelayMs] = config.Persistence.DbRetryMaxDelayMs.ToString(),
+            [AppHostParameterKeys.HydrationMaxConcurrency] = config.Persistence.HydrationMaxConcurrency.ToString(),
+            [AppHostParameterKeys.IncludeScylla] = BoolWire.ToWireValue(includeScylla),
+            [AppHostParameterKeys.IncludeCassandra] = BoolWire.ToWireValue(includeCassandra),
+            [AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue(),
             // The bootstrapper never builds the API from source — point Aspire at the pre-built image
             // so it emits a compose service referencing that tag directly. See InterfoldAppHost.Configure
             // for how this switches off the AddProject<> code path.
-            ["Parameters:api-image"] = config.ApiImage,
+            [AppHostParameterKeys.ApiImage] = config.ApiImage,
             // Self-hosting stacks don't need the Aspire dev dashboard - it would pull an MCR-nightly
             // image at compose-up time which is inappropriate for production deployments.
-            ["Parameters:include-dashboard"] = "false",
+            [AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue,
             // The web container is opt-in via either of two independent toggles:
             //   * `deployment.includeWeb=true` → ship the octocon-web container HTTP-only.
             //   * `deployment.webHttps=true` → ship the container AND terminate TLS at it.
@@ -538,8 +541,8 @@ internal static class PublishPhase
             // reads it), so we OR the two flags into Parameters:include-web. Parameters:web-tls
             // remains driven by webHttps alone — operators who only flip includeWeb get an
             // HTTP-only octocon-web for debugging / external-TLS-proxy stacks.
-            ["Parameters:include-web"] = (config.Deployment.IncludeWeb || config.Deployment.WebHttps) ? "true" : "false",
-            ["Parameters:web-tls"] = config.Deployment.WebHttps ? "true" : "false",
+            [AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb || config.Deployment.WebHttps),
+            [AppHostParameterKeys.WebTls] = BoolWire.ToWireValue(config.Deployment.WebHttps),
             // Server name baked into the rendered nginx config. nginx accepts DNS names and bare
             // IP literals as server_name but does NOT accept CIDR notation, so we use the first
             // non-CIDR host (the same "primary host" rule ConfigPhase.ResolveDerivedDefaults uses
@@ -547,13 +550,13 @@ internal static class PublishPhase
             // leaf-eligible entry exists; the `_` catch-all fallback only kicks in for the
             // bypass-validation dev path that goes straight to InterfoldAppHost.Configure without
             // running the bootstrapper.
-            ["Parameters:web-server-name"] = PickServerName(config.Deployment.Hosts),
-            ["Ports:postgres"] = config.Ports.Postgres.ToString(),
-            ["Ports:scylla"] = config.Ports.Scylla.ToString(),
-            ["Ports:api-http"] = config.Ports.ApiHttp.ToString(),
-            ["Ports:api-https"] = config.Ports.ApiHttps.ToString(),
-            ["Ports:web-http"] = config.Ports.WebHttp.ToString(),
-            ["Ports:web-https"] = config.Ports.WebHttps.ToString(),
+            [AppHostParameterKeys.WebServerName] = PickServerName(config.Deployment.Hosts),
+            [AppHostParameterKeys.PortsPostgres] = config.Ports.Postgres.ToString(),
+            [AppHostParameterKeys.PortsScylla] = config.Ports.Scylla.ToString(),
+            [AppHostParameterKeys.PortsApiHttp] = config.Ports.ApiHttp.ToString(),
+            [AppHostParameterKeys.PortsApiHttps] = config.Ports.ApiHttps.ToString(),
+            [AppHostParameterKeys.PortsWebHttp] = config.Ports.WebHttp.ToString(),
+            [AppHostParameterKeys.PortsWebHttps] = config.Ports.WebHttps.ToString(),
         };
         builder.Configuration.AddInMemoryCollection(injected);
 

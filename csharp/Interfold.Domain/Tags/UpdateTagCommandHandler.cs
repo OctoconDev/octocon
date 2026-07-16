@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Tags;
 
@@ -31,10 +32,10 @@ public sealed class UpdateTagCommandHandler : ICommandHandler<UpdateTagCommand, 
         var payload = command.Payload;
 
         if (payload.Name is null && payload.Color is null && payload.Description is null && payload.SecurityLevel is null)
-            return RejectInvariant(command, "tag:no_fields");
+            return RejectInvariant(command, EntityRefs.TagNoFields);
 
         if (payload.Name is not null && payload.Name.Length > 50)
-            return RejectInvariant(command, "tag:name_too_long");
+            return RejectInvariant(command, EntityRefs.TagNameTooLong);
 
         var payloadJson = CommandSerialization.Serialize(payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -45,7 +46,7 @@ public sealed class UpdateTagCommandHandler : ICommandHandler<UpdateTagCommand, 
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "tag:update");
+                return RejectDuplicate(command, EntityRefs.TagUpdate);
 
             var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -53,7 +54,7 @@ public sealed class UpdateTagCommandHandler : ICommandHandler<UpdateTagCommand, 
         }
 
         var found = await _tagRepository.UpdateAsync(command.PrincipalId, payload, cancellationToken);
-        if (!found) return RejectInvariant(command, "tag:not_found");
+        if (!found) return RejectInvariant(command, EntityRefs.TagNotFound);
 
         var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -70,12 +71,12 @@ public sealed class UpdateTagCommandHandler : ICommandHandler<UpdateTagCommand, 
     }
 
     private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
-        CommandEnvelope<UpdateTagCommand> command, string entityRef) =>
+        CommandEnvelope<UpdateTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<TagCommandResult> RejectInvariant(
-        CommandEnvelope<UpdateTagCommand> command, string entityRef) =>
+        CommandEnvelope<UpdateTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

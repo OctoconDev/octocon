@@ -1,10 +1,12 @@
-﻿using Interfold.Contracts;
+using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -47,8 +49,8 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<DeleteAccountCommand> command, CancellationToken cancellationToken = default)
     {
-        var unfriendedIds = new List<string>();
-        var result = await SettingsCommandHelper.ExecuteAsync(command, "account_deleted", "settings:account:delete", _idempotencyStore, async ct =>
+        var unfriendedIds = new List<SystemId>();
+        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.AccountDeleted, EntityRefs.SettingsAccountDelete, _idempotencyStore, async ct =>
         {
             var systemId = command.PrincipalId;
 
@@ -94,6 +96,7 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
             var deletedIds = await _friendshipRepository.DeleteAllForSystemAsync(systemId, ct);
             unfriendedIds.AddRange(deletedIds);
 
+
             // Delete Account
             return await _accountRepository.DeleteAsync(systemId, ct);
 
@@ -106,7 +109,14 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
 
             foreach (var friendId in unfriendedIds)
             {
-                await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendId, command.PrincipalId), cancellationToken);
+                // The friendship repos return bare (region-stripped) ids in their DeleteAll
+                // results — compose with the principal's region so the socket router filter
+                // sees a scoped TargetSystemId. Cross-region friendships would want the
+                // friend's own region here; a same-region compose is the current behaviour.
+                var friendTarget = ScopedSystemId.Compose(
+                    command.PrincipalId.Region,
+                    friendId);
+                await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendTarget, command.PrincipalId), cancellationToken);
             }
         }
 

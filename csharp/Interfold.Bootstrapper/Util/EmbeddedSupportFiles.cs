@@ -67,9 +67,21 @@ internal static class EmbeddedSupportFiles
                 continue;
             }
 
-            if (ExtractResource(asm, resourceName, targetPath))
+            try
             {
+                ExtractResource(asm, resourceName, targetPath);
                 extracted++;
+            }
+            catch (IOException)
+            {
+                // Lost the race against a concurrent extractor (parallel test invocation,
+                // simultaneous operator run) between our File.Exists check above and the rename
+                // below. Every racer streams the identical embedded resource, so whichever
+                // process's copy landed is equivalent to ours — nothing to reconcile, and this
+                // is a best-effort convenience extraction, not something worth failing the whole
+                // command over. Deliberately not re-checking File.Exists here: under heavy
+                // concurrency (dozens of subprocesses sharing one AppContext.BaseDirectory across
+                // the unit-test suite) that check has its own narrow race window.
             }
         }
 
@@ -92,13 +104,16 @@ internal static class EmbeddedSupportFiles
 
     /// <summary>
     /// Streams <paramref name="resourceName"/> from the assembly to a sibling temp file then
-    /// atomically renames it to <paramref name="targetPath"/>. Returns <c>true</c> on success and
-    /// <c>false</c> if a concurrent writer (parallel test invocation, simultaneous operator run,
-    /// or operator drop-in between our File.Exists check and the rename) got there first — in that
-    /// case the on-disk file is either an identical resource copy or operator-intent, so we leave
-    /// it alone and report "no new extraction" rather than failing the run.
+    /// atomically renames it to <paramref name="targetPath"/>.
+    ///
+    /// The rename never overwrites: it must not clobber an operator's customised drop-in that
+    /// appeared between <see cref="EnsureExtracted"/>'s <c>File.Exists</c> check and this rename
+    /// (a narrow window under heavy concurrency — dozens of bootstrapper subprocesses can share
+    /// one AppContext.BaseDirectory across the unit-test suite). If the rename loses that race,
+    /// it throws <see cref="IOException"/>; the caller treats that as "someone else already put
+    /// an equivalent file there" and moves on rather than overwriting.
     /// </summary>
-    private static bool ExtractResource(Assembly asm, string resourceName, string targetPath)
+    private static void ExtractResource(Assembly asm, string resourceName, string targetPath)
     {
         using var stream = asm.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException(
@@ -107,8 +122,7 @@ internal static class EmbeddedSupportFiles
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
 
         // Per-process temp suffix so two bootstrappers running against the same baseDir never
-        // clobber each other's intermediate file. The atomic rename below is what actually
-        // serialises the writers; this suffix just avoids self-inflicted FileStream collisions.
+        // clobber each other's intermediate file while streaming.
         var tempPath = $"{targetPath}.{Environment.ProcessId}.tmp";
         try
         {
@@ -117,17 +131,7 @@ internal static class EmbeddedSupportFiles
                 stream.CopyTo(fs);
             }
 
-            try
-            {
-                File.Move(tempPath, targetPath, overwrite: false);
-            }
-            catch (IOException) when (File.Exists(targetPath))
-            {
-                // Lost the rename race against another extractor; clean up our temp file and
-                // return false so the caller does not double-count this as a new extraction.
-                File.Delete(tempPath);
-                return false;
-            }
+            File.Move(tempPath, targetPath, overwrite: false);
         }
         catch
         {
@@ -136,7 +140,6 @@ internal static class EmbeddedSupportFiles
         }
 
         MaybeSetExecutableBit(targetPath);
-        return true;
     }
 
     private static void MaybeSetExecutableBit(string targetPath)

@@ -1,3 +1,5 @@
-﻿namespace Interfold.Api.Models;
+﻿using Interfold.Contracts.Ids;
 
-public sealed record FieldCreatedResponse(string Id);
+namespace Interfold.Api.Models;
+
+public sealed record FieldCreatedResponse(FieldId Id);

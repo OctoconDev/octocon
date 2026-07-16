@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.Phases;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -128,7 +129,7 @@ public sealed class CliParsingTests
             var rootFpPath = Path.Combine(certsDir, "rootCA.sha256.txt");
             await File.WriteAllTextAsync(rootCrtPath, cert.ExportCertificatePem());
 
-            var expectedFingerprint = Interfold.Bootstrapper.Phases.CertificatePhase.FormatSha256Fingerprint(
+            var expectedFingerprint = CertificatePhase.FormatSha256Fingerprint(
                 System.Security.Cryptography.SHA256.HashData(cert.RawData));
             await File.WriteAllTextAsync(rootFpPath, expectedFingerprint + Environment.NewLine);
 

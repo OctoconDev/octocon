@@ -1,3 +1,5 @@
+using Interfold.Contracts.Models.ImportOperations;
+
 namespace Interfold.Domain.Abstractions.ImportJobs;
 
 /// <summary>
@@ -15,11 +17,11 @@ namespace Interfold.Domain.Abstractions.ImportJobs;
 public interface IImportJobRunner
 {
     /// <summary>
-    /// One of <c>ImportOperationKinds</c> (lowercase short code). The worker uses an
-    /// ordinal-equal compare so add a new value to <c>ImportOperationKinds</c> and
-    /// register a new runner whenever a new platform is integrated.
+    /// The third-party integration this runner handles. The worker matches this against
+    /// the dequeued <see cref="ImportJobItem.Kind"/>; add a new enum value + runner when
+    /// integrating a new platform.
     /// </summary>
-    string Kind { get; }
+    ImportOperationKind Kind { get; }
 
     /// <summary>
     /// Executes the import. MUST NOT throw on graceful failures — those should return a
@@ -37,10 +39,10 @@ public interface IImportJobRunner
 /// </summary>
 /// <param name="Success">True for completion-with-data, false for any graceful failure.</param>
 /// <param name="AlterCount">Number of alters the importer fetched (only meaningful on success).</param>
-/// <param name="ErrorCode">Short stable machine code on failure, e.g. "sp_auth_failed", "sp_decrypt_failed". Null on success.</param>
+/// <param name="ErrorCode">Short stable machine code on failure. Null on success.</param>
 /// <param name="ErrorMessage">Optional human-readable failure message. Null on success.</param>
 public sealed record ImportJobOutcome(
     bool Success,
     int AlterCount,
-    string? ErrorCode = null,
+    ImportErrorCode? ErrorCode = null,
     string? ErrorMessage = null);

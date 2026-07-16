@@ -25,7 +25,14 @@
 
   <ItemGroup>
     <!-- Same TUnit pin as the other test projects so the three stay in sync. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.7.0" />
     <PackageReference Include="TUnit" Version="1.50.0" />
+    <!--
+      Source-generated, AOT-compatible mocks pinned to the same TUnit release so the two
+      packages stay in lockstep. Requires C# 14, which net10.0 gives us by default (no
+      LangVersion override anywhere in the tree). See tunit.dev/docs/writing-tests/mocking.
+    -->
+    <PackageReference Include="TUnit.Mocks" Version="1.50.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,7 +1,11 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Contracts.Models.Commands;
 
-public sealed record SetupEncryptionCommand(string RecoveryCode);
+// RecoveryCode's converter emits the raw string, so persisted command JSON and
+// idempotency hashes are unchanged; the property name is frozen.
+public sealed record SetupEncryptionCommand(RecoveryCode RecoveryCode);
 
-public sealed record RecoverEncryptionCommand(string RecoveryCode);
+public sealed record RecoverEncryptionCommand(RecoveryCode RecoveryCode);
 
 public sealed record ResetEncryptionCommand();

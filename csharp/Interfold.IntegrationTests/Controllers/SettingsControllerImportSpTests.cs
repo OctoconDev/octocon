@@ -145,10 +145,17 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
         // tests may share the bus). The worker either gracefully fails or throws — both
         // routes publish SimplyPluralImportFailedEvent, which is the load-bearing
         // invariant: the client never gets stuck on Importing after a worker pickup.
+        //
+        // SimplyPluralImportFailedEvent.TargetSystemId is a ScopedSystemId whose .Value
+        // is the scoped form ("nam:<raw>") produced by the JWT-derived principal path,
+        // while `principal` above is the bare 24-char raw id this test minted. Comparing
+        // .Value would ordinal-mismatch on the region prefix and drop every event on the
+        // floor. Compare .RawId (the prefix-stripped form) instead so the shape matches
+        // what `principal` holds.
         SimplyPluralImportFailedEvent? observed = null;
         while (await enumerator.MoveNextAsync())
         {
-            if (string.Equals(enumerator.Current.TargetSystemId, principal, StringComparison.Ordinal))
+            if (string.Equals(enumerator.Current.TargetSystemId.RawId, principal, StringComparison.Ordinal))
             {
                 observed = enumerator.Current;
                 break;

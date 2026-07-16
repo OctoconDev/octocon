@@ -1,38 +1,39 @@
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Domain.Abstractions.Repository;
 
 public interface IFrontingRepository
 {
-    Task<bool> IsFrontingAsync(string systemId, int alterId, CancellationToken cancellationToken = default);
+    Task<bool> IsFrontingAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default);
 
-    Task<string?> StartAsync(string systemId, int alterId, string? comment, DateTimeOffset startedAt, CancellationToken cancellationToken = default);
+    Task<FrontId?> StartAsync(SystemId systemId, AlterId alterId, string? comment, DateTimeOffset startedAt, CancellationToken cancellationToken = default);
 
-    Task<bool> EndAsync(string systemId, int alterId, DateTimeOffset endedAt, CancellationToken cancellationToken = default);
+    Task<bool> EndAsync(SystemId systemId, AlterId alterId, DateTimeOffset endedAt, CancellationToken cancellationToken = default);
 
-    Task<bool> SetPrimaryAsync(string systemId, int? alterId, CancellationToken cancellationToken = default);
+    Task<bool> SetPrimaryAsync(SystemId systemId, AlterId? alterId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(string systemId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(SystemId systemId, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<FrontActiveReadModel>> ListActiveGuardedAsync(
-        string systemId,
-        string? viewerSystemId,
+        SystemId systemId,
+        SystemId? viewerSystemId,
         CancellationToken cancellationToken = default
     );
 
     Task<IReadOnlyList<FrontHistoryReadModel>> ListHistoryBetweenAsync(
-        string systemId,
+        SystemId systemId,
         DateTimeOffset startInclusive,
         DateTimeOffset endInclusive,
         CancellationToken cancellationToken = default);
 
-    Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(string systemId, string frontId, CancellationToken cancellationToken = default);
+    Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default);
 
-    Task<FrontHistoryReadModel?> GetHistoryEntryByFrontIdAsync(string systemId, string frontId, CancellationToken cancellationToken = default);
+    Task<FrontHistoryReadModel?> GetHistoryEntryByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default);
 
-    Task<bool> EndByFrontIdAsync(string systemId, string frontId, CancellationToken cancellationToken = default);
+    Task<bool> EndByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default);
 
-    Task<bool> DeleteFrontByIdAsync(string systemId, string frontId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteFrontByIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default);
 
-    Task<bool> UpdateCommentByFrontIdAsync(string systemId, string frontId, string comment, CancellationToken cancellationToken = default);
+    Task<bool> UpdateCommentByFrontIdAsync(SystemId systemId, FrontId frontId, string comment, CancellationToken cancellationToken = default);
 }

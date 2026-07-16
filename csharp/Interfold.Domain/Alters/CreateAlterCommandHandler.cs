@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Alters;
 
@@ -32,7 +33,7 @@ public sealed class CreateAlterCommandHandler : ICommandHandler<CreateAlterComma
     {
         if (string.IsNullOrWhiteSpace(command.Payload.Name))
         {
-            return RejectInvariant(command, "alter:name");
+            return RejectInvariant(command, EntityRefs.AlterName);
         }
 
         //We have to ignore CreatedAt in the payload when calculating the hash, since it is generated upon the endpoint being called.
@@ -50,7 +51,7 @@ public sealed class CreateAlterCommandHandler : ICommandHandler<CreateAlterComma
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
-                return RejectDuplicate(command, "alter:create");
+                return RejectDuplicate(command, EntityRefs.AlterCreate);
             }
 
             var replay = CommandSerialization.Deserialize<AlterCommandResult>(previous.OutcomePayload);
@@ -63,7 +64,7 @@ public sealed class CreateAlterCommandHandler : ICommandHandler<CreateAlterComma
         var alterId = await _alterRepository.CreateAsync(command.PrincipalId, command.Payload, cancellationToken);
         if (alterId is null)
         {
-            return RejectInvariant(command, "alter:create");
+            return RejectInvariant(command, EntityRefs.AlterCreate);
         }
 
         var result = new AlterCommandResult(command.PrincipalId, alterId.Value, Replay: false);
@@ -87,27 +88,27 @@ public sealed class CreateAlterCommandHandler : ICommandHandler<CreateAlterComma
 
     private static CommandExecutionResult<AlterCommandResult> RejectDuplicate(
         CommandEnvelope<CreateAlterCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<AlterCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictDuplicate,
                 command.OperationId,
                 entityRef,
-                "no_retry"
+                ResolutionHint.NoRetry
             )
         );
 
     private static CommandExecutionResult<AlterCommandResult> RejectInvariant(
         CommandEnvelope<CreateAlterCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<AlterCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictInvariant,
                 command.OperationId,
                 entityRef,
-                "manual_merge_required"
+                ResolutionHint.ManualMergeRequired
             )
         );
 }

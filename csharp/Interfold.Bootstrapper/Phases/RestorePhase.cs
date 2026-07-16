@@ -4,6 +4,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -34,8 +35,7 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static class RestorePhase
 {
-    private const string Phase = "restore";
-    private const string PostgresService = "msg-db";
+    private static readonly string Phase = BootstrapCommand.Restore.ToPhaseLogName();
 
     /// <summary>
     /// Compose services stopped BEFORE the scylla restore so client-side hydration
@@ -43,16 +43,16 @@ internal static class RestorePhase
     /// Kept as an internal readonly array so tests / SystemdInstallPhase can assert the
     /// canonical set without hard-coding it.
     /// </summary>
-    internal static readonly string[] ScyllaRestoreClientServices = ["interfold-api", "octocon-web"];
+    internal static readonly string[] ScyllaRestoreClientServices = [ComposeServices.InterfoldApi, ComposeServices.OctoconWeb];
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         logger.PhaseStart(Phase);
 
-        var configPath = options.ConfigPath ?? Path.Combine(options.OutputDir, "interfold.bootstrap.json");
+        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
         if (!File.Exists(configPath))
         {
-            logger.PhaseFail(Phase, "missing-config");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
             throw new InvalidOperationException(
                 $"restore requires a populated bootstrap config at {configPath}. " +
                 "Run `bootstrap` first.");
@@ -73,7 +73,7 @@ internal static class RestorePhase
         }
         catch (InvalidOperationException ex)
         {
-            logger.PhaseFail(Phase, "missing-secrets");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingSecrets);
             throw new InvalidOperationException(
                 $"Restore requires the admin credentials in secrets/secrets.json under {options.OutputDir}. " +
                 "Run `bootstrap` first to generate them.", ex);
@@ -82,7 +82,7 @@ internal static class RestorePhase
         var composeFile = FindComposeFile(options.OutputDir);
         if (composeFile is null)
         {
-            logger.PhaseFail(Phase, "no-compose-file");
+            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
             throw new InvalidOperationException(
                 $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
         }
@@ -92,7 +92,7 @@ internal static class RestorePhase
         var (postgresArchive, scyllaArchive) = ResolveArchives(options, backupRoot, logger);
         if (postgresArchive is null && scyllaArchive is null)
         {
-            logger.PhaseFail(Phase, "no-archives");
+            logger.PhaseFail(Phase, PhaseFailureReasons.NoArchives);
             throw new InvalidOperationException(
                 "restore requires at least one of --restore-postgres, --restore-scylla, or --restore-latest " +
                 $"(with archives under {backupRoot}/).");
@@ -104,7 +104,7 @@ internal static class RestorePhase
         {
             if (options.NonInteractive || Console.IsInputRedirected)
             {
-                logger.PhaseFail(Phase, "confirmation-required");
+                logger.PhaseFail(Phase, PhaseFailureReasons.ConfirmationRequired);
                 throw new InvalidOperationException(
                     "restore is destructive and requires --force in non-interactive mode. " +
                     "Re-run interactively without --non-interactive to type 'y' at the confirmation prompt, " +
@@ -119,7 +119,7 @@ internal static class RestorePhase
             var answer = Console.ReadLine();
             if (!string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
             {
-                logger.PhaseSkip(Phase, "operator-aborted");
+                logger.PhaseSkip(Phase, PhaseFailureReasons.Skip.OperatorAborted);
                 return 0;
             }
         }
@@ -155,12 +155,12 @@ internal static class RestorePhase
         {
             if (postgres is null)
             {
-                postgres = ResolveLatestArchive(Path.Combine(backupRoot, "postgres"), "*.dump")?.FullName;
+                postgres = ResolveLatestArchive(Path.Combine(backupRoot, BackupStoragePaths.PostgresDir), BackupStoragePaths.PostgresArchivePattern)?.FullName;
                 if (postgres is not null) logger.Info($"    resolved --restore-latest postgres: {postgres}");
             }
             if (scylla is null)
             {
-                scylla = ResolveLatestArchive(Path.Combine(backupRoot, "scylla"), "*.tar.gz")?.FullName;
+                scylla = ResolveLatestArchive(Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir), BackupStoragePaths.ScyllaArchivePattern)?.FullName;
                 if (scylla is not null) logger.Info($"    resolved --restore-latest scylla: {scylla}");
             }
         }
@@ -207,7 +207,7 @@ internal static class RestorePhase
             "compose", "-f", composeFile,
             "exec", "-T",
             "--env", "PGPASSWORD",
-            PostgresService,
+            ComposeServices.Postgres,
             "pg_restore",
             "-U", adminUser,
             "-d", database,
@@ -245,14 +245,14 @@ internal static class RestorePhase
         var adminPassword = secrets.PostgresAdminPassword;
         if (string.IsNullOrEmpty(adminPassword))
         {
-            logger.PhaseFail(Phase, "missing-admin-password");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingAdminPassword);
             throw new InvalidOperationException(
                 "secrets/secrets.json does not contain a PostgresAdminPassword. Re-run `bootstrap` to regenerate.");
         }
 
         // Make sure the postgres container is up before we try to exec into it — an
         // update-images rollback path may have left the whole stack stopped. Idempotent.
-        await ComposeUpAsync(composeFile, [PostgresService], logger, ct).ConfigureAwait(false);
+        await ComposeUpAsync(composeFile, [ComposeServices.Postgres], logger, ct).ConfigureAwait(false);
         await WaitForPostgresAsync(composeFile, logger, ct).ConfigureAwait(false);
 
         logger.Info($"    postgres: pg_restore --clean --if-exists <- {archivePath}");
@@ -291,7 +291,7 @@ internal static class RestorePhase
             ["compose", "-f", composeFile, "stop", service], ct: ct).ConfigureAwait(false);
         if (stopScylla.ExitCode != 0)
         {
-            logger.PhaseFail(Phase, "stop-scylla");
+            logger.PhaseFail(Phase, PhaseFailureReasons.StopScylla);
             throw new InvalidOperationException(
                 $"docker compose stop {service} exited {stopScylla.ExitCode}: {stopScylla.StdErr.Trim()}");
         }
@@ -309,7 +309,7 @@ internal static class RestorePhase
                 ["compose", "-f", composeFile, "up", "--no-start", service], ct: ct).ConfigureAwait(false);
             if (create.ExitCode != 0)
             {
-                logger.PhaseFail(Phase, "create-scylla-container");
+                logger.PhaseFail(Phase, PhaseFailureReasons.CreateScyllaContainer);
                 throw new InvalidOperationException(
                     $"docker compose up --no-start {service} exited {create.ExitCode}: {create.StdErr.Trim()}");
             }
@@ -317,7 +317,7 @@ internal static class RestorePhase
         }
         if (string.IsNullOrEmpty(containerId))
         {
-            logger.PhaseFail(Phase, "resolve-scylla-container");
+            logger.PhaseFail(Phase, PhaseFailureReasons.ResolveScyllaContainer);
             throw new InvalidOperationException(
                 $"Failed to resolve container id for compose service '{service}' even after create.");
         }
@@ -360,7 +360,7 @@ internal static class RestorePhase
             ["compose", "-f", composeFile, "start", service], ct: ct).ConfigureAwait(false);
         if (startScylla.ExitCode != 0)
         {
-            logger.PhaseFail(Phase, "start-scylla");
+            logger.PhaseFail(Phase, PhaseFailureReasons.StartScylla);
             throw new InvalidOperationException(
                 $"docker compose start {service} exited {startScylla.ExitCode}: {startScylla.StdErr.Trim()}");
         }
@@ -415,7 +415,7 @@ internal static class RestorePhase
             ct.ThrowIfCancellationRequested();
             attempt++;
             var probe = await ProcessRunner.RunAsync("docker",
-                ["compose", "-f", composeFile, "exec", "-T", PostgresService,
+                ["compose", "-f", composeFile, "exec", "-T", ComposeServices.Postgres,
                  "pg_isready", "-h", "127.0.0.1", "-p", "5432"],
                 ct: ct).ConfigureAwait(false);
             if (probe.ExitCode == 0)
@@ -512,10 +512,5 @@ internal static class RestorePhase
         return Path.Combine(options.OutputDir, "backups");
     }
 
-    private static string? FindComposeFile(string outputDir)
-    {
-        var direct = Path.Combine(outputDir, "docker-compose.yaml");
-        if (File.Exists(direct)) return direct;
-        return Directory.EnumerateFiles(outputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
-    }
+    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 }

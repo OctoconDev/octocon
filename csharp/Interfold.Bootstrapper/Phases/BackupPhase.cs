@@ -3,6 +3,8 @@ using System.IO.Compression;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -44,31 +46,30 @@ namespace Interfold.Bootstrapper.Phases;
 /// </remarks>
 internal static class BackupPhase
 {
-    private const string Phase = "backup";
-    private const string PostgresService = "msg-db";
+    private static readonly string Phase = BootstrapCommand.Backup.ToPhaseLogName();
 
     /// <summary>
     /// Allowed values for <see cref="BootstrapOptions.BackupComponent"/>. Kept as an array
     /// so the validator can surface the canonical set in its error message.
     /// </summary>
-    internal static readonly string[] ValidComponents = ["postgres", "scylla", "all"];
+    internal static readonly string[] ValidComponents =
+        Enum.GetValues<BackupDatabaseComponent>().Select(BackupDatabaseComponentExtensions.ToWireValue).ToArray();
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         logger.PhaseStart(Phase);
 
-        var component = options.BackupComponent?.ToLowerInvariant() ?? "all";
-        if (!ValidComponents.Contains(component, StringComparer.Ordinal))
+        if (BackupDatabaseComponentExtensions.TryParse(options.BackupComponent) is not { } component)
         {
-            logger.PhaseFail(Phase, "unknown-component");
+            logger.PhaseFail(Phase, PhaseFailureReasons.UnknownComponent);
             throw new InvalidOperationException(
                 $"--component='{options.BackupComponent}' is invalid. Expected one of: {string.Join(", ", ValidComponents)}.");
         }
 
-        var configPath = options.ConfigPath ?? Path.Combine(options.OutputDir, "interfold.bootstrap.json");
+        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
         if (!File.Exists(configPath))
         {
-            logger.PhaseFail(Phase, "missing-config");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
             throw new InvalidOperationException(
                 $"Backup requires a populated bootstrap config at {configPath}. " +
                 "Run `bootstrap` first.");
@@ -91,7 +92,7 @@ internal static class BackupPhase
         {
             // Re-throw with a phase-specific message; the original carries the secrets-phase
             // wording which is misleading in a backup context.
-            logger.PhaseFail(Phase, "missing-secrets");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingSecrets);
             throw new InvalidOperationException(
                 $"Backup requires the admin credentials in secrets/secrets.json under {options.OutputDir}. " +
                 "Run `bootstrap` first to generate them.", ex);
@@ -100,7 +101,7 @@ internal static class BackupPhase
         var composeFile = FindComposeFile(options.OutputDir);
         if (composeFile is null)
         {
-            logger.PhaseFail(Phase, "no-compose-file");
+            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
             throw new InvalidOperationException(
                 $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
         }
@@ -110,7 +111,7 @@ internal static class BackupPhase
         var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
         if (retainCount < 1)
         {
-            logger.PhaseFail(Phase, "invalid-retain");
+            logger.PhaseFail(Phase, PhaseFailureReasons.InvalidRetain);
             throw new InvalidOperationException(
                 $"--retain={retainCount} is below the minimum of 1.");
         }
@@ -121,13 +122,13 @@ internal static class BackupPhase
         // ISO-ish, sortable, no separators that need escaping on a Unix filesystem.
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 
-        if (component is "postgres" or "all")
+        if (component is BackupDatabaseComponent.Postgres or BackupDatabaseComponent.All)
         {
             await BackupPostgresAsync(composeFile, backupRoot, timestamp, config, secrets, retainCount, logger, ct)
                 .ConfigureAwait(false);
         }
 
-        if (component is "scylla" or "all")
+        if (component is BackupDatabaseComponent.Scylla or BackupDatabaseComponent.All)
         {
             await BackupScyllaAsync(composeFile, backupRoot, timestamp, config, retainCount, logger, ct)
                 .ConfigureAwait(false);
@@ -169,9 +170,9 @@ internal static class BackupPhase
     {
         return config.DatabaseMode switch
         {
-            "cassandra" => ("cassandra", "/var/lib/cassandra"),
-            "multi" => ("scylla-nam", "/var/lib/scylla"),
-            _ => ("scylla", "/var/lib/scylla"),
+            DatabaseMode.Cassandra => (ComposeServices.Cassandra, ContainerMountPaths.CassandraData),
+            DatabaseMode.Multi => (ComposeServices.ScyllaNam, ContainerMountPaths.ScyllaData),
+            _ => (ComposeServices.ScyllaSingle, ContainerMountPaths.ScyllaData),
         };
     }
 
@@ -179,12 +180,12 @@ internal static class BackupPhase
     /// Computes the canonical archive filename for a given component + timestamp. Returned
     /// path is relative to the component subdirectory; callers join with the backup root.
     /// </summary>
-    internal static string BuildArchiveFileName(string component, string timestamp)
+    internal static string BuildArchiveFileName(BackupDatabaseComponent component, string timestamp)
     {
         return component switch
         {
-            "postgres" => $"{timestamp}.dump",
-            "scylla" => $"{timestamp}.tar.gz",
+            BackupDatabaseComponent.Postgres => $"{timestamp}.dump",
+            BackupDatabaseComponent.Scylla => $"{timestamp}.tar.gz",
             _ => throw new InvalidOperationException($"Unknown component '{component}' (expected: postgres | scylla)."),
         };
     }
@@ -204,7 +205,7 @@ internal static class BackupPhase
             "compose", "-f", composeFile,
             "exec", "-T",
             "--env", "PGPASSWORD",
-            PostgresService,
+            ComposeServices.Postgres,
             "pg_dump",
             "-U", adminUser,
             "-d", database,
@@ -276,9 +277,9 @@ internal static class BackupPhase
         BootstrapConfig config, GeneratedSecrets secrets, int retainCount,
         PhaseLogger logger, CancellationToken ct)
     {
-        var componentDir = Path.Combine(backupRoot, "postgres");
+        var componentDir = Path.Combine(backupRoot, BackupStoragePaths.PostgresDir);
         Directory.CreateDirectory(componentDir);
-        var dumpPath = Path.Combine(componentDir, BuildArchiveFileName("postgres", timestamp));
+        var dumpPath = Path.Combine(componentDir, BuildArchiveFileName(BackupDatabaseComponent.Postgres, timestamp));
 
         // Admin role created by DatabaseInitPhase. We don't try to run the dump as the app
         // role — pg_dump needs broader privileges to capture every object regardless of
@@ -288,7 +289,7 @@ internal static class BackupPhase
         var adminPassword = secrets.PostgresAdminPassword;
         if (string.IsNullOrEmpty(adminPassword))
         {
-            logger.PhaseFail(Phase, "missing-admin-password");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingAdminPassword);
             throw new InvalidOperationException(
                 "secrets/secrets.json does not contain a PostgresAdminPassword. " +
                 "Either it predates DatabaseInitPhase or it was hand-edited; re-run `bootstrap`.");
@@ -304,14 +305,14 @@ internal static class BackupPhase
         var size = new FileInfo(dumpPath).Length;
         if (size == 0)
         {
-            logger.PhaseFail(Phase, "empty-postgres-dump");
+            logger.PhaseFail(Phase, PhaseFailureReasons.EmptyPostgresDump);
             File.Delete(dumpPath);
             throw new InvalidOperationException(
-                $"pg_dump produced an empty file at {dumpPath}. Inspect docker logs for {PostgresService}.");
+                $"pg_dump produced an empty file at {dumpPath}. Inspect docker logs for {ComposeServices.Postgres}.");
         }
         logger.Info($"    postgres: wrote {FormatBytes(size)}");
 
-        PruneComponent(componentDir, "postgres", retainCount, logger);
+        PruneComponent(componentDir, BackupDatabaseComponent.Postgres, retainCount, logger);
     }
 
     private static async Task BackupScyllaAsync(
@@ -320,9 +321,9 @@ internal static class BackupPhase
         PhaseLogger logger, CancellationToken ct)
     {
         var (service, dataPath) = ResolveScyllaSeed(config);
-        var componentDir = Path.Combine(backupRoot, "scylla");
+        var componentDir = Path.Combine(backupRoot, BackupStoragePaths.ScyllaDir);
         Directory.CreateDirectory(componentDir);
-        var archivePath = Path.Combine(componentDir, BuildArchiveFileName("scylla", timestamp));
+        var archivePath = Path.Combine(componentDir, BuildArchiveFileName(BackupDatabaseComponent.Scylla, timestamp));
 
         // Snapshot tag pinned to the timestamp so a failed clear (e.g. compose down between
         // snapshot and clear) leaves an obvious orphan an operator can match to the failed
@@ -336,7 +337,7 @@ internal static class BackupPhase
         var snapshot = await ProcessRunner.RunAsync("docker", snapshotArgs, ct: ct).ConfigureAwait(false);
         if (snapshot.ExitCode != 0)
         {
-            logger.PhaseFail(Phase, "nodetool-snapshot");
+            logger.PhaseFail(Phase, PhaseFailureReasons.NodetoolSnapshot);
             throw new InvalidOperationException(
                 $"nodetool snapshot exited {snapshot.ExitCode} on {service}: {snapshot.StdErr.Trim()}");
         }
@@ -350,7 +351,7 @@ internal static class BackupPhase
             var resolve = await ProcessRunner.RunAsync("docker", resolveContainerArgs, ct: ct).ConfigureAwait(false);
             if (resolve.ExitCode != 0 || string.IsNullOrWhiteSpace(resolve.StdOut))
             {
-                logger.PhaseFail(Phase, "resolve-scylla-container");
+                logger.PhaseFail(Phase, PhaseFailureReasons.ResolveScyllaContainer);
                 throw new InvalidOperationException(
                     $"Failed to resolve container id for compose service '{service}'. " +
                     $"Exit={resolve.ExitCode}, stderr='{resolve.StdErr.Trim()}'. " +
@@ -389,22 +390,22 @@ internal static class BackupPhase
         var size = new FileInfo(archivePath).Length;
         if (size == 0)
         {
-            logger.PhaseFail(Phase, "empty-scylla-archive");
+            logger.PhaseFail(Phase, PhaseFailureReasons.EmptyScyllaArchive);
             File.Delete(archivePath);
             throw new InvalidOperationException(
                 $"Scylla tar produced an empty file at {archivePath}. Inspect docker logs for {service}.");
         }
         logger.Info($"    scylla: wrote {FormatBytes(size)}");
 
-        PruneComponent(componentDir, "scylla", retainCount, logger);
+        PruneComponent(componentDir, BackupDatabaseComponent.Scylla, retainCount, logger);
     }
 
-    private static void PruneComponent(string componentDir, string component, int retainCount, PhaseLogger logger)
+    private static void PruneComponent(string componentDir, BackupDatabaseComponent component, int retainCount, PhaseLogger logger)
     {
         var pattern = component switch
         {
-            "postgres" => "*.dump",
-            "scylla" => "*.tar.gz",
+            BackupDatabaseComponent.Postgres => BackupStoragePaths.PostgresArchivePattern,
+            BackupDatabaseComponent.Scylla => BackupStoragePaths.ScyllaArchivePattern,
             _ => throw new InvalidOperationException($"Unknown component '{component}'."),
         };
         var files = new DirectoryInfo(componentDir)
@@ -425,12 +426,7 @@ internal static class BackupPhase
         }
     }
 
-    private static string? FindComposeFile(string outputDir)
-    {
-        var direct = Path.Combine(outputDir, "docker-compose.yaml");
-        if (File.Exists(direct)) return direct;
-        return Directory.EnumerateFiles(outputDir, "docker-compose.yaml", SearchOption.AllDirectories).FirstOrDefault();
-    }
+    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
 
     /// <summary>
     /// Runs <paramref name="fileName"/> with <paramref name="arguments"/> and streams its

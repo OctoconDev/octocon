@@ -7,8 +7,8 @@ namespace Interfold.Contracts.Enums;
 /// Stored as <c>smallint</c> in Scylla, exposed on the wire as snake-case strings
 /// for parity with <see cref="Interfold.Contracts.Models.VisibilityLevel"/>.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum AvatarSource
+[JsonConverter(typeof(JsonStringEnumConverter<AvatarSource>))]
+public enum AvatarSource : short
 {
     /// <summary>
     /// Avatar bytes are persisted by <c>IAvatarStorage</c> on this deployment;

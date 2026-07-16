@@ -1,6 +1,7 @@
 using Interfold.Api.Helpers;
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -23,7 +24,7 @@ public static class AlterSocketEventHandlers
         await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Alters.Deleted, new AlterDeletedSocketPayload(evt.AlterId));
     }
 
-    private static async Task HandleUpsertAsync(string systemId, int alterId, string eventName, SocketPushContext context, IAlterRepository alterRepository)
+    private static async Task HandleUpsertAsync(SystemId systemId, AlterId alterId, string eventName, SocketPushContext context, IAlterRepository alterRepository)
     {
         if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
         {

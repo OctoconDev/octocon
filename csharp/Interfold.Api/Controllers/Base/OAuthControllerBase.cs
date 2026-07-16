@@ -4,18 +4,15 @@ using Microsoft.Extensions.Options;
 using Interfold.Api.Auth;
 using Interfold.Api.Services;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts;
+using Interfold.Api.Models;
 
 namespace Interfold.Api.Controllers.Base;
 
 public abstract class OAuthControllerBase : InterfoldControllerBase
 {
-    private static readonly HashSet<string> SupportedProviders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "discord",
-        "google",
-        "apple"
-    };
-
     protected readonly IOptionsMonitor<AuthenticationConfiguration> AuthOptions;
     protected readonly IAuthenticationSchemeProvider SchemeProvider;
     protected readonly GoogleOAuthService GoogleOAuth;
@@ -38,66 +35,94 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
     protected abstract string CallbackRoutePrefix { get; }
 
-    protected static bool IsSupportedProvider(string provider)
-        => !string.IsNullOrWhiteSpace(provider) && SupportedProviders.Contains(provider);
-
-    protected async Task<string?> ExtractProviderIdentityAsync(string provider)
+    /// <summary>
+    /// Resolves the provider identity for the current callback request as a
+    /// <see cref="ProviderIdentity"/> union whose populated field carries the typed
+    /// identity (Discord snowflake / email / Apple sub). Returns <c>null</c> when no
+    /// identity could be extracted (missing code, missing fallback, or failed exchange).
+    /// The union carries the typed identity end-to-end so callers never have to switch on
+    /// the provider enum and rewrap a raw string.
+    /// </summary>
+    protected async Task<ProviderIdentity?> ExtractProviderIdentityAsync(OAuthProvider provider)
     {
-        if (provider.Equals("discord", StringComparison.OrdinalIgnoreCase))
+        switch (provider)
         {
-            var code = await GetValueAsync("code");
-            if (!string.IsNullOrWhiteSpace(code))
+            case OAuthProvider.Discord:
             {
-                var redirectUri = BuildCallbackBaseUri(provider);
-                return await DiscordOAuth.ExchangeCodeForDiscordIdAsync(code, redirectUri, HttpContext.RequestAborted);
-            }
-
-            return await GetValueAsync("uid", "discord_id", "id");
-        }
-
-        if (provider.Equals("google", StringComparison.OrdinalIgnoreCase))
-        {
-            var code = await GetValueAsync("code");
-            if (string.IsNullOrWhiteSpace(code))
-            {
-                return await GetValueAsync("email");
-            }
-
-            var redirectUri = BuildCallbackBaseUri(provider);
-            var email = await GoogleOAuth.ExchangeCodeForEmailAsync(code, redirectUri, HttpContext.RequestAborted);
-
-            return email ?? await GetValueAsync("email");
-        }
-
-        if (provider.Equals("apple", StringComparison.OrdinalIgnoreCase))
-        {
-            var code = await GetValueAsync("code");
-            if (!string.IsNullOrWhiteSpace(code))
-            {
-                var redirectUri = BuildCallbackBaseUri(provider);
-                var appleId = await AppleOAuth.ExchangeCodeForAppleIdAsync(code, redirectUri, HttpContext.RequestAborted);
-                if (!string.IsNullOrWhiteSpace(appleId))
+                var code = await GetValueAsync(OAuthQueryKeys.Code);
+                if (!string.IsNullOrWhiteSpace(code))
                 {
-                    return appleId;
+                    var redirectUri = BuildCallbackBaseUri(provider);
+                    var discordId = await DiscordOAuth.ExchangeCodeForDiscordIdAsync(code, redirectUri, HttpContext.RequestAborted);
+                    return discordId is { } id && !string.IsNullOrWhiteSpace(id.Value)
+                        ? ProviderIdentity.FromDiscord(id)
+                        : null;
                 }
+
+                var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.DiscordIdFallback, OAuthQueryKeys.Id);
+                return string.IsNullOrWhiteSpace(fallback)
+                    ? null
+                    : ProviderIdentity.FromDiscord(new(fallback));
             }
 
-            var idToken = await GetValueAsync("id_token");
-            var sub = AppleOAuth.ExtractSubFromJwt(idToken);
-            if (!string.IsNullOrWhiteSpace(sub))
+            case OAuthProvider.Google:
             {
-                return sub;
+                var code = await GetValueAsync(OAuthQueryKeys.Code);
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    var directEmail = await GetValueAsync(OAuthQueryKeys.Email);
+                    return string.IsNullOrWhiteSpace(directEmail)
+                        ? null
+                        : ProviderIdentity.FromGoogle(new(directEmail));
+                }
+
+                var redirectUri = BuildCallbackBaseUri(provider);
+                var email = await GoogleOAuth.ExchangeCodeForEmailAsync(code, redirectUri, HttpContext.RequestAborted);
+                if (email is { } exchangedEmail && !string.IsNullOrWhiteSpace(exchangedEmail.Value))
+                {
+                    return ProviderIdentity.FromGoogle(exchangedEmail);
+                }
+
+                var fallbackEmail = await GetValueAsync(OAuthQueryKeys.Email);
+                return string.IsNullOrWhiteSpace(fallbackEmail)
+                    ? null
+                    : ProviderIdentity.FromGoogle(new(fallbackEmail));
             }
 
-            return await GetValueAsync("uid", "apple_id", "id", "sub");
-        }
+            case OAuthProvider.Apple:
+            {
+                var code = await GetValueAsync(OAuthQueryKeys.Code);
+                if (!string.IsNullOrWhiteSpace(code))
+                {
+                    var redirectUri = BuildCallbackBaseUri(provider);
+                    var appleId = await AppleOAuth.ExchangeCodeForAppleIdAsync(code, redirectUri, HttpContext.RequestAborted);
+                    if (appleId is { } exchangedAppleId && !string.IsNullOrWhiteSpace(exchangedAppleId.Value))
+                    {
+                        return ProviderIdentity.FromApple(exchangedAppleId);
+                    }
+                }
 
-        return null;
+                var idToken = await GetValueAsync(OAuthQueryKeys.IdToken);
+                var sub = AppleOAuth.ExtractSubFromJwt(idToken);
+                if (sub is { } tokenSub && !string.IsNullOrWhiteSpace(tokenSub.Value))
+                {
+                    return ProviderIdentity.FromApple(tokenSub);
+                }
+
+                var fallback = await GetValueAsync(OAuthQueryKeys.Uid, OAuthQueryKeys.AppleIdFallback, OAuthQueryKeys.Id, OAuthQueryKeys.Sub);
+                return string.IsNullOrWhiteSpace(fallback)
+                    ? null
+                    : ProviderIdentity.FromApple(new(fallback));
+            }
+
+            default:
+                return null;
+        }
     }
 
-    protected string BuildCallbackBaseUri(string provider)
+    protected string BuildCallbackBaseUri(OAuthProvider provider)
     {
-        var providerKey = provider.ToLowerInvariant();
+        var providerKey = provider.ToWire();
         var authConfig = AuthOptions.CurrentValue;
         var baseUrl = authConfig.CallbackBaseUrl ?? $"{Request.Scheme}://{Request.Host}";
         return $"{baseUrl}/{CallbackRoutePrefix}/{providerKey}/callback";
@@ -130,20 +155,20 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
         return null;
     }
 
-    protected static string? GetChallengeScheme(string providerKey)
+    protected static string GetChallengeScheme(OAuthProvider provider)
     {
-        return providerKey switch
+        return provider switch
         {
-            "discord" => OAuthChallengeServiceCollectionExtensions.DiscordSchemeName,
-            "google" => OAuthChallengeServiceCollectionExtensions.GoogleSchemeName,
-            "apple" => OAuthChallengeServiceCollectionExtensions.AppleSchemeName,
-            _ => null
+            OAuthProvider.Discord => OAuthChallengeServiceCollectionExtensions.DiscordSchemeName,
+            OAuthProvider.Google => OAuthChallengeServiceCollectionExtensions.GoogleSchemeName,
+            OAuthProvider.Apple => OAuthChallengeServiceCollectionExtensions.AppleSchemeName,
+            _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unhandled OAuthProvider."),
         };
     }
 
     protected void StoreRedirectUriCookie(string cookieName)
     {
-        var redirectUri = Request.Query["redirect_uri"].ToString();
+        var redirectUri = Request.Query[OAuthQueryKeys.RedirectUri].ToString();
         if (!string.IsNullOrWhiteSpace(redirectUri))
         {
             Response.Cookies.Append(cookieName, redirectUri, new CookieOptions
@@ -175,12 +200,10 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
     protected IActionResult UnsupportedProviderResponse(string provider)
     {
-        return BadRequest(new
-        {
-            error = "Unsupported OAuth provider.",
-            code = "invalid_oauth_provider",
-            provider
-        });
+        return BadRequest(new UnsupportedOAuthProviderResponse(
+            "Unsupported OAuth provider.",
+            ErrorCodes.InvalidOAuthProvider,
+            provider));
     }
 
     /// <summary>
@@ -192,12 +215,10 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
     /// — see that type for why they're baked in rather than threaded through here.
     /// </summary>
     protected async Task<IActionResult?> IssueChallengeIfRegisteredAsync(
-        string providerKey,
-        string operationId)
+        OAuthProvider provider,
+        OperationId operationId)
     {
-        var challengeScheme = GetChallengeScheme(providerKey);
-        if (string.IsNullOrWhiteSpace(challengeScheme))
-            return null;
+        var challengeScheme = GetChallengeScheme(provider);
 
         var registeredScheme = await SchemeProvider.GetSchemeAsync(challengeScheme);
         if (registeredScheme is null)
@@ -205,10 +226,10 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
 
         var props = new AuthenticationProperties
         {
-            RedirectUri = BuildCallbackBaseUri(providerKey)
+            RedirectUri = BuildCallbackBaseUri(provider)
         };
 
-        Response.Headers["X-Interfold-OperationId"] = operationId;
+        Response.Headers[InterfoldHeaders.OperationId] = operationId.Value;
         return Challenge(props, challengeScheme);
     }
 }

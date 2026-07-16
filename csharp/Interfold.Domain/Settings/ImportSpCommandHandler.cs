@@ -6,6 +6,7 @@ using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -43,19 +44,19 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         CommandEnvelope<ImportSpCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token))
+        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
         {
             return CommandExecutionResult<ImportDispatchCommandResult>.Rejected(
                 new ConflictResult(
                     ConflictCode.ConflictInvariant,
                     command.OperationId,
-                    "settings:import_sp_invalid",
-                    "manual_merge_required"));
+                    EntityRefs.SettingsImportSpInvalid,
+                    ResolutionHint.ManualMergeRequired));
         }
 
         var claim = await _operations.TryClaimAsync(
             command.PrincipalId,
-            ImportOperationKinds.SimplyPlural,
+            ImportOperationKind.SimplyPlural,
             command.IdempotencyKey,
             cancellationToken).ConfigureAwait(false);
 
@@ -65,7 +66,7 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
                 new ImportJobItem(
                     claim.OperationId,
                     command.PrincipalId,
-                    ImportOperationKinds.SimplyPlural,
+                    ImportOperationKind.SimplyPlural,
                     command.Payload.Token,
                     command.Payload.RecoveryCode),
                 cancellationToken).ConfigureAwait(false);
@@ -81,8 +82,10 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         var result = new ImportDispatchCommandResult(
             command.PrincipalId,
             claim.OperationId,
-            ImportOperationKinds.SimplyPlural,
-            Status: claim.IsNew ? "queued" : "running",
+            ImportOperationKind.SimplyPlural,
+            Status: claim.IsNew
+                ? ImportOperationDispatchStatus.Queued
+                : ImportOperationDispatchStatus.Running,
             StartedAt: DateTimeOffset.UtcNow,
             Replay: false);
 

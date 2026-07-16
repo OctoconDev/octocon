@@ -1,3 +1,5 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Contracts.Events;
 
 /// <summary>
@@ -9,8 +11,13 @@ namespace Interfold.Contracts.Events;
 /// matches that value. Events that do not implement this interface are broadcast to every
 /// subscriber regardless of scoping, which preserves correctness for any future non-targeted signals.
 /// </para>
+/// <para>
+/// <see cref="TargetSystemId"/> is a <see cref="ScopedSystemId"/> so
+/// the event bus's equality filter compares two wire-canonical strings by construction
+/// rather than relying on every publisher hand-formatting a scoped prefix correctly.
+/// </para>
 /// </summary>
 public interface ITargetedClusterEvent
 {
-    string TargetSystemId { get; }
+    ScopedSystemId TargetSystemId { get; }
 }

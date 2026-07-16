@@ -1,63 +1,58 @@
-﻿namespace Interfold.Contracts.Models.Read;
+﻿using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+
+namespace Interfold.Contracts.Models.Read;
 
 public sealed record SettingsFieldReadModel(
-    string Id,
+    FieldId Id,
     string Name,
-    string Type,
-    string SecurityLevel,
+    FieldType Type,
+    VisibilityLevel SecurityLevel,
     bool Locked,
     int Index,
     DateTime? InsertedAt);
     
 public sealed record SettingsUsernameRequest(
-    string Username,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    Username Username
+);
 
 public sealed record SettingsDescriptionRequest(
-    string Description,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    string Description
+);
 
 public sealed record SettingsPushTokenRequest(
-    string? Token = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    PushToken? Token = null
+);
 
 public sealed record SettingsEncryptionRequest(
-    string RecoveryCode,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    RecoveryCode RecoveryCode
+);
 
 public sealed record SettingsImportRequest(
-    string Token,
-    string? RecoveryCode = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    ImportToken Token,
+    RecoveryCode? RecoveryCode = null
+);
 
 public sealed record AvatarUrlUploadRequest(
-    string Url,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    AvatarUrl Url
+);
 
 public sealed record SettingsCreateFieldRequest(
     string Name,
-    string? Type,
-    string? SecurityLevel,
-    bool? Locked,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    FieldType? Type,
+    VisibilityLevel? SecurityLevel,
+    bool? Locked
+);
 
 public sealed record SettingsUpdateFieldRequest(
     string? Name,
-    string? SecurityLevel,
-    bool? Locked,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    VisibilityLevel? SecurityLevel,
+    bool? Locked
+);
 
 public sealed record SettingsRelocateFieldRequest(
-    int Index,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    int Index
+);
 
-public sealed record AvatarUploadPayload(Stream? Stream, string? IdempotencyKey, bool EmptyFilePart = false) : BaseRequest(IdempotencyKey);
+public sealed record AvatarUploadPayload(Stream? Stream, bool EmptyFilePart = false);

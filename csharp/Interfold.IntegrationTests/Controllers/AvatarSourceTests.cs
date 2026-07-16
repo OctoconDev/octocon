@@ -173,22 +173,47 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
         }
     }
 
+    // Isolation contract: this test builds its OWN InterfoldWebApplicationFactory via
+    // IWebFactoryFixture.CreatePrivateFactory() rather than mutating fixture.Factory
+    // (the session-shared one). The previous version wrote OCTOCON_AVATAR_PUBLIC_BASE
+    // and OCTOCON_AVATAR_STORAGE_ROOT via WithConfiguration on the shared factory —
+    // because StorageConfiguration binds via IOptionsMonitor, those writes cascaded
+    // live into every subsequent test's request pipeline, and any test that resolved
+    // IOptionsMonitor<StorageConfiguration>.Get() (e.g. via InterfoldPrincipalMiddleware)
+    // afterwards would throw OptionsValidationException on the AvatarPublicBase's
+    // [AbsoluteHttpUri] rule. That poisoning cascade produced ~50 downstream 500s in
+    // the full suite. Owning our own factory closes that vector — nothing this test
+    // writes can ever be seen by a test that runs on fixture.Factory.
+    //
+    // NotInParallel is retained on the shared "avatar-storage-config" bucket so the
+    // two SettingsControllerTests siblings (which also build private factories) don't
+    // run three factory builds concurrently for the same backend — pending the
+    // Group-B Npgsql pool sizing fix, parallel builds can exhaust the default pool of
+    // 5 connections during SecretsPreBuildLoader's Postgres fetch. Once Group B lands
+    // this attribute can be removed.
     [Test, NotInParallel("avatar-storage-config")]
     public async Task Api_SettingsAvatarMultipart_ReportsLocalSource()
     {
         var runId = Guid.NewGuid().ToString("N");
         var storageRoot = Path.Combine(Path.GetTempPath(), "octocon-itest", "avatars", runId);
-        var publicBase = $"/avatars-itest/{runId}";
+        // AvatarPublicBase carries [AbsoluteHttpUri] validation on StorageConfiguration,
+        // so the configured value MUST be an absolute http(s) URL. WebApplicationFactory's
+        // default BaseAddress is http://localhost/, so the "http://localhost" host is
+        // guaranteed to match request-origin resolution downstream. publicBasePath is the
+        // URL-path portion we assert against, because UrlPathStartsWith compares against
+        // Uri.AbsolutePath (the path, not the full URL).
+        var publicBasePath = $"/avatars-itest/{runId}";
+        var publicBase = $"http://localhost{publicBasePath}";
 
         try
         {
             Directory.CreateDirectory(storageRoot);
 
-            fixture.Factory
+            await using var isolatedFactory = fixture.CreatePrivateFactory()
                 .WithConfiguration("OCTOCON_AVATAR_STORAGE_ROOT", storageRoot)
                 .WithConfiguration("OCTOCON_AVATAR_PUBLIC_BASE", publicBase);
 
-            using var client = fixture.Factory.CreateClient();
+            using var client = isolatedFactory.CreateClient();
 
             var principalId = $"sys-localavatar-{Guid.NewGuid():N}"[..24];
 
@@ -208,9 +233,9 @@ public class AvatarSourceTests(IWebFactoryFixture fixture) : BaseEndpointTest
             {
                 await Assert.That(profileResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
                 await Assert.That(avatarSource).IsEqualTo("local");
-                // Local avatars get the request origin prepended; the path must hit our
-                // configured public base so external observers can fetch the bytes.
-                await Assert.That(UrlPathStartsWith(avatarUrl, $"{publicBase}/{principalId}/self/")).IsTrue();
+                // Local avatars get the request origin prepended; the URL path must sit
+                // under our configured public base so external observers can fetch the bytes.
+                await Assert.That(UrlPathStartsWith(avatarUrl, $"{publicBasePath}/{principalId}/self/")).IsTrue();
             }
 
             // End-to-end serving check (mirrors the sibling assertion in

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts.Models;
 using Interfold.Domain.Abstractions;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory;
 
@@ -9,9 +10,9 @@ public sealed class InMemoryIdempotencyStore : IIdempotencyStore
     private readonly ConcurrentDictionary<string, IdempotencyMatch> _store = new();
 
     public Task<IdempotencyMatch?> FindAsync(
-        string principalId,
-        string operationId,
-        string idempotencyKey,
+        SystemId principalId,
+        OperationId operationId,
+        IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default
     )
     {
@@ -21,9 +22,9 @@ public sealed class InMemoryIdempotencyStore : IIdempotencyStore
     }
 
     public Task SaveAsync(
-        string principalId,
-        string operationId,
-        string idempotencyKey,
+        SystemId principalId,
+        OperationId operationId,
+        IdempotencyKey idempotencyKey,
         string payloadHash,
         string outcomeHash,
         string? outcomePayload,
@@ -35,6 +36,6 @@ public sealed class InMemoryIdempotencyStore : IIdempotencyStore
         return Task.CompletedTask;
     }
 
-    private static string BuildKey(string principalId, string operationId, string idempotencyKey) =>
-        $"{principalId}:{operationId}:{idempotencyKey}";
+    private static string BuildKey(SystemId principalId, OperationId operationId, IdempotencyKey idempotencyKey) =>
+        $"{principalId.Value}:{operationId.Value}:{idempotencyKey.Value}";
 }

@@ -1,4 +1,5 @@
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Abstractions;
 
@@ -43,10 +44,15 @@ public interface IClusterEventBus
     /// Events whose type does not implement <see cref="ITargetedClusterEvent"/> bypass filtering
     /// and are delivered to all subscribers regardless of their scoping value.
     /// </para>
+    /// <para>
+    /// Subscribe target and publish target are both <see cref="ScopedSystemId"/> so the
+    /// equality filter compares two wire-canonical strings by construction — no risk of a
+    /// raw-vs-scoped mismatch silently swallowing every delivery.
+    /// </para>
     /// The stream completes when <paramref name="ct"/> is cancelled.
     /// </summary>
     IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
-        string? targetSystemId,
+        ScopedSystemId? targetSystemId,
         CancellationToken ct = default)
         where TEvent : class;
 }

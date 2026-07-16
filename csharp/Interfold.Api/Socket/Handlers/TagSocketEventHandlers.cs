@@ -1,5 +1,6 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -22,7 +23,7 @@ public static class TagSocketEventHandlers
         await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Tags.Deleted, new TagDeletedSocketPayload(evt.TagId));
     }
 
-    private static async Task HandleUpsertAsync(string systemId, string tagId, string eventName, SocketPushContext context, ITagRepository tagRepository)
+    private static async Task HandleUpsertAsync(SystemId systemId, TagId tagId, string eventName, SocketPushContext context, ITagRepository tagRepository)
     {
         if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
         {

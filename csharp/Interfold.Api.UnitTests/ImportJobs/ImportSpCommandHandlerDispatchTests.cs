@@ -5,6 +5,7 @@ using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Settings;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
@@ -22,7 +23,10 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 /// </summary>
 public sealed class ImportSpCommandHandlerDispatchTests
 {
-    private const string SystemId = "nam:sys-sp-dispatch-test";
+    // PrincipalId is a ScopedSystemId; ParseScoped enforces the wire-canonical form so
+    // the test fixture matches what the middleware constructs at ingress.
+    private static readonly ScopedSystemId SystemId
+        = ScopedSystemId.ParseScoped("nam:sys-sp-dispatch-test");
 
     /// <summary>
     /// First dispatch for a clean system: handler returns <c>queued</c> and enqueues a job
@@ -41,11 +45,11 @@ public sealed class ImportSpCommandHandlerDispatchTests
         {
             await Assert.That(result.Accepted).IsTrue()
                 .Because("A valid token must accept; otherwise the controller would never reach the 202 branch.");
-            await Assert.That(result.Result!.Status).IsEqualTo("queued")
+            await Assert.That(result.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Queued)
                 .Because("A fresh claim must surface as 'queued' so the client (and operator logs) can distinguish it from a collapsed dispatch.");
             await Assert.That(capturingQueue.Enqueued).HasCount(1)
                 .Because("Exactly one job must reach the queue per successful claim — more than one would reintroduce the duplicate-import bug class.");
-            await Assert.That(capturingQueue.Enqueued[0].Kind).IsEqualTo(ImportOperationKinds.SimplyPlural);
+            await Assert.That(capturingQueue.Enqueued[0].Kind).IsEqualTo(ImportOperationKind.SimplyPlural);
             await Assert.That(capturingQueue.Enqueued[0].OperationId).IsEqualTo(result.Result!.OperationId)
                 .Because("The handler's returned operation_id must match the queued item's id, so the worker writes the row the controller advertised.");
         }
@@ -72,7 +76,7 @@ public sealed class ImportSpCommandHandlerDispatchTests
             await Assert.That(second.Accepted).IsTrue();
             await Assert.That(second.Result!.OperationId).IsEqualTo(first.Result!.OperationId)
                 .Because("A collapsed dispatch must return the existing operation_id; otherwise the client would subscribe to a frame that never arrives.");
-            await Assert.That(second.Result!.Status).IsEqualTo("running")
+            await Assert.That(second.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Running)
                 .Because("The collapsed status is the agreed signal to the controller that it's a no-op — operator logs and audit trails depend on this string.");
             await Assert.That(capturingQueue.Enqueued).HasCount(1)
                 .Because("Only the original click may enqueue a job; the duplicate dispatch must collapse without producing a second worker run.");
@@ -114,12 +118,12 @@ public sealed class ImportSpCommandHandlerDispatchTests
     }
 
     private static CommandEnvelope<ImportSpCommand> NewEnvelope(string idempotencyKey, string token) => new(
-        OperationId: "settings:import_sp",
+        OperationId: new("settings:import_sp"),
         CommandId: Guid.NewGuid(),
         PrincipalId: SystemId,
-        IdempotencyKey: idempotencyKey,
+        IdempotencyKey: new(idempotencyKey),
         OccurredAt: DateTimeOffset.UtcNow,
-        Payload: new ImportSpCommand(token, RecoveryCode: null));
+        Payload: new ImportSpCommand(new(token), RecoveryCode: null));
 
     /// <summary>
     /// Decorator over the real queue so tests can assert on what was enqueued without

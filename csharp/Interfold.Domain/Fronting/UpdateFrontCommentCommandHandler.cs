@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
 
@@ -28,11 +29,11 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
         CommandEnvelope<UpdateFrontCommentCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.FrontId))
-            return RejectInvariant(command, "fronting:invalid_front_id");
+        if (command.Payload.FrontId == FrontId.Empty)
+            return RejectInvariant(command, EntityRefs.FrontingInvalidFrontId);
 
         if ((command.Payload.Comment?.Length ?? 0) > 50)
-            return RejectInvariant(command, "fronting:invalid_comment");
+            return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -46,7 +47,7 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "fronting:update_comment");
+                return RejectDuplicate(command, EntityRefs.FrontingUpdateComment);
 
             var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -55,7 +56,7 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
 
         var existing = await _frontingRepository.GetActiveByFrontIdAsync(command.PrincipalId, command.Payload.FrontId, cancellationToken);
         if (existing is null)
-            return RejectInvariant(command, "fronting:no_front");
+            return RejectInvariant(command, EntityRefs.FrontingNoFront);
 
         var updated = await _frontingRepository.UpdateCommentByFrontIdAsync(
             command.PrincipalId,
@@ -64,7 +65,7 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
             cancellationToken);
 
         if (!updated)
-            return RejectInvariant(command, "fronting:update_comment_failed");
+            return RejectInvariant(command, EntityRefs.FrontingUpdateCommentFailed);
 
         var result = new FrontCommandResult(command.PrincipalId, existing.Front.AlterId, command.Payload.FrontId, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -88,13 +89,13 @@ public sealed class UpdateFrontCommentCommandHandler : ICommandHandler<UpdateFro
 
     private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
         CommandEnvelope<UpdateFrontCommentCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
         CommandEnvelope<UpdateFrontCommentCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

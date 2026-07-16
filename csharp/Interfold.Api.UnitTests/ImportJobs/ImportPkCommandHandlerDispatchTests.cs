@@ -5,6 +5,7 @@ using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Settings;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
@@ -16,7 +17,10 @@ namespace Interfold.Api.UnitTests.ImportJobs;
 /// </summary>
 public sealed class ImportPkCommandHandlerDispatchTests
 {
-    private const string SystemId = "nam:sys-pk-dispatch-test";
+    // PrincipalId is a ScopedSystemId; ParseScoped enforces the wire-canonical form so
+    // the test fixture matches what the middleware constructs at ingress.
+    private static readonly ScopedSystemId SystemId
+        = ScopedSystemId.ParseScoped("nam:sys-pk-dispatch-test");
 
     /// <summary>
     /// PK dispatch under the same shape as SP: fresh claim, queued result, exactly one
@@ -33,8 +37,8 @@ public sealed class ImportPkCommandHandlerDispatchTests
         using (Assert.Multiple())
         {
             await Assert.That(result.Accepted).IsTrue();
-            await Assert.That(result.Result!.Status).IsEqualTo("queued");
-            await Assert.That(result.Result!.Kind).IsEqualTo(ImportOperationKinds.PluralKit)
+            await Assert.That(result.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Queued);
+            await Assert.That(result.Result!.Kind).IsEqualTo(ImportOperationKind.PluralKit)
                 .Because("PK dispatches must surface the 'pk' kind so the worker routes to the PK runner — wiring it to 'sp' would silently run SP code against a PK token.");
             await Assert.That(capturingQueue.Enqueued).HasCount(1);
             await Assert.That(capturingQueue.Enqueued[0].RecoveryCode).IsNull()
@@ -61,7 +65,7 @@ public sealed class ImportPkCommandHandlerDispatchTests
         {
             await Assert.That(second.Result!.OperationId).IsEqualTo(first.Result!.OperationId)
                 .Because("Repeated PK dispatches for the same system must collapse onto the in-flight op — same guarantee the SP handler gives.");
-            await Assert.That(second.Result!.Status).IsEqualTo("running");
+            await Assert.That(second.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Running);
             await Assert.That(capturingQueue.Enqueued).HasCount(1)
                 .Because("Only one PK worker run per active claim — duplicate enqueues would re-introduce the bug class on the PK side once the real importer lands.");
         }
@@ -88,8 +92,8 @@ public sealed class ImportPkCommandHandlerDispatchTests
 
         using (Assert.Multiple())
         {
-            await Assert.That(spResult.Result!.Status).IsEqualTo("queued");
-            await Assert.That(pkResult.Result!.Status).IsEqualTo("queued")
+            await Assert.That(spResult.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Queued);
+            await Assert.That(pkResult.Result!.Status).IsEqualTo(ImportOperationDispatchStatus.Queued)
                 .Because("A PK dispatch must not be blocked by an in-flight SP dispatch for the same system — the mutex is per (system, kind).");
             await Assert.That(spResult.Result!.OperationId).IsNotEqualTo(pkResult.Result!.OperationId)
                 .Because("Distinct kinds must get distinct operation_ids; aliasing them would corrupt the audit trail.");
@@ -129,20 +133,20 @@ public sealed class ImportPkCommandHandlerDispatchTests
     }
 
     private static CommandEnvelope<ImportPkCommand> NewEnvelope(string idempotencyKey, string token) => new(
-        OperationId: "settings:import_pk",
+        OperationId: new("settings:import_pk"),
         CommandId: Guid.NewGuid(),
         PrincipalId: SystemId,
-        IdempotencyKey: idempotencyKey,
+        IdempotencyKey: new(idempotencyKey),
         OccurredAt: DateTimeOffset.UtcNow,
-        Payload: new ImportPkCommand(token));
+        Payload: new ImportPkCommand(new(token)));
 
     private static CommandEnvelope<ImportSpCommand> NewSpEnvelope(string idempotencyKey) => new(
-        OperationId: "settings:import_sp",
+        OperationId: new("settings:import_sp"),
         CommandId: Guid.NewGuid(),
         PrincipalId: SystemId,
-        IdempotencyKey: idempotencyKey,
+        IdempotencyKey: new(idempotencyKey),
         OccurredAt: DateTimeOffset.UtcNow,
-        Payload: new ImportSpCommand("synthetic-sp-token", RecoveryCode: null));
+        Payload: new ImportSpCommand(new("synthetic-sp-token"), RecoveryCode: null));
 
     private sealed class CapturingQueue : IImportJobQueue, IAsyncDisposable
     {

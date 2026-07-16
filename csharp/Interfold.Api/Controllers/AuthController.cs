@@ -1,22 +1,24 @@
-using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Operations;
 using Interfold.Api.Services;
 using Interfold.Contracts.Configuration;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure;
 using Interfold.Api.Controllers.Base;
+using Interfold.Contracts;
+using Interfold.Api.Models;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Controllers;
 
 [Route("auth")]
 public sealed class AuthController : OAuthControllerBase
 {
-    private const string RedirectUriCookieName = "octocon_auth_redirect_uri";
-
     private readonly IAccountRepository _accounts;
     private readonly IAuthTokenRevocationRepository _tokenRevocation;
     private readonly IEncryptionStateRepository _encryptionRepository;
@@ -43,19 +45,18 @@ public sealed class AuthController : OAuthControllerBase
     [HttpGet("{provider}")]
     public async Task<IActionResult> Begin([FromRoute] string provider)
     {
-        if (!IsSupportedProvider(provider))
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
-        StoreRedirectUriCookie(RedirectUriCookieName);
+        StoreRedirectUriCookie(InterfoldCookieNames.AuthRedirectUri);
 
-        var providerKey = provider.ToLowerInvariant();
         var challenge = await IssueChallengeIfRegisteredAsync(
-            providerKey, OperationIds.QueryAuthOAuthRequest);
+            oauthProvider, OperationIds.QueryAuthOAuthRequest);
 
         if (challenge is not null)
             return challenge;
 
-        Response.Headers["X-Interfold-OperationId"] = OperationIds.QueryAuthOAuthRequest;
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthOAuthRequest.Value;
         return StatusCode(StatusCodes.Status403Forbidden, string.Empty);
     }
 
@@ -79,61 +80,63 @@ public sealed class AuthController : OAuthControllerBase
     [HttpPost("revoke")]
     public async Task<IActionResult> RevokeToken()
     {
-        var jti = User.FindFirst("jti")?.Value;
-        if (string.IsNullOrWhiteSpace(jti))
+        // Jti.From wraps the possibly-null JWT claim in one call so the null check operates
+        // on the typed Jti?, not on a bare string local. A bare string local would stay
+        // alive across the null-check / error-return boundary and any incidental log
+        // statement in that window would leak the token id verbatim through raw-string
+        // interpolation.
+        var jti = Jti.From(User.FindFirst(JwtClaimNames.Jti)?.Value);
+        if (jti is null)
         {
-            return BadRequest(new
-            {
-                error = "Token is missing JTI claim.",
-                code = "invalid_token"
-            });
+            return BadRequest(new ErrorResponse("Token is missing JTI claim.", ErrorCodes.InvalidToken));
         }
 
-        await _tokenRevocation.RevokeTokenAsync(jti, HttpContext.RequestAborted);
+        await _tokenRevocation.RevokeTokenAsync(jti.Value, HttpContext.RequestAborted);
 
-        Response.Headers["X-Interfold-OperationId"] = OperationIds.AuthRevokeToken;
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthRevokeToken.Value;
         return NoContent();
     }
 
     private async Task<IActionResult> Callback(string provider)
     {
-        if (!IsSupportedProvider(provider))
+        if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
 
-        var identity = await ExtractProviderIdentityAsync(provider);
-        if (string.IsNullOrWhiteSpace(identity))
+        // ExtractProviderIdentityAsync returns a ProviderIdentity? that the account repo
+        // dispatches on directly — no rewrap of a raw string that was just unwrapped
+        // inside the OAuth service.
+        var identity = await ExtractProviderIdentityAsync(oauthProvider);
+        if (identity is not { } typedIdentity)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var providerKey = provider.ToLowerInvariant();
-        var systemId = providerKey switch
-        {
-            "discord" => await _accounts.FindSystemIdByDiscordIdAsync(identity, HttpContext.RequestAborted),
-            "google" => await _accounts.FindSystemIdByEmailAsync(identity, HttpContext.RequestAborted),
-            "apple" => await _accounts.FindSystemIdByAppleIdAsync(identity, HttpContext.RequestAborted),
-            _ => null
-        };
+        // FindOrCreateSystemIdAsync auto-provisions on miss for all three providers —
+        // the name honours the invariant explicitly, so callers see the create-on-miss
+        // semantics at the call site rather than having to trust a provider-specific
+        // method name.
+        var resolvedSystemId = await _accounts.FindOrCreateSystemIdAsync(typedIdentity, HttpContext.RequestAborted);
 
-        if (string.IsNullOrWhiteSpace(systemId))
+        if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you use the same account to sign in before?");
         }
 
+        var systemId = resolvedSystemId.Value;
+
         var encryptionState = await _encryptionRepository.GetAsync(systemId, HttpContext.RequestAborted);
         if (encryptionState?.Salt == null)
         {
-            // Generate per-user salt (32 random bytes, Base64-encoded)
-            var saltBytes = RandomNumberGenerator.GetBytes(32);
-            var salt = Convert.ToBase64String(saltBytes);
-
-            await _encryptionRepository.UpsertAsync(systemId, false, null, salt, HttpContext.RequestAborted);
+            // Mint via EncryptionSalt.NewRandom() so the raw base64 string does not
+            // survive as a local (ToString() on EncryptionSalt redacts; on a bare string
+            // it would not). Byte width lives inside the wrapper rather than hard-coded here.
+            await _encryptionRepository.UpsertAsync(systemId, false, null, EncryptionSalt.NewRandom(), HttpContext.RequestAborted);
         }
 
         var token = await IssueDeepLinkTokenAsync(systemId);
 
-        var clientRedirectUri = Request.Cookies[RedirectUriCookieName];
-        Response.Cookies.Delete(RedirectUriCookieName);
+        var clientRedirectUri = Request.Cookies[InterfoldCookieNames.AuthRedirectUri];
+        Response.Cookies.Delete(InterfoldCookieNames.AuthRedirectUri);
 
         // The client (web/desktop/mobile) is responsible for supplying its own redirect_uri
         // on the initial GET /auth/{provider}?redirect_uri=... call; we store that in the
@@ -143,26 +146,28 @@ public sealed class AuthController : OAuthControllerBase
         // with a server-configured fallback.
         if (string.IsNullOrWhiteSpace(clientRedirectUri))
         {
-            Response.Headers["X-Interfold-OperationId"] = OperationIds.AuthOAuthCallback;
-            return BadRequest(new
-            {
-                error = "Missing client-supplied redirect_uri.",
-                code = "missing_redirect_uri",
-                detail = "Pass redirect_uri on GET /auth/{provider} so the callback knows where to send the token."
-            });
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
+            return BadRequest(new ErrorResponse(
+                "Missing client-supplied redirect_uri.",
+                ErrorCodes.MissingRedirectUri,
+                detail: "Pass redirect_uri on GET /auth/{provider} so the callback knows where to send the token."));
         }
 
         var separator = clientRedirectUri.Contains('?') ? '&' : '?';
-        var redirectUrl = $"{clientRedirectUri}{separator}token={Uri.EscapeDataString(token)}&id={Uri.EscapeDataString(systemId)}";
+        var redirectUrl = $"{clientRedirectUri}{separator}{OAuthQueryKeys.CallbackToken}={Uri.EscapeDataString(token)}&{OAuthQueryKeys.CallbackId}={Uri.EscapeDataString(systemId)}";
 
-        Response.Headers["X-Interfold-OperationId"] = OperationIds.AuthOAuthCallback;
+        Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthOAuthCallback.Value;
         return Redirect(redirectUrl);
     }
 
-    private async Task<string> IssueDeepLinkTokenAsync(string systemId)
+    private async Task<string> IssueDeepLinkTokenAsync(SystemId systemId)
     {
         var authConfig = AuthOptions.CurrentValue;
-        var jti = Guid.NewGuid().ToString("N");
+        // Jti.NewJti() mints + wraps in one call so the raw JTI string doesn't live as a
+        // bare local across the CreateToken and RecordTokenAsync sites. Any incidental
+        // log or exception-with-locals between mint and wrap would emit the unredacted
+        // JTI; the wrapper's ToString redacts.
+        var jti = Jti.NewJti();
 
         // Set expiry to 100 years in the future. This is practically permanent
         // but avoids DateTimeOffset.MaxValue which can cause int64 overflow on validation.

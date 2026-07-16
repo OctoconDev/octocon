@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Coordination;
@@ -34,7 +35,10 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         void CompleteAll();
     }
 
-    private sealed record Subscription<TEvent>(ChannelWriter<TEvent> Writer, string? TargetSystemId)
+    // TargetSystemId is a ScopedSystemId so the subscriber-side wire shape matches the
+    // publisher-side ITargetedClusterEvent.TargetSystemId at the type level — no
+    // strip-and-compare needed in PublishAsync.
+    private sealed record Subscription<TEvent>(ChannelWriter<TEvent> Writer, ScopedSystemId? TargetSystemId)
         where TEvent : class;
 
     private sealed class TopicBag<TEvent> : ITopicBag where TEvent : class
@@ -73,11 +77,15 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
 
         foreach (var subscription in topicBag.Subscriptions.Values)
         {
-            // Subscription with a non-null TargetSystemId only sees events whose target matches.
-            // Subscription with a null TargetSystemId is broadcast (legacy semantics).
+            // Subscription with a non-null TargetSystemId only sees events whose target
+            // matches. Subscription with a null TargetSystemId is broadcast.
+            //
+            // Both sides speak ScopedSystemId, so the compare is scoped-record-struct
+            // equality — a cross-region collision (same rawId, different region) is
+            // correctly treated as a different user.
             if (subscription.TargetSystemId is not null
                 && targetedEvent is not null
-                && !string.Equals(subscription.TargetSystemId, targetedEvent.TargetSystemId, StringComparison.Ordinal))
+                && subscription.TargetSystemId.Value != targetedEvent.TargetSystemId)
             {
                 continue;
             }
@@ -104,7 +112,7 @@ public sealed class InProcessEventBus : IClusterEventBus, IDisposable
         => SubscribeAsync<TEvent>(targetSystemId: null, ct);
 
     public IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
-        string? targetSystemId,
+        ScopedSystemId? targetSystemId,
         CancellationToken ct = default)
         where TEvent : class
     {

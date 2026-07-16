@@ -1,4 +1,4 @@
-using Interfold.Api;
+using Interfold.Contracts.Configuration;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -11,7 +11,7 @@ public class HealthCheckDocumentFilter : IDocumentFilter
         var healthyResponse = new OpenApiResponse { Description = "Healthy" };
         var unhealthyResponse = new OpenApiResponse { Description = "Unhealthy" };
 
-        swaggerDoc.Paths[HealthCheckRoutes.Live] = new OpenApiPathItem
+        swaggerDoc.Paths[HealthEndpoints.Live] = new OpenApiPathItem
         {
             Operations =
             {
@@ -28,7 +28,7 @@ public class HealthCheckDocumentFilter : IDocumentFilter
             }
         };
 
-        swaggerDoc.Paths[HealthCheckRoutes.Ready] = new OpenApiPathItem
+        swaggerDoc.Paths[HealthEndpoints.Ready] = new OpenApiPathItem
         {
             Operations =
             {
@@ -46,7 +46,7 @@ public class HealthCheckDocumentFilter : IDocumentFilter
             }
         };
 
-        swaggerDoc.Paths[HealthCheckRoutes.Startup] = new OpenApiPathItem
+        swaggerDoc.Paths[HealthEndpoints.Startup] = new OpenApiPathItem
         {
             Operations =
             {

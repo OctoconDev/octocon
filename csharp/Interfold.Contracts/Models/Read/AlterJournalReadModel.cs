@@ -1,12 +1,15 @@
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+
 namespace Interfold.Contracts.Models.Read;
 
 public sealed record AlterJournalReadModel(
-    string Id,
-    string UserId,
-    int AlterId,
+    EntryId Id,
+    SystemId UserId,
+    AlterId AlterId,
     string Title,
     string? Content,
-    string? Color,
+    HexColor? Color,
     bool Locked,
     bool Pinned,
     DateTime InsertedAt,
@@ -14,42 +17,38 @@ public sealed record AlterJournalReadModel(
 );
 
 public sealed record CreateAlterJournalRequest(
-    string Title,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    string Title
+);
 
 public sealed record UpdateAlterJournalRequest(
     string? Title = null,
     string? Content = null,
-    string? Color = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    HexColor? Color = null
+);
 
 public sealed record CreateAlterRequest(
-    string Name,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    string Name
+);
 
 public sealed record UpdateAlterRequest(
     string? Name = null,
     string? Description = null,
-    string? AvatarUrl = null,
-    string? Color = null,
+    AvatarUrl? AvatarUrl = null,
+    HexColor? Color = null,
     string? Pronouns = null,
-    string? SecurityLevel = null,
+    VisibilityLevel? SecurityLevel = null,
     string? ProxyName = null,
     string? Alias = null,
     bool? Untracked = null,
     bool? Archived = null,
     bool? Pinned = null,
-    IReadOnlyList<UpdateAlterFieldRequest>? Fields = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    IReadOnlyList<UpdateAlterFieldRequest>? Fields = null
+);
 
 public sealed record UpdateAlterFieldRequest(
-    string Id,
+    FieldId Id,
     string? Value
 );
 
 
-public sealed record AlterJournalRef(string EntryId, int AlterId);
+public sealed record AlterJournalRef(EntryId EntryId, AlterId AlterId);

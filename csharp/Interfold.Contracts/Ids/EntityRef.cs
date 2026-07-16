@@ -1,0 +1,44 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Interfold.Contracts.Ids;
+
+/// <summary>
+/// Strongly-typed wrapper around the conflict entity-reference string carried on
+/// <c>ConflictResult.EntityRef</c> (e.g. <c>"poll:title_too_long"</c>) and surfaced to
+/// clients verbatim via <c>ErrorResponse.EntityRef</c> on 409/422 bodies. The closed
+/// vocabulary lives in <c>Interfold.Contracts.Operations.EntityRefs</c>; integration tests
+/// assert the exact strings, so the wire spellings are frozen.
+/// </summary>
+[JsonConverter(typeof(EntityRefJsonConverter))]
+public readonly record struct EntityRef
+{
+    public string Value { get; }
+
+    public EntityRef(string value)
+    {
+        Value = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    /// <summary>
+    /// Explicit narrow so call sites can write <c>(EntityRef)raw</c> instead of
+    /// <c>new EntityRef(raw)</c>. See <see cref="SystemId"/> for the wider rationale.
+    /// </summary>
+    public static explicit operator EntityRef(string value) => new(value);
+
+    /// <summary>
+    /// Implicit widen to the raw <see cref="string"/> for error-body / wire boundary use.
+    /// </summary>
+    public static implicit operator string(EntityRef value) => value.Value;
+
+    public override string ToString() => Value;
+}
+
+internal sealed class EntityRefJsonConverter : JsonConverter<EntityRef>
+{
+    public override EntityRef Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => new(reader.GetString() ?? string.Empty);
+
+    public override void Write(Utf8JsonWriter writer, EntityRef value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Value);
+}

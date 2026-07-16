@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -25,8 +27,8 @@ public sealed class UnlinkAppleCommandHandler : ICommandHandler<UnlinkAppleComma
     {
         var result = await SettingsCommandHelper.ExecuteAsync(
             command,
-            "apple_unlinked",
-            "settings:unlink:apple",
+            SettingsAction.AppleUnlinked,
+            EntityRefs.SettingsUnlinkApple,
             _idempotencyStore,
             ct => _accountRepository.UnlinkAppleAsync(command.PrincipalId, ct),
             cancellationToken);

@@ -1,18 +1,20 @@
 using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 
 namespace Interfold.Contracts.Models.Commands;
 
 public sealed record CreateAlterCommand(string Name, DateTimeOffset CreatedAt);
 
 public sealed record UpdateAlterCommand(
-    int AlterId,
+    AlterId AlterId,
     string? Name,
     string? Description,
-    string? AvatarUrl,
+    AvatarUrl? AvatarUrl,
     AvatarSource? AvatarSource,
-    string? Color,
+    HexColor? Color,
     string? Pronouns,
-    string? SecurityLevel,
+    VisibilityLevel? SecurityLevel,
     IReadOnlyList<AlterFieldCommand>? Fields,
     string? ProxyName,
     string? Alias,
@@ -23,6 +25,8 @@ public sealed record UpdateAlterCommand(
     bool ClearAvatar = false
 );
 
-public sealed record DeleteAlterCommand(int AlterId);
+public sealed record DeleteAlterCommand(AlterId AlterId);
 
-public sealed record AlterFieldCommand(string Id, string? Value);
+// Id references the settings field definition (FieldId). Property name is frozen:
+// it serializes as "id" in persisted command JSON and idempotency hashes.
+public sealed record AlterFieldCommand(FieldId Id, string? Value);

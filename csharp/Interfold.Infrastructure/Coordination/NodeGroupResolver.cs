@@ -4,37 +4,20 @@ using Interfold.Contracts.Enums;
 namespace Interfold.Infrastructure.Coordination;
 
 /// <summary>
-/// Resolves the <see cref="NodeGroup"/> from environment variables, mirroring the detection
-/// order used by the legacy Elixir runtime:
-/// <list type="number">
-///   <item><c>FLY_PROCESS_GROUP</c> (set automatically by fly.io)</item>
-///   <item><c>OCTOCON_NODE_GROUP</c> (manual override)</item>
-///   <item>Default: <see cref="NodeGroup.Auxiliary"/></item>
-/// </list>
-/// For typed-configuration usage, prefer <see cref="Resolve(string?)"/> with the value
-/// from <c>ClusterConfiguration.NodeGroup</c>.
+/// Thin adapter over <see cref="ClusterConfiguration.NodeGroup"/> and
+/// <see cref="EnumWireExtensions.ParseNodeGroup"/>. Kept as a named entry point so callers
+/// unable to import <c>Interfold.Contracts.Enums</c> directly still have a stable resolver name.
 /// </summary>
+/// <remarks>
+/// Detection order mirrors the legacy Elixir runtime — <c>FLY_PROCESS_GROUP</c> then
+/// <c>OCTOCON_NODE_GROUP</c> — but that layering now lives inside <c>ApplyCluster</c> so the
+/// <see cref="ClusterConfiguration.NodeGroup"/> reaching this resolver is already the winning value.
+/// </remarks>
 public static class NodeGroupResolver
 {
-    /// <summary>Resolves node group from <see cref="ClusterConfiguration"/> directly.</summary>
-    public static NodeGroup Resolve(ClusterConfiguration configuration)
-    {
-        return ResolveFromRawValue(configuration.NodeGroup);
-    }
+    /// <summary>Returns the already-bound node group off <see cref="ClusterConfiguration"/>.</summary>
+    public static NodeGroup Resolve(ClusterConfiguration configuration) => configuration.NodeGroup;
 
-    /// <summary>Resolves node group from a pre-bound string value (e.g. from <c>ClusterConfiguration.NodeGroup</c>).</summary>
-    public static NodeGroup Resolve(string? rawValue) => ResolveFromRawValue(rawValue);
-
-    private static NodeGroup ResolveFromRawValue(string? raw)
-    {
-        return raw?.Trim().ToLowerInvariant() switch
-        {
-            "primary"   => NodeGroup.Primary,
-            "auxiliary" => NodeGroup.Auxiliary,
-            "sidecar"   => NodeGroup.Sidecar,
-            null        => NodeGroup.Auxiliary,
-            var unknown => throw new InvalidOperationException(
-                $"Unrecognised node group '{unknown}'. Valid values: primary, auxiliary, sidecar.")
-        };
-    }
+    /// <summary>Parses a raw env-string value; delegates to <see cref="EnumWireExtensions.ParseNodeGroup"/>.</summary>
+    public static NodeGroup Resolve(string? rawValue) => EnumWireExtensions.ParseNodeGroup(rawValue);
 }

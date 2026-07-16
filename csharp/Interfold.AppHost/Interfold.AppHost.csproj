@@ -10,6 +10,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Api\Interfold.Api.csproj" />
+    <!-- Direct (non-resource) reference so the resource graph can share the env-key /
+         service-name / region constants with Contracts instead of duplicating literals.
+         IsAspireProjectResource=false keeps Aspire from treating it as a deployable. -->
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
 
   <ItemGroup>

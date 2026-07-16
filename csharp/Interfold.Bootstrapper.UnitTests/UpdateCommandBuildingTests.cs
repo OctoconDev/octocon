@@ -1,6 +1,7 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Enums;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -219,7 +220,7 @@ public sealed class UpdateCommandBuildingTests
         // databaseMode=single (Scylla) never triggers a Cassandra rebuild — the local
         // interfold-cassandra:local image isn't part of a Scylla-only stack, and any
         // whitelist value must be ignored here. Pins the mode gate.
-        var config = new BootstrapConfig { DatabaseMode = "single" };
+        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Single };
 
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, [])).IsFalse();
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["cassandra"])).IsFalse();
@@ -231,7 +232,7 @@ public sealed class UpdateCommandBuildingTests
     {
         // Empty whitelist = "act on every service" (compose semantics propagated by
         // ResolveServiceWhitelist), so cassandra is implicitly in scope and must rebuild.
-        var config = new BootstrapConfig { DatabaseMode = "cassandra" };
+        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Cassandra };
 
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, [])).IsTrue();
     }
@@ -241,7 +242,7 @@ public sealed class UpdateCommandBuildingTests
     {
         // Explicit ["cassandra"] whitelist means "just rebuild the DB image" — this is the
         // deliberate "I patched the Dockerfile, only re-cook the Cassandra layer" path.
-        var config = new BootstrapConfig { DatabaseMode = "cassandra" };
+        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Cassandra };
 
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["cassandra"])).IsTrue();
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["cassandra", "interfold-api"])).IsTrue();
@@ -254,7 +255,7 @@ public sealed class UpdateCommandBuildingTests
         // `--service msg-db` must NOT get an unrelated Cassandra rebuild that would
         // pay the docker-build cost (and potentially reset the running container's
         // Dockerfile-baked customisations) for no reason.
-        var config = new BootstrapConfig { DatabaseMode = "cassandra" };
+        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Cassandra };
 
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["msg-db"])).IsFalse();
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["interfold-api", "octocon-web"])).IsFalse();

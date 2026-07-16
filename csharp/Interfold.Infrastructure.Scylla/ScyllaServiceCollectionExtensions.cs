@@ -3,6 +3,7 @@ using Interfold.Contracts.Configuration;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
+using Interfold.Infrastructure.Scylla.Fixups;
 using Interfold.Infrastructure.Scylla.Repository;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -30,6 +31,7 @@ public static class ScyllaServiceCollectionExtensions
         PersistenceConfiguration options)
     {
         var pipeline = services
+                .AddSingleton<IScyllaConfigResolver, ScyllaConfigResolver>()
                 .AddSingleton<IScyllaSessionProvider, ScyllaSessionProvider>()
                 .AddSingleton<IScyllaKeyspaceResolver, ScyllaKeyspaceResolver>()
                 .AddSingleton<IRegionContext, ScyllaUserRegistryRegionContext>()
@@ -44,7 +46,18 @@ public static class ScyllaServiceCollectionExtensions
                 .AddSingleton<IJournalRepository, ScyllaJournalRepository>()
                 .AddSingleton<IPollRepository, ScyllaPollRepository>()
                 .AddSingleton<IImportOperationRepository, ScyllaImportOperationRepository>()
-                .AddHostedService<ScyllaMigrationService>();
+                .AddHostedService<ScyllaMigrationService>()
+                // Registered after ScyllaMigrationService so IHostedLifecycleService.StartingAsync
+                // runs in that order: schema migrations first (which grant the app user MODIFY on
+                // every regional keyspace), then the fixup uses the app-user session to normalise
+                // legacy color rows to the shape strict HexColor.FromNullable now requires.
+                //
+                // Note: the primary_front int -> primary_front_alter smallint narrowing lives
+                // inline in ScyllaMigrationService.StartingAsync (migration 006 + one backfill),
+                // not as a separate hosted service — the ADD and the copy have to run in the
+                // same startup pass before repositories bind to the new column, and
+                // hosted-service ordering can't guarantee that.
+                .AddHostedService<HexColorFixupService>();
 
         return pipeline;
     }

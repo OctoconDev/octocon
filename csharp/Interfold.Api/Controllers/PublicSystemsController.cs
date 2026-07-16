@@ -1,6 +1,12 @@
 using Interfold.Api.Controllers.Base;
+using Interfold.Api.Models;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.AspNetCore.Mvc;
+using Interfold.Contracts;
+using Interfold.Contracts.Validation;
 
 namespace Interfold.Api.Controllers;
 
@@ -28,48 +34,42 @@ public sealed class PublicSystemsController : InterfoldControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> Show([FromRoute] string systemId, CancellationToken ct)
+    public async Task<Response<PublicSystemReadModel>> Show([FromRoute] SystemId systemId, CancellationToken ct)
     {
         var profile = await _accounts.GetPublicProfileAsync(systemId, ct);
         if (profile is null)
         {
-            return NotFound(new { error = "System not found.", code = "system_not_found" });
+            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
-        return Ok(new
-        {
-            data = new
-            {
-                id = profile.SystemId,
-                avatar_url = QualifyAvatar(profile.AvatarUrl, profile.AvatarSource),
-                avatar_source = profile.AvatarSource,
-                username = profile.Username,
-                description = profile.Description
-            }
-        });
+        return new PublicSystemReadModel(
+            Id: profile.SystemId,
+            AvatarUrl: QualifyAvatar(profile.AvatarUrl, profile.AvatarSource),
+            AvatarSource: profile.AvatarSource,
+            Username: profile.Username,
+            Description: profile.Description);
     }
 
     //TODO: To ensure route works as expected
     [HttpGet("alters")]
-    public async Task<IActionResult> ListAlters([FromRoute] string systemId, CancellationToken ct)
+    public async Task<Response<IReadOnlyList<BareAlter>>> ListAlters([FromRoute] SystemId systemId, CancellationToken ct)
     {
         if (!await SystemExistsAsync(systemId, ct))
         {
-            return NotFound(new { error = "System not found.", code = "system_not_found" });
+            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
         var alters = await _alters.ListGuardedAsync(systemId, PrincipalId, ct);
         foreach (var a in alters) a.AvatarUrl = QualifyAvatar(a.AvatarUrl, a.AvatarSource);
-        return Ok(new { data = alters });
+        return new SuccessResponse<IReadOnlyList<BareAlter>>(alters);
     }
 
     [HttpGet("alters/{alterId:int}")]
-    public async Task<IActionResult> ShowAlter([FromRoute] string systemId, [FromRoute] int alterId, CancellationToken ct)
+    public async Task<Response<BareAlter>> ShowAlter([FromRoute] SystemId systemId, [FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        await CheckAlterId(alterId);
         if (!await SystemExistsAsync(systemId, ct))
         {
-            return NotFound(new { error = "System not found.", code = "system_not_found" });
+            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
         var alter = await _alters.GetGuardedAsync(systemId, alterId, PrincipalId, ct);
@@ -79,66 +79,68 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         }
 
         return alter is null
-            ? NotFound(new { error = "Alter not found.", code = "alter_not_found" })
-            : Ok(new { data = alter });
+            ? new ErrorResponse("Alter not found.", ErrorCodes.AlterNotFound, System.Net.HttpStatusCode.NotFound)
+            : alter;
     }
 
     //TODO: To ensure route works as expected
     [HttpGet("tags")]
-    public async Task<IActionResult> ListTags([FromRoute] string systemId, CancellationToken ct)
+    public async Task<Response<IReadOnlyList<TagPublicReadModel>>> ListTags([FromRoute] SystemId systemId, CancellationToken ct)
     {
         if (!await SystemExistsAsync(systemId, ct))
         {
-            return NotFound(new { error = "System not found.", code = "system_not_found" });
+            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
         var tags = await _tags.ListGuardedAsync(systemId, PrincipalId, ct);
-        return Ok(new { data = tags });
+        return new SuccessResponse<IReadOnlyList<TagPublicReadModel>>(tags);
     }
 
     [HttpGet("tags/{tagId}")]
-    public async Task<IActionResult> ShowTag([FromRoute] string systemId, [FromRoute] string tagId, CancellationToken ct)
+    public async Task<Response<TagPublicReadModel>> ShowTag([FromRoute] SystemId systemId, [FromRoute] TagId tagId, CancellationToken ct)
     {
         if (!await SystemExistsAsync(systemId, ct))
         {
-            return NotFound(new { error = "System not found.", code = "system_not_found" });
+            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
         var tag = await _tags.GetGuardedAsync(systemId, tagId, PrincipalId, ct);
         return tag is null
-            ? NotFound(new { error = "Tag not found.", code = "tag_not_found" })
-            : Ok(new { data = tag });
+            ? new ErrorResponse("Tag not found.", ErrorCodes.TagNotFound, System.Net.HttpStatusCode.NotFound)
+            : tag;
     }
 
     //TODO: To ensure route works as expected
     [HttpGet("fronting")]
-    public async Task<IActionResult> ListFronting([FromRoute] string systemId, CancellationToken ct)
+    public async Task<Response<IReadOnlyList<FrontActiveReadModel>>> ListFronting([FromRoute] SystemId systemId, CancellationToken ct)
     {
         if (!await SystemExistsAsync(systemId, ct))
         {
-            return NotFound(new { error = "System not found.", code = "system_not_found" });
+            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
         var fronts = await _fronting.ListActiveGuardedAsync(systemId, PrincipalId, ct);
-        return Ok(new { data = fronts });
+        return new SuccessResponse<IReadOnlyList<FrontActiveReadModel>>(fronts);
     }
 
     [HttpGet("batch")]
-    public async Task<IActionResult> Batch([FromRoute] string systemId, CancellationToken ct)
+    public async Task<Response<PublicSystemBatchReadModel>> Batch([FromRoute] SystemId systemId, CancellationToken ct)
     {
         if (!await SystemExistsAsync(systemId, ct))
         {
-            return NotFound(new { error = "System not found.", code = "system_not_found" });
+            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
         }
 
         var principalId = PrincipalId;
-        if (string.Equals(principalId, systemId, StringComparison.Ordinal))
+        // Semantic self-check. RepresentsSameUserAs compares scoped-to-scoped when both
+        // sides carry a region prefix, so a cross-region collision (same raw id, different
+        // region → different user) is correctly treated as a non-self request.
+        if (principalId.RepresentsSameUserAs(systemId))
         {
-            return StatusCode(StatusCodes.Status403Forbidden, new
-            {
-                error = "You cannot view your own system through this endpoint.",
-                code = "invalid_endpoint"
-            });
+            return new ErrorResponse(
+                "You cannot view your own system through this endpoint.",
+                ErrorCodes.InvalidEndpoint,
+                System.Net.HttpStatusCode.Forbidden);
         }
 
         var altersTask = _alters.ListGuardedAsync(systemId, principalId, ct);
@@ -162,18 +164,13 @@ public sealed class PublicSystemsController : InterfoldControllerBase
             };
         }
 
-        return Ok(new
-        {
-            data = new
-            {
-                friendship,
-                tags = tagsTask.Result,
-                alters = batchAlters
-            }
-        });
+        return new PublicSystemBatchReadModel(
+            Friendship: friendship,
+            Tags: tagsTask.Result,
+            Alters: batchAlters);
     }
 
-    private async Task<bool> SystemExistsAsync(string systemId, CancellationToken ct)
+    private async Task<bool> SystemExistsAsync(SystemId systemId, CancellationToken ct)
     {
         var profile = await _accounts.GetPublicProfileAsync(systemId, ct);
         return profile is not null;

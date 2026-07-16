@@ -1,5 +1,6 @@
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
+using Interfold.Contracts.Configuration;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
@@ -103,7 +104,7 @@ public class DbInitSecurityInvariantsTests(UbuntuDinDFixture dinD)
         var auth = await dinD.ExecAsync(
             ["sh", "-c",
              $"docker compose -f {composeFile} exec -T -e PGPASSWORD={initPassword} msg-db " +
-             "psql -U db_init -d postgres -h 127.0.0.1 -tAc 'SELECT 1' 2>&1 || true"]);
+             $"psql -U {PostgresRoles.Init} -d postgres -h 127.0.0.1 -tAc 'SELECT 1' 2>&1 || true"]);
         // Auth failure prints "password authentication failed for user" on stderr.
         await Assert.That(auth.Stdout + auth.Stderr).Contains("authentication failed")
             .Or.Contains("password authentication")

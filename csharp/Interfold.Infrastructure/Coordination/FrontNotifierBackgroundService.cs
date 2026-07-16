@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Interfold.Domain.Abstractions;
@@ -25,7 +26,7 @@ public sealed class FrontNotifierBackgroundService(
     : BackgroundService
 {
     // system_id -> last-change timestamp (ms since epoch)
-    private readonly ConcurrentDictionary<string, long> _pending = new();
+    private readonly ConcurrentDictionary<SystemId, long> _pending = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -67,7 +68,7 @@ public sealed class FrontNotifierBackgroundService(
         }
     }
 
-    private async Task FlushSystemAsync(string systemId, CancellationToken ct)
+    private async Task FlushSystemAsync(SystemId systemId, CancellationToken ct)
     {
         try
         {

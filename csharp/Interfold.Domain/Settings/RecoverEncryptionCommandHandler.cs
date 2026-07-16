@@ -9,6 +9,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -32,8 +34,8 @@ public sealed class RecoverEncryptionCommandHandler : ICommandHandler<RecoverEnc
         CommandEnvelope<RecoverEncryptionCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.RecoveryCode))
-            return RejectInvariant(command, "settings:recovery_code_invalid");
+        if (string.IsNullOrWhiteSpace(command.Payload.RecoveryCode.Value))
+            return RejectInvariant(command, EntityRefs.SettingsRecoveryCodeInvalid);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -47,7 +49,7 @@ public sealed class RecoverEncryptionCommandHandler : ICommandHandler<RecoverEnc
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "settings:encryption:recover");
+                return RejectDuplicate(command, EntityRefs.SettingsEncryptionRecover);
 
             var replay = CommandSerialization.Deserialize<EncryptionCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -55,17 +57,20 @@ public sealed class RecoverEncryptionCommandHandler : ICommandHandler<RecoverEnc
         }
 
         var state = await _repository.GetAsync(command.PrincipalId, cancellationToken);
-        if (state is null || !state.Initialized || string.IsNullOrWhiteSpace(state.KeyChecksum) || string.IsNullOrWhiteSpace(state.Salt))
-            return RejectInvariant(command, "settings:encryption_not_initialized");
+        if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }
+            || string.IsNullOrWhiteSpace(keyChecksum.Value) || string.IsNullOrWhiteSpace(salt.Value))
+            return RejectInvariant(command, EntityRefs.SettingsEncryptionNotInitialized);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
-        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId, command.Payload.RecoveryCode, state.Salt);
+        // `checksum == keyChecksum` uses the record-struct value equality (ordinal string
+        // equality on the underlying .Value), matching `string.Equals(..., Ordinal)` exactly.
+        var key = EncryptionKey.DeriveKey(pepper, command.PrincipalId, command.Payload.RecoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
 
-        if (!string.Equals(checksum, state.KeyChecksum, StringComparison.Ordinal))
-            return RejectInvariant(command, "settings:invalid_recovery_code");
+        if (checksum != keyChecksum)
+            return RejectInvariant(command, EntityRefs.SettingsInvalidRecoveryCode);
 
-        var result = new EncryptionCommandResult(command.PrincipalId, "encryption_recovered", key, Replay: false);
+        var result = new EncryptionCommandResult(command.PrincipalId, EncryptionAction.EncryptionRecovered, key, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
@@ -82,13 +87,13 @@ public sealed class RecoverEncryptionCommandHandler : ICommandHandler<RecoverEnc
 
     private static CommandExecutionResult<EncryptionCommandResult> RejectDuplicate(
         CommandEnvelope<RecoverEncryptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<EncryptionCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<EncryptionCommandResult> RejectInvariant(
         CommandEnvelope<RecoverEncryptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<EncryptionCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

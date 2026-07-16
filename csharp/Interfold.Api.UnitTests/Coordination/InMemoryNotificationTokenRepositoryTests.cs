@@ -1,4 +1,5 @@
 using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Coordination;
 
@@ -21,21 +22,21 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         // Alice registers a token for herself; Bob and Carol are her friends and each
         // register their own tokens. A push to Alice's friends should hit Bob and Carol,
         // not Alice — the whole point of the fronting-change flow is to notify others.
-        await tokens.AddAsync("alice", "alice-token", CancellationToken.None);
-        await tokens.AddAsync("bob", "bob-token", CancellationToken.None);
-        await tokens.AddAsync("carol", "carol-token", CancellationToken.None);
+        await tokens.AddAsync(new("alice"), new("alice-token"), CancellationToken.None);
+        await tokens.AddAsync(new("bob"), new("bob-token"), CancellationToken.None);
+        await tokens.AddAsync(new("carol"), new("carol-token"), CancellationToken.None);
 
-        await friendships.SendRequestAsync("alice", "bob");
-        await friendships.AcceptRequestAsync("bob", "alice");
-        await friendships.SendRequestAsync("alice", "carol");
-        await friendships.AcceptRequestAsync("carol", "alice");
+        await friendships.SendRequestAsync(new("alice"), new("bob"));
+        await friendships.AcceptRequestAsync(new("bob"), new("alice"));
+        await friendships.SendRequestAsync(new("alice"), new("carol"));
+        await friendships.AcceptRequestAsync(new("carol"), new("alice"));
 
-        var result = await tokens.ListTokensForFriendsOfAsync("alice", CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("alice"), CancellationToken.None);
 
         await Assert.That(result.Count).IsEqualTo(2);
-        await Assert.That(result.Any(g => g.FriendSystemId == "bob" && g.Tokens.Contains("bob-token"))).IsTrue();
-        await Assert.That(result.Any(g => g.FriendSystemId == "carol" && g.Tokens.Contains("carol-token"))).IsTrue();
-        await Assert.That(result.Any(g => g.FriendSystemId == "alice")).IsFalse()
+        await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("bob") && g.Tokens.Contains(new PushToken("bob-token")))).IsTrue();
+        await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("carol") && g.Tokens.Contains(new PushToken("carol-token")))).IsTrue();
+        await Assert.That(result.Any(g => g.FriendSystemId == new SystemId("alice"))).IsFalse()
             .Because("The fronting-changed push targets friends of the system, not the system itself.");
     }
 
@@ -44,9 +45,9 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     {
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
-        await tokens.AddAsync("lonely", "lonely-token", CancellationToken.None);
+        await tokens.AddAsync(new("lonely"), new("lonely-token"), CancellationToken.None);
 
-        var result = await tokens.ListTokensForFriendsOfAsync("lonely", CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("lonely"), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(0);
     }
 
@@ -59,10 +60,10 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
 
-        await friendships.SendRequestAsync("alice", "bob");
-        await friendships.AcceptRequestAsync("bob", "alice");
+        await friendships.SendRequestAsync(new("alice"), new("bob"));
+        await friendships.AcceptRequestAsync(new("bob"), new("alice"));
 
-        var result = await tokens.ListTokensForFriendsOfAsync("alice", CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("alice"), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(0);
     }
 
@@ -74,20 +75,20 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         // entry so the FCM sender can batch them under a single per-friend message.
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
-        await tokens.AddAsync("bob", "bob-phone", CancellationToken.None);
-        await tokens.AddAsync("bob", "bob-tablet", CancellationToken.None);
+        await tokens.AddAsync(new("bob"), new("bob-phone"), CancellationToken.None);
+        await tokens.AddAsync(new("bob"), new("bob-tablet"), CancellationToken.None);
 
-        await friendships.SendRequestAsync("alice", "bob");
-        await friendships.AcceptRequestAsync("bob", "alice");
+        await friendships.SendRequestAsync(new("alice"), new("bob"));
+        await friendships.AcceptRequestAsync(new("bob"), new("alice"));
 
-        var result = await tokens.ListTokensForFriendsOfAsync("alice", CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new("alice"), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(1);
 
         var bobGroup = result.Single();
-        await Assert.That(bobGroup.FriendSystemId).IsEqualTo("bob");
+        await Assert.That(bobGroup.FriendSystemId).IsEqualTo(new SystemId("bob"));
         await Assert.That(bobGroup.Tokens.Count).IsEqualTo(2);
-        await Assert.That(bobGroup.Tokens.Contains("bob-phone")).IsTrue();
-        await Assert.That(bobGroup.Tokens.Contains("bob-tablet")).IsTrue();
+        await Assert.That(bobGroup.Tokens.Contains(new PushToken("bob-phone"))).IsTrue();
+        await Assert.That(bobGroup.Tokens.Contains(new PushToken("bob-tablet"))).IsTrue();
     }
 
     [Test]
@@ -99,7 +100,7 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
 
-        var result = await tokens.ListTokensForFriendsOfAsync("", CancellationToken.None);
+        var result = await tokens.ListTokensForFriendsOfAsync(new(""), CancellationToken.None);
         await Assert.That(result.Count).IsEqualTo(0);
     }
 }

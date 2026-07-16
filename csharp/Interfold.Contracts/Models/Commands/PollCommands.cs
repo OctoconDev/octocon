@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models.Commands;
 
@@ -14,13 +16,15 @@ namespace Interfold.Contracts.Models.Commands;
 public sealed record CreatePollCommand(
     string Title,
     string? Description,
-    string Type,
+    PollType Type,
     DateTime? TimeEnd,
     DateTime InsertedAtUtc
 );
 
+// The Id property name is frozen: it serializes as "id" in persisted command JSON
+// and idempotency hashes.
 public sealed record UpdatePollCommand(
-    string Id,
+    PollId Id,
     string? Title,
     string? Description,
     DateTime? TimeEnd,
@@ -28,4 +32,4 @@ public sealed record UpdatePollCommand(
     JsonElement? Data
 );
 
-public sealed record DeletePollCommand(string PollId);
+public sealed record DeletePollCommand(PollId PollId);

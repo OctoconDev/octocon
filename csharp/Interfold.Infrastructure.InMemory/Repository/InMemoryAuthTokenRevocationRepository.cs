@@ -1,4 +1,5 @@
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -11,30 +12,30 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocationRepository
 {
     private static readonly Lock s_lock = new();
-    private static readonly Dictionary<string, TokenRecord> s_tokens = new();
-    
+    private static readonly Dictionary<Jti, TokenRecord> s_tokens = new();
+
     private sealed record TokenRecord(
-        string Jti,
-        string SystemId,
+        Jti Jti,
+        SystemId SystemId,
         DateTimeOffset IssuedAt,
         DateTimeOffset ExpiresAt,
         DateTimeOffset? RevokedAt = null
     );
 
     public Task RecordTokenAsync(
-        string jti,
-        string systemId,
+        Jti jti,
+        SystemId systemId,
         DateTimeOffset expiresAt,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jti, nameof(jti));
+        ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
         ArgumentException.ThrowIfNullOrWhiteSpace(systemId, nameof(systemId));
 
         lock (s_lock)
         {
             s_tokens[jti] = new TokenRecord(
                 Jti: jti,
-                SystemId: NormalizeSystemId(systemId),
+                SystemId: InMemoryStorageKeys.Normalize(systemId),
                 IssuedAt: DateTimeOffset.UtcNow,
                 ExpiresAt: expiresAt,
                 RevokedAt: null
@@ -45,10 +46,10 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
     }
 
     public Task<bool> ValidateTokenNotRevokedAsync(
-        string jti,
+        Jti jti,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jti, nameof(jti));
+        ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
 
         lock (s_lock)
         {
@@ -64,10 +65,10 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
     }
 
     public Task RevokeTokenAsync(
-        string jti,
+        Jti jti,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jti, nameof(jti));
+        ArgumentException.ThrowIfNullOrWhiteSpace(jti.Value, nameof(jti));
 
         lock (s_lock)
         {
@@ -78,64 +79,5 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
         }
 
         return Task.CompletedTask;
-    }
-
-    public Task<IReadOnlyList<string>> FindTokensBySystemIdAsync(
-        string systemId,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(systemId, nameof(systemId));
-
-        lock (s_lock)
-        {
-            var normalizedSystemId = NormalizeSystemId(systemId);
-
-            IReadOnlyList<string> tokens = s_tokens.Values
-                .Where(t => t.SystemId == normalizedSystemId
-                    && t.RevokedAt is null
-                    && t.ExpiresAt > DateTimeOffset.UtcNow)
-                .OrderByDescending(t => t.IssuedAt)
-                .Select(t => t.Jti)
-                .ToList()
-                .AsReadOnly();
-
-            return Task.FromResult(tokens);
-        }
-    }
-
-    private static string NormalizeSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-            return systemId;
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0 || separator >= systemId.Length - 1)
-            return systemId;
-
-        return systemId[(separator + 1)..];
-    }
-
-    public Task<int> CleanupExpiredTokensAsync(
-        DateTimeOffset? olderThan = null,
-        CancellationToken cancellationToken = default)
-    {
-        var cleanupBefore = (olderThan ?? DateTimeOffset.UtcNow).UtcDateTime;
-
-        lock (s_lock)
-        {
-            var keysToRemove = s_tokens
-                .Where(kvp => kvp.Value.RevokedAt is not null
-                    || kvp.Value.ExpiresAt.UtcDateTime < cleanupBefore)
-                .Select(kvp => kvp.Key)
-                .Take(5000)
-                .ToList();
-
-            foreach (var key in keysToRemove)
-            {
-                s_tokens.Remove(key);
-            }
-
-            return Task.FromResult(keysToRemove.Count);
-        }
     }
 }

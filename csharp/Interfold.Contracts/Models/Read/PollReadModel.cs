@@ -1,14 +1,15 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models.Read;
 
 public sealed record PollReadModel(
-    string Id,
-    string UserId,
+    PollId Id,
+    SystemId UserId,
     string Title,
     string? Description,
-    string Type,
+    PollType Type,
     JsonElement Data,
     DateTime? TimeEnd,
     DateTime InsertedAt,
@@ -19,36 +20,19 @@ public sealed record PollReadModel(
 public sealed record CreatePollRequest(
     string Title,
     string? Description = null,
-    string? Type = null,
-    DateTime? TimeEnd = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey);
+    PollType? Type = null,
+    DateTime? TimeEnd = null
+);
 
+/// <summary>
+/// Sparse-diff PATCH body: the client only includes changed keys, and <c>time_end</c>
+/// is tri-state (absent = unchanged, null = clear the deadline, string = set it) —
+/// hence <see cref="PatchValue{T}"/> rather than a plain nullable.
+/// </summary>
 public sealed record UpdatePollRequest(
     string? Title = null,
     string? Description = null,
-    JsonElement TimeEnd = default,
-    JsonElement? Data = null,
-    string? IdempotencyKey = null
-) : BaseRequest(IdempotencyKey)
-{
-    [JsonIgnore]
-    public bool HasTimeEnd => TimeEnd.ValueKind != JsonValueKind.Undefined;
-
-    public bool TryResolveTimeEnd(out DateTime? timeEnd)
-    {
-        timeEnd = null;
-
-        if (!HasTimeEnd || TimeEnd.ValueKind == JsonValueKind.Null)
-            return true;
-
-        if (TimeEnd.ValueKind == JsonValueKind.String && TimeEnd.TryGetDateTime(out var parsed))
-        {
-            timeEnd = parsed;
-            return true;
-        }
-
-        return false;
-    }
-}
+    PatchValue<DateTime> TimeEnd = default,
+    JsonElement? Data = null
+);
 

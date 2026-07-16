@@ -52,7 +52,7 @@ internal static partial class CertificatePhase
         {
             EnsureUpgradeArtefacts(rootCrtPath, rootKeyPath, rootFingerprintPath, logger);
             PrintTrustInfo(rootCrtPath, rootFingerprintPath, logger);
-            logger.PhaseSkip(Phase, "already-present");
+            logger.PhaseSkip(Phase, PhaseFailureReasons.Skip.AlreadyPresent);
             return;
         }
 

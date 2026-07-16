@@ -1,12 +1,13 @@
 using System.Collections.Concurrent;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepository
 {
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _tokensBySystem = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, string> _tokenOwners = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<PushToken, byte>> _tokensBySystem = new();
+    private readonly ConcurrentDictionary<PushToken, SystemId> _tokenOwners = new();
     private readonly IFriendshipRepository _friendshipRepository;
 
     public InMemoryNotificationTokenRepository(IFriendshipRepository friendshipRepository)
@@ -14,36 +15,24 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
         _friendshipRepository = friendshipRepository;
     }
 
-    public Task<bool> AddAsync(string systemId, string token, CancellationToken cancellationToken = default)
+    public Task<bool> AddAsync(SystemId systemId, PushToken token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalizedSystemId = NormalizeSystemId(systemId?.Trim() ?? string.Empty);
-        var normalizedToken = token.Trim();
+        var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
+        PushToken normalizedToken = new(token.Value.Trim());
         _tokenOwners[normalizedToken] = normalizedSystemId;
 
-        var systemTokens = _tokensBySystem.GetOrAdd(normalizedSystemId, _ => new(StringComparer.Ordinal));
+        var systemTokens = _tokensBySystem.GetOrAdd(normalizedSystemId, _ => new ConcurrentDictionary<PushToken, byte>());
         systemTokens[normalizedToken] = 1;
 
         return Task.FromResult(true);
     }
 
-    private static string NormalizeSystemId(string systemId)
-    {
-        if (string.IsNullOrWhiteSpace(systemId))
-            return systemId;
-
-        var separator = systemId.IndexOf(':');
-        if (separator <= 0 || separator >= systemId.Length - 1)
-            return systemId;
-
-        return systemId[(separator + 1)..];
-    }
-
-    public Task<bool> RemoveAsync(string token, CancellationToken cancellationToken = default)
+    public Task<bool> RemoveAsync(PushToken token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var normalizedToken = token.Trim();
+        PushToken normalizedToken = new(token.Value.Trim());
         if (_tokenOwners.TryRemove(normalizedToken, out var ownerSystemId) &&
             _tokensBySystem.TryGetValue(ownerSystemId, out var systemTokens))
         {
@@ -58,12 +47,12 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
     // groups without a Count > 0 guard. Mirrors the Scylla impl's shape so backends
     // stay swappable via OCTOCON_PERSISTENCE.
     public async Task<IReadOnlyList<FriendNotificationTokens>> ListTokensForFriendsOfAsync(
-        string systemId,
+        SystemId systemId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var normalizedSystemId = NormalizeSystemId(systemId?.Trim() ?? string.Empty);
+        var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
         if (string.IsNullOrWhiteSpace(normalizedSystemId))
             return Array.Empty<FriendNotificationTokens>();
 
@@ -72,10 +61,13 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
             return Array.Empty<FriendNotificationTokens>();
 
         var groups = new List<FriendNotificationTokens>(friendships.Count);
-        var seenFriends = new HashSet<string>(StringComparer.Ordinal);
+        var seenFriends = new HashSet<SystemId>();
         foreach (var friendship in friendships)
         {
-            var friendId = NormalizeSystemId(friendship.Friend?.Id ?? string.Empty);
+            if (friendship.Friend is null)
+                continue;
+
+            var friendId = InMemoryStorageKeys.Normalize(friendship.Friend.Id);
             if (string.IsNullOrWhiteSpace(friendId) || !seenFriends.Add(friendId))
                 continue;
 
@@ -83,8 +75,8 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
                 continue;
 
             var distinctTokens = tokens.Keys
-                .Where(t => !string.IsNullOrWhiteSpace(t))
-                .Distinct(StringComparer.Ordinal)
+                .Where(t => !string.IsNullOrWhiteSpace(t.Value))
+                .Distinct()
                 .ToArray();
             if (distinctTokens.Length == 0)
                 continue;

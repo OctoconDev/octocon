@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -25,8 +27,8 @@ public sealed class UpdateFieldCommandHandler : ICommandHandler<UpdateFieldComma
     {
         var result = await SettingsCommandHelper.ExecuteAsync(
             command,
-            "field_updated",
-            "settings:field:update",
+            SettingsAction.FieldUpdated,
+            EntityRefs.SettingsFieldUpdate,
             _idempotencyStore,
             ct => _fieldRepository.UpdateAsync(command.PrincipalId, command.Payload.FieldId, command.Payload.Name, command.Payload.SecurityLevel, command.Payload.Locked, ct),
             cancellationToken);

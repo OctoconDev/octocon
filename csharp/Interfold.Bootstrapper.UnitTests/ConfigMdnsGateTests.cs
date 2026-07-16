@@ -213,10 +213,10 @@ public sealed class ConfigMdnsGateTests
     {
         // The safety net: if a config with ONLY unresolvable .local entries goes through
         // the gate in non-interactive mode, the strip empties the Hosts list. Bootstrap
-        // deliberately does NOT try to salvage this itself — the caller (ConfigPhase.RunAsync)
-        // calls Validate after the mutation, and Validate throws the standard "at least one
-        // host required" error. This is the "better to fail loudly than silently produce a
-        // cert with zero SANs" invariant the plan calls out.
+        // deliberately does NOT salvage — the caller (ConfigPhase.RunAsync) calls
+        // Validate after the mutation, and Validate throws the standard "at least one
+        // host required" error. Better to fail loudly than silently produce a cert with
+        // zero SANs.
         var options = OptionsFor(nonInteractive: true);
         var logger = new PhaseLogger(options);
         var config = ConfigWithHosts("workstation.local");

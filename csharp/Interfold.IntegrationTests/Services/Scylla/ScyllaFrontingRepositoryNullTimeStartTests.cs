@@ -1,4 +1,5 @@
 using Cassandra;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.IntegrationTests.TestServices;
 using Interfold.Infrastructure.Persistence;
@@ -8,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Interfold.IntegrationTests.Services.Scylla;
 
 /// <summary>
-/// Locks the Step 3 fix from the SP-import "today-date" bug: when
+/// Locks the fix for the SP-import "today-date" bug: when
 /// <c>current_fronts.time_start</c> is somehow stored as <c>NULL</c> (partial-batch failure,
 /// manual fixup, schema drift), the next <see cref="IFrontingRepository.EndAsync"/> must
 /// refuse the close rather than silently stamp today's date into
@@ -31,14 +32,17 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // Mint a unique principal — this becomes the system id throughout the test. The
         // synthetic prefix makes leaked rows easy to spot if a future regression drops
         // the cleanup. CreateAlterAsync also ensures the system + users row exist.
-        var systemId = $"sys-null-ts-{Guid.NewGuid():N}"[..32];
-        var alterIdInt = await CreateAlterAsync(client, systemId, "synthetic-alter");
+        var rawSystemId = $"sys-null-ts-{Guid.NewGuid():N}"[..32];
+        var systemId = new SystemId(rawSystemId);
+        var alterIdInt = await CreateAlterAsync(client, rawSystemId, "synthetic-alter");
         var alterId = (short)alterIdInt;
 
         var keyspaceResolver = factory.Services.GetRequiredService<IScyllaKeyspaceResolver>();
         var sessionProvider = factory.Services.GetRequiredService<IScyllaSessionProvider>();
         var frontingRepo = factory.Services.GetRequiredService<IFrontingRepository>();
 
+        // NormalizeSystemId returns the raw string so it can be bound directly into CQL — the
+        // DataStax driver has no serializer for the SystemId wrapper.
         var normalizedSystemId = keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = keyspaceResolver.ResolveRegionalKeyspace(systemId);
         var session = await sessionProvider.GetSessionAsync();
@@ -49,7 +53,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
         // Synthesise the corrupt row directly. time_start is deliberately omitted from the
         // column list so Scylla stores it as NULL — this is the exact shape ScyllaFrontingRepository
         // can't produce on the happy path, but which would silently break EndAsync without
-        // the Step 3 fix.
+        // the null-time_start guard.
         await session.ExecuteAsync(new SimpleStatement(
             $"INSERT INTO {keyspace}.current_fronts (user_id, alter_id, id, comment, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             normalizedSystemId,
@@ -60,7 +64,7 @@ public sealed class ScyllaFrontingRepositoryNullTimeStartTests(ScyllaWebFactoryF
             insertedAt));
 
         var endedAt = DateTimeOffset.UtcNow;
-        var endResult = await frontingRepo.EndAsync(systemId, alterIdInt, endedAt);
+        var endResult = await frontingRepo.EndAsync(systemId, new AlterId((short)alterIdInt), endedAt);
 
         // Pull every fronts_by_time row for this synthetic user. With the fix in place
         // GetCurrentFrontRowAsync returns null on the null time_start and EndAsync bails

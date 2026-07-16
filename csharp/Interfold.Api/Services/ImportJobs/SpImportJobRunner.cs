@@ -8,7 +8,7 @@ namespace Interfold.Api.Services.ImportJobs;
 /// Bridges the generic <see cref="IImportJobRunner"/> contract to the concrete Simply
 /// Plural importer (<see cref="ISimplyPluralImportService"/>). One per-process registration
 /// (singleton). The background worker resolves this instance when it dequeues an item
-/// with <see cref="ImportOperationKinds.SimplyPlural"/>.
+/// with <see cref="ImportOperationKind.SimplyPlural"/>.
 /// </summary>
 public sealed class SpImportJobRunner : IImportJobRunner
 {
@@ -19,7 +19,7 @@ public sealed class SpImportJobRunner : IImportJobRunner
         _importService = importService;
     }
 
-    public string Kind => ImportOperationKinds.SimplyPlural;
+    public ImportOperationKind Kind => ImportOperationKind.SimplyPlural;
 
     public async Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
     {
@@ -37,15 +37,13 @@ public sealed class SpImportJobRunner : IImportJobRunner
             return new ImportJobOutcome(Success: true, AlterCount: result.AlterCount);
         }
 
-        // Map the service-level error string onto the persisted error_code. We keep the
-        // raw service message in error_message for operators; the code is the stable
-        // machine-readable handle that frontends or future automated retries can branch
-        // on. Default "sp_import_failed" mirrors the legacy Elixir worker's terminal
-        // socket frame so the client UX is unchanged.
+        // The service supplies the stable machine code directly; sp_import_failed remains
+        // the fallback so the client's terminal socket frame is unchanged when the service
+        // omits one. The raw message lands in error_message for operators.
         return new ImportJobOutcome(
             Success: false,
             AlterCount: 0,
-            ErrorCode: "sp_import_failed",
-            ErrorMessage: result.Error);
+            ErrorCode: result.ErrorCode ?? ImportErrorCode.SpImportFailed,
+            ErrorMessage: result.ErrorMessage);
     }
 }

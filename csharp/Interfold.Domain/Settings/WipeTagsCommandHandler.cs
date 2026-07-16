@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -26,7 +28,7 @@ public sealed class WipeTagsCommandHandler : ICommandHandler<WipeTagsCommand, Se
 
     public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<WipeTagsCommand> command, CancellationToken cancellationToken = default)
     {
-        var result = await SettingsCommandHelper.ExecuteAsync(command, "tags_wiped", "settings:tags:wipe", _idempotencyStore, async ct =>
+        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.TagsWiped, EntityRefs.SettingsTagsWipe, _idempotencyStore, async ct =>
         {
             var systemId = command.PrincipalId;
             var tags = await _tagRepository.ListAsync(systemId, ct);

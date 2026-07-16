@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -40,7 +42,7 @@ public sealed class ResetEncryptionCommandHandler : ICommandHandler<ResetEncrypt
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "settings:encryption:reset");
+                return RejectDuplicate(command, EntityRefs.SettingsEncryptionReset);
 
             var replay = CommandSerialization.Deserialize<SettingsCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -49,9 +51,9 @@ public sealed class ResetEncryptionCommandHandler : ICommandHandler<ResetEncrypt
         
         var persisted = await _repository.UpsertAsync(command.PrincipalId, false, null, null, cancellationToken);
         if (!persisted)
-            return RejectInvariant(command, "settings:encryption_reset_failed");
+            return RejectInvariant(command, EntityRefs.SettingsEncryptionResetFailed);
 
-        var result = new SettingsCommandResult(command.PrincipalId, "encryption_reset", Replay: false);
+        var result = new SettingsCommandResult(command.PrincipalId, SettingsAction.EncryptionReset, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
@@ -69,14 +71,14 @@ public sealed class ResetEncryptionCommandHandler : ICommandHandler<ResetEncrypt
 
     private static CommandExecutionResult<SettingsCommandResult> RejectDuplicate(
         CommandEnvelope<ResetEncryptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<SettingsCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<SettingsCommandResult> RejectInvariant(
         CommandEnvelope<ResetEncryptionCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<SettingsCommandResult>.Rejected(
             new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef,
-                "manual_merge_required"));
+                ResolutionHint.ManualMergeRequired));
 }

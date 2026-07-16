@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Polls;
 
@@ -29,17 +30,16 @@ public sealed class CreatePollCommandHandler : ICommandHandler<CreatePollCommand
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(command.Payload.Title))
-            return RejectInvariant(command, "poll:title_required");
+            return RejectInvariant(command, EntityRefs.PollTitleRequired);
 
         if (command.Payload.Title.Length > 100)
-            return RejectInvariant(command, "poll:title_too_long");
+            return RejectInvariant(command, EntityRefs.PollTitleTooLong);
 
         if (!string.IsNullOrWhiteSpace(command.Payload.Description) && command.Payload.Description.Length > 2000)
-            return RejectInvariant(command, "poll:description_too_long");
+            return RejectInvariant(command, EntityRefs.PollDescriptionTooLong);
 
-        var validTypes = new[] { "vote", "choice", "approval" };
-        if (!validTypes.Any(t => string.Equals(command.Payload.Type, t, StringComparison.OrdinalIgnoreCase)))
-            return RejectInvariant(command, "poll:type_invalid");
+        // Poll type is enum-typed; JSON deserialization has already rejected unknown wire
+        // values by the time we get here, so the previous string whitelist is redundant.
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -50,7 +50,7 @@ public sealed class CreatePollCommandHandler : ICommandHandler<CreatePollCommand
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "poll:create");
+                return RejectDuplicate(command, EntityRefs.PollCreate);
 
             var replay = CommandSerialization.Deserialize<PollCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -67,26 +67,26 @@ public sealed class CreatePollCommandHandler : ICommandHandler<CreatePollCommand
         var enrichedPayload = command.Payload with { InsertedAtUtc = insertedAtUtc };
         var pollId = await _pollRepository.CreateAsync(command.PrincipalId, enrichedPayload, cancellationToken);
         if (pollId is null)
-            return RejectInvariant(command, "poll:create_failed");
+            return RejectInvariant(command, EntityRefs.PollCreateFailed);
 
-        var result = new PollCommandResult(command.PrincipalId, pollId, Replay: false);
+        var result = new PollCommandResult(command.PrincipalId, pollId.Value, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
             command.PrincipalId, command.OperationId, command.IdempotencyKey,
             payloadHash, CommandSerialization.Hash(resultJson), resultJson, cancellationToken);
 
-        await _eventBus.PublishAsync(new PollCreatedEvent(command.PrincipalId, pollId), cancellationToken);
+        await _eventBus.PublishAsync(new PollCreatedEvent(command.PrincipalId, pollId.Value), cancellationToken);
         return CommandExecutionResult<PollCommandResult>.Success(result);
     }
 
     private static CommandExecutionResult<PollCommandResult> RejectDuplicate(
-        CommandEnvelope<CreatePollCommand> command, string entityRef) =>
+        CommandEnvelope<CreatePollCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<PollCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<PollCommandResult> RejectInvariant(
-        CommandEnvelope<CreatePollCommand> command, string entityRef) =>
+        CommandEnvelope<CreatePollCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<PollCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

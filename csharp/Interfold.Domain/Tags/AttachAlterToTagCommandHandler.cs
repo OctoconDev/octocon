@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Tags;
 
@@ -42,7 +43,7 @@ public sealed class AttachAlterToTagCommandHandler : ICommandHandler<AttachAlter
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "tag:attach_alter");
+                return RejectDuplicate(command, EntityRefs.TagAttachAlter);
 
             var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -50,12 +51,12 @@ public sealed class AttachAlterToTagCommandHandler : ICommandHandler<AttachAlter
         }
 
         var alterExists = await _alterRepository.ExistsAsync(command.PrincipalId, payload.AlterId, cancellationToken);
-        if (!alterExists) return RejectInvariant(command, "tag:alter_not_found");
+        if (!alterExists) return RejectInvariant(command, EntityRefs.TagAlterNotFound);
 
         var tagExists = await _tagRepository.AttachAlterAsync(
             command.PrincipalId, payload.TagId, payload.AlterId, cancellationToken);
 
-        if (!tagExists) return RejectInvariant(command, "tag:not_found");
+        if (!tagExists) return RejectInvariant(command, EntityRefs.TagNotFound);
 
         var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -72,12 +73,12 @@ public sealed class AttachAlterToTagCommandHandler : ICommandHandler<AttachAlter
     }
 
     private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
-        CommandEnvelope<AttachAlterToTagCommand> command, string entityRef) =>
+        CommandEnvelope<AttachAlterToTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<TagCommandResult> RejectInvariant(
-        CommandEnvelope<AttachAlterToTagCommand> command, string entityRef) =>
+        CommandEnvelope<AttachAlterToTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

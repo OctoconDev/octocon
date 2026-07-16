@@ -40,7 +40,7 @@ namespace Interfold.Bootstrapper.Phases;
 /// </summary>
 internal static class FirebasePhase
 {
-    private const string Phase = "firebase";
+    private static readonly string Phase = BootstrapPhase.Firebase.ToWireName();
 
     /// <summary>
     /// Wire-write options for the seed JSON emitted into <c>internal.secrets</c>. The

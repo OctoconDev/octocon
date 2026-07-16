@@ -23,7 +23,7 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class BinarySizeGuardrailTests
 {
-    /// <summary>Hard upper bound. Picked from the plan; current size sits well below this.</summary>
+    /// <summary>Hard upper bound. Current binary size sits well below this.</summary>
     private const long MaxBytes = 75L * 1024 * 1024;
 
     [Test]

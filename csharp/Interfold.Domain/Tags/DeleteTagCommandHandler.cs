@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Tags;
 
@@ -39,7 +40,7 @@ public sealed class DeleteTagCommandHandler : ICommandHandler<DeleteTagCommand, 
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "tag:delete");
+                return RejectDuplicate(command, EntityRefs.TagDelete);
 
             var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -47,7 +48,7 @@ public sealed class DeleteTagCommandHandler : ICommandHandler<DeleteTagCommand, 
         }
 
         var found = await _tagRepository.DeleteAsync(command.PrincipalId, tagId, cancellationToken);
-        if (!found) return RejectInvariant(command, "tag:not_found");
+        if (!found) return RejectInvariant(command, EntityRefs.TagNotFound);
 
         var result = new TagCommandResult(command.PrincipalId, tagId, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -64,12 +65,12 @@ public sealed class DeleteTagCommandHandler : ICommandHandler<DeleteTagCommand, 
     }
 
     private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
-        CommandEnvelope<DeleteTagCommand> command, string entityRef) =>
+        CommandEnvelope<DeleteTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<TagCommandResult> RejectInvariant(
-        CommandEnvelope<DeleteTagCommand> command, string entityRef) =>
+        CommandEnvelope<DeleteTagCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

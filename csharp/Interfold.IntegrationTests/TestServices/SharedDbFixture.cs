@@ -3,7 +3,9 @@ extern alias AppHost;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
@@ -12,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using TUnit.Aspire;
 
@@ -85,30 +88,30 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         LifecycleProbe.Log("SharedDbFixture.BuildArgs");
         var args = new List<string>
         {
-            "Parameters:include-api=false",
-            "Parameters:include-web=false",
-            "Parameters:persistent-containers=false",
-            "Parameters:include-postgres=true",
-            $"Parameters:include-scylla={(RequiredFixtures.NeedScylla ? "true" : "false")}",
-            $"Parameters:include-cassandra={(RequiredFixtures.NeedCassandra ? "true" : "false")}",
-            "Ports:postgres=14200",
-            "Ports:scylla=19042",
-            "Ports:cassandra=19043",
-            $"Parameters:postgres-user={TestDbCredentials.PostgresAppUser}",
-            $"Parameters:postgres-password={TestDbCredentials.PostgresAppPassword}",
+            $"{AppHostParameterKeys.IncludeApi}=false",
+            $"{AppHostParameterKeys.IncludeWeb}=false",
+            $"{AppHostParameterKeys.PersistentContainers}=false",
+            $"{AppHostParameterKeys.IncludePostgres}=true",
+            $"{AppHostParameterKeys.IncludeScylla}={BoolWire.ToWireValue(RequiredFixtures.NeedScylla)}",
+            $"{AppHostParameterKeys.IncludeCassandra}={BoolWire.ToWireValue(RequiredFixtures.NeedCassandra)}",
+            $"{AppHostParameterKeys.PortsPostgres}=14200",
+            $"{AppHostParameterKeys.PortsScylla}=19042",
+            $"{AppHostParameterKeys.PortsCassandra}=19043",
+            $"{AppHostParameterKeys.PostgresUser}={TestDbCredentials.PostgresAppUser}",
+            $"{AppHostParameterKeys.PostgresPassword}={TestDbCredentials.PostgresAppPassword}",
             // db_init bootstrap superuser password. Pinning a deterministic value here keeps
             // the test process and DbInitHelper aligned without having to read back the
             // GenerateParameterDefault output from the AppHost service provider.
-            $"Parameters:postgres-init-password={TestDbCredentials.PostgresInitPassword}",
+            $"{AppHostParameterKeys.PostgresInitPassword}={TestDbCredentials.PostgresInitPassword}",
             // Pin the application database name so the AppHost's `Parameters:postgres-db`
             // default and the in-process DbInitHelper.DefaultPostgresDb cannot silently diverge
             // (e.g. if someone changes the AppHost default later). Both currently resolve to
             // "interfold"; routing both through the same constant means a single rename moves
             // them in lockstep.
-            $"Parameters:postgres-db={DbInitHelper.DefaultPostgresDb}",
-            $"Parameters:scylla-user={TestDbCredentials.ScyllaAppUser}",
-            $"Parameters:scylla-password={TestDbCredentials.ScyllaAppPassword}",
-            "Parameters:encryption-private-key=TEST",
+            $"{AppHostParameterKeys.PostgresDb}={DbInitHelper.DefaultPostgresDb}",
+            $"{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}",
+            $"{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}",
+            $"{AppHostParameterKeys.EncryptionPrivateKey}=TEST",
         };
         return args.ToArray();
     }
@@ -149,6 +152,29 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             .EnsureAsync(HostAioPrerequisite.TotalScyllaNodesForSession())
             .ConfigureAwait(false);
         await base.InitializeAsync().ConfigureAwait(false);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        using var _ = LifecycleProbe.BeginTimed("AfterFixtureDispose:SharedDbFixture");
+        LifecycleProbe.Log("BeforeFixtureDispose:SharedDbFixture");
+
+        try
+        {
+            await AspireContainerCleanup
+                .StopResourcesAsync(AspireContainerCleanup.SharedDbResourceNames())
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best-effort pre-stop; base dispose must still run.
+        }
+
+        await base.DisposeAsync().ConfigureAwait(false);
+
+        var remaining = await AspireContainerCleanup.CountRunningAspireContainersAsync().ConfigureAwait(false);
+        if (remaining > 0)
+            LifecycleProbe.Log($"SharedDbFixture.RemainingAspireContainers:{remaining}");
     }
 
     protected override async Task WaitForResourcesAsync(DistributedApplication app, CancellationToken cancellationToken)
@@ -197,12 +223,12 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         // is the single migration pass against msg-db for the entire run.
         var persistenceConfig = new PersistenceConfiguration
         {
-            Mode = "scylla-postgres",
+            Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = PostgresConnectionString,
             IsSingleScyllaInstance = true,
-            ScyllaKeyspace = "nam",
+            ScyllaKeyspace = ScyllaKeyspace.Nam,
         };
-        var connectionFactory = new PostgresConnectionFactory(persistenceConfig);
+        var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);
 
         await PostgresMigrationService.MigrateAsync(
@@ -333,22 +359,24 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         ISecretsStore secretsStore,
         CancellationToken cancellationToken)
     {
-        // ScyllaConfigResolver reads contact points + port from IConfiguration when the keys
-        // are present; we feed it the host-mapped endpoint so the migration runs against the
-        // exact CQL listener the API will hit during the test.
-        var migrationConfig = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["OCTOCON_SCYLLA_CONTACT_POINTS"] = cqlEndpoint.Host,
-                ["OCTOCON_SCYLLA_PORT"] = cqlEndpoint.Port.ToString(),
-                ["OCTOCON_SCYLLA_KEYSPACE"] = "nam",
-            })
-            .Build();
+        // Build the resolver with the host-mapped endpoint pinned via ScyllaOverrideOptions
+        // so the migration runs against the exact CQL listener the API will hit during the
+        // test. The keyspace is read straight off persistenceConfig.ScyllaKeyspace (single
+        // source of truth) — no throwaway IConfiguration needed anymore.
+        var overrides = new ScyllaOverrideOptions
+        {
+            ContactPoints = [cqlEndpoint.Host],
+            Port = cqlEndpoint.Port,
+        };
+        var resolver = new ScyllaConfigResolver(
+            secretsStore,
+            Options.Create(overrides),
+            Options.Create(persistenceConfig));
 
         await ScyllaMigrationService.MigrateAsync(
             persistenceConfig,
             secretsStore,
-            migrationConfig,
+            resolver,
             NullLoggerFactory.Instance.CreateLogger<ScyllaMigrationService>(),
             cancellationToken);
     }

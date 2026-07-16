@@ -1,6 +1,9 @@
-using System.Text.Json;
+using System.Net.Http.Json;
+using Interfold.Api.Services.OAuth;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.Options;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Services;
 
@@ -25,7 +28,7 @@ public sealed class GoogleOAuthService
     /// Exchange authorization code for email via Google's OAuth2 flow.
     /// Returns null if configuration is incomplete or exchange fails.
     /// </summary>
-    public async Task<string?> ExchangeCodeForEmailAsync(
+    public async Task<Email?> ExchangeCodeForEmailAsync(
         string code,
         string redirectUri,
         CancellationToken cancellationToken = default)
@@ -43,11 +46,11 @@ public sealed class GoogleOAuthService
             // Step 1: Exchange code for access token
             var tokenRequest = new Dictionary<string, string>
             {
-                { "code", code },
-                { "client_id", authConfig.GoogleOAuthClientId },
-                { "client_secret", authConfig.GoogleOAuthClientSecret },
-                { "grant_type", "authorization_code" },
-                { "redirect_uri", redirectUri }
+                { OAuthQueryKeys.Code, code },
+                { OAuthQueryKeys.ClientId, authConfig.GoogleOAuthClientId },
+                { OAuthQueryKeys.ClientSecret, authConfig.GoogleOAuthClientSecret },
+                { OAuthQueryKeys.GrantType, OAuthQueryKeys.AuthorizationCodeGrant },
+                { OAuthQueryKeys.RedirectUri, redirectUri }
             };
 
             using var content = new FormUrlEncodedContent(tokenRequest);
@@ -58,23 +61,15 @@ public sealed class GoogleOAuthService
                 return null;
             }
 
-            var tokenJson = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var tokenDoc = JsonDocument.Parse(tokenJson);
-
-            if (!tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenProp))
-            {
-                return null;
-            }
-
-            var accessToken = accessTokenProp.GetString();
-            if (string.IsNullOrWhiteSpace(accessToken))
+            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>(cancellationToken);
+            if (string.IsNullOrWhiteSpace(tokenPayload?.AccessToken))
             {
                 return null;
             }
 
             // Step 2: Use access token to fetch user info
-            var userInfoRequest = new HttpRequestMessage(HttpMethod.Get, UserInfoEndpoint);
-            userInfoRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            using var userInfoRequest = new HttpRequestMessage(HttpMethod.Get, UserInfoEndpoint);
+            userInfoRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokenPayload.AccessToken);
 
             using var userInfoResponse = await _httpClient.SendAsync(userInfoRequest, cancellationToken);
 
@@ -83,15 +78,8 @@ public sealed class GoogleOAuthService
                 return null;
             }
 
-            var userInfoJson = await userInfoResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var userInfoDoc = JsonDocument.Parse(userInfoJson);
-
-            if (userInfoDoc.RootElement.TryGetProperty("email", out var emailProp))
-            {
-                return emailProp.GetString();
-            }
-
-            return null;
+            var userInfo = await userInfoResponse.Content.ReadFromJsonAsync<GoogleUserInfoResponse>(cancellationToken);
+            return string.IsNullOrWhiteSpace(userInfo?.Email) ? null : new Email(userInfo.Email);
         }
         catch
         {

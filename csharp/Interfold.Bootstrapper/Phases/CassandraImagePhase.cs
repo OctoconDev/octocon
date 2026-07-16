@@ -1,6 +1,7 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -19,7 +20,7 @@ internal static class CassandraImagePhase
     internal const string LocalImageTag = "interfold-cassandra:local";
 
     internal static bool IsCassandraDeployment(BootstrapConfig config) =>
-        string.Equals(config.DatabaseMode, "cassandra", StringComparison.OrdinalIgnoreCase);
+        config.DatabaseMode == DatabaseMode.Cassandra;
 
     internal static string DockerfileContextPath =>
         Path.Combine(AppContext.BaseDirectory, "db", "cassandra");

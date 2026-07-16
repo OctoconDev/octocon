@@ -34,13 +34,20 @@ public sealed class CassandraWebFactoryFixture : IWebFactoryFixture, IAsyncIniti
                 cassandraFailure);
         }
 
-        Factory = new InterfoldWebApplicationFactory("scylla-postgres", "cassandra")
+        Factory = CreatePrivateFactory();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    // Same wiring as InitializeAsync so a private factory exercises the identical Cassandra +
+    // Postgres path. CassandraPort is guaranteed non-null by InitializeAsync's guard above —
+    // this method is only reached after the fixture has passed that check.
+    public InterfoldWebApplicationFactory CreatePrivateFactory()
+        => new InterfoldWebApplicationFactory("scylla-postgres", "cassandra")
             .WithConfiguration("OCTOCON_POSTGRES_CONNECTION", Aspire.PostgresConnectionString)
             .WithConfiguration("OCTOCON_SCYLLA_PORT", Aspire.CassandraPort!.Value.ToString())
             .WithConfiguration("OCTOCON_SINGLE_SCYLLA_INSTANCE", "true")
             .WithConfiguration("OCTOCON_DB_RETRY_ATTEMPTS", "10")
             .WithConfiguration("OCTOCON_DB_RETRY_INITIAL_DELAY_MS", "500")
             .WithConfiguration("OCTOCON_DB_RETRY_MAX_DELAY_MS", "3000");
-        return Task.CompletedTask;
-    }
 }

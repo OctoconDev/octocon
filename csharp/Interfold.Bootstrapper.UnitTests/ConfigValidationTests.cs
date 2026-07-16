@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
+using Interfold.Contracts.Enums;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
@@ -31,7 +33,7 @@ public sealed class ConfigValidationTests
             WebHttp = 8080,
             WebHttps = 8081,
         },
-        DatabaseMode = "single",
+        DatabaseMode = DatabaseMode.Single,
     };
 
     [Test]
@@ -220,12 +222,19 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task InvalidDatabaseModeFailsValidation()
+    public async Task InvalidDatabaseModeInJsonFailsDeserialization()
     {
-        var cfg = MakeValid();
-        cfg.DatabaseMode = "quadruple-redundant";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
+        // DatabaseMode is now a strongly-typed enum with a snake-case JSON converter, so an
+        // unrecognised wire value is rejected at parse time by the source-generated context
+        // (not by ConfigPhase.Validate). Assert we still fail loudly on operator typos.
+        const string badJson = """
+        {
+            "databaseMode": "quadruple-redundant"
+        }
+        """;
+        var ex = Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
+        await Assert.That(ex.Message).Contains("DatabaseMode");
         await Assert.That(ex.Message).Contains("databaseMode");
     }
 
@@ -368,17 +377,20 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task InvalidScyllaKeyspaceFailsValidation()
+    public async Task InvalidScyllaKeyspaceInJsonFailsDeserialization()
     {
-        // The seven valid values are baked into ConfigPhase.ValidScyllaKeyspaces; anything else
-        // (including the empty string) must surface as an upfront validation failure naming
-        // the field so the operator can spot the typo.
-        var cfg = MakeValid();
-        cfg.ScyllaKeyspace = "antarctica";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
+        // The seven valid values are now enforced by the ScyllaKeyspace enum + its snake-case
+        // JSON converter, so an operator typo lands on the JSON deserializer rather than on
+        // ConfigPhase.Validate. Pin the failure mode so a converter regression surfaces here.
+        const string badJson = """
+        {
+            "scyllaKeyspace": "antarctica"
+        }
+        """;
+        var ex = Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
+        await Assert.That(ex.Message).Contains("ScyllaKeyspace");
         await Assert.That(ex.Message).Contains("scyllaKeyspace");
-        await Assert.That(ex.Message).Contains("antarctica");
     }
 
     [Test]
@@ -386,7 +398,7 @@ public sealed class ConfigValidationTests
     {
         // Smoke test that all seven canonical region values are accepted. The single test body
         // iterates so a future addition to the region list will fail loudly here first.
-        foreach (var keyspace in ConfigPhase.ValidScyllaKeyspaces)
+        foreach (var keyspace in Enum.GetValues<ScyllaKeyspace>())
         {
             var cfg = MakeValid();
             cfg.ScyllaKeyspace = keyspace;
@@ -465,17 +477,20 @@ public sealed class ConfigValidationTests
     // --- Cluster / Storage / Observability / Socket / Persistence tuning validation ---
 
     [Test]
-    public async Task InvalidNodeGroupFailsValidation()
+    public async Task InvalidNodeGroupInJsonFailsDeserialization()
     {
-        // ConfigPhase.ValidNodeGroups is the authoritative allow-list — anything else (including
-        // an empty string) must surface as a named validation failure rather than silently
-        // degrading to the API's "auxiliary" fallback at runtime.
-        var cfg = MakeValid();
-        cfg.Cluster.NodeGroup = "guardian";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
+        // Cluster.NodeGroup is now a strongly-typed enum + snake-case JSON converter, so an
+        // unrecognised value fails at deserialization rather than at Validate. Preserves the
+        // spirit of the old "fail fast on operator typo" contract.
+        const string badJson = """
+        {
+            "cluster": { "nodeGroup": "guardian" }
+        }
+        """;
+        var ex = Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize(badJson, BootstrapJsonContext.Default.BootstrapConfig));
+        await Assert.That(ex.Message).Contains("NodeGroup");
         await Assert.That(ex.Message).Contains("nodeGroup");
-        await Assert.That(ex.Message).Contains("guardian");
     }
 
     [Test]
@@ -483,7 +498,7 @@ public sealed class ConfigValidationTests
     {
         // Smoke test all three canonical values. Same shape as EachValidScyllaKeyspacePasses
         // — drives a future allow-list extension to fail loudly here first.
-        foreach (var nodeGroup in ConfigPhase.ValidNodeGroups)
+        foreach (var nodeGroup in Enum.GetValues<NodeGroup>())
         {
             var cfg = MakeValid();
             cfg.Cluster.NodeGroup = nodeGroup;

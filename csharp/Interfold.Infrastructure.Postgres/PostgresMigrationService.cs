@@ -6,6 +6,7 @@ using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Interfold.Infrastructure.Postgres;
@@ -24,7 +25,7 @@ namespace Interfold.Infrastructure.Postgres;
 /// runner (not a `.sql` migration) so the very first run can still record `000_*` correctly.
 /// </remarks>
 public sealed class PostgresMigrationService(
-    PersistenceConfiguration options,
+    IOptions<PersistenceConfiguration> options,
     ISecretsStore secretsStore,
     ILogger<PostgresMigrationService> logger) : IHostedLifecycleService
 {
@@ -32,7 +33,7 @@ public sealed class PostgresMigrationService(
     private const long MigrationAdvisoryLockId = 8675309_2024_0001;
 
     public Task StartingAsync(CancellationToken cancellationToken) =>
-        MigrateAsync(options, secretsStore, logger, cancellationToken);
+        MigrateAsync(options.Value, secretsStore, logger, cancellationToken);
 
     /// <summary>
     /// Externally invocable entry point that runs the embedded SQL migrations using admin
@@ -49,8 +50,8 @@ public sealed class PostgresMigrationService(
         CancellationToken cancellationToken)
     {
         // Build admin connection from app connection + admin credentials from secrets store
-        var adminUsername = await secretsStore.GetAsync("postgres:admin_username", cancellationToken);
-        var adminPassword = await secretsStore.GetAsync("postgres:admin_password", cancellationToken);
+        var adminUsername = await secretsStore.GetAsync(SecretsStoreKeys.PostgresAdminUsername, cancellationToken);
+        var adminPassword = await secretsStore.GetAsync(SecretsStoreKeys.PostgresAdminPassword, cancellationToken);
         if (string.IsNullOrWhiteSpace(adminUsername) ||
             string.IsNullOrWhiteSpace(adminPassword) ||
             string.IsNullOrWhiteSpace(options.PostgresConnectionString))

@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Journals;
 
@@ -37,7 +38,7 @@ public sealed class DeleteAlterJournalEntryCommandHandler : ICommandHandler<Dele
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "journal:alter:delete");
+                return RejectDuplicate(command, EntityRefs.JournalAlterDelete);
 
             var replay = CommandSerialization.Deserialize<AlterJournalCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -46,11 +47,11 @@ public sealed class DeleteAlterJournalEntryCommandHandler : ICommandHandler<Dele
 
         var alterRef = await _journalRepository.GetAlterRefAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
         if (alterRef is null)
-            return RejectInvariant(command, "journal:not_found");
+            return RejectInvariant(command, EntityRefs.JournalNotFound);
 
         var deleted = await _journalRepository.DeleteAlterAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
         if (!deleted)
-            return RejectInvariant(command, "journal:delete_failed");
+            return RejectInvariant(command, EntityRefs.JournalDeleteFailed);
 
         var result = new AlterJournalCommandResult(command.PrincipalId, command.Payload.EntryId, alterRef.AlterId, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
@@ -70,12 +71,12 @@ public sealed class DeleteAlterJournalEntryCommandHandler : ICommandHandler<Dele
     }
 
     private static CommandExecutionResult<AlterJournalCommandResult> RejectDuplicate(
-        CommandEnvelope<DeleteAlterJournalEntryCommand> command, string entityRef) =>
+        CommandEnvelope<DeleteAlterJournalEntryCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<AlterJournalCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<AlterJournalCommandResult> RejectInvariant(
-        CommandEnvelope<DeleteAlterJournalEntryCommand> command, string entityRef) =>
+        CommandEnvelope<DeleteAlterJournalEntryCommand> command, EntityRef entityRef) =>
         CommandExecutionResult<AlterJournalCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

@@ -1,8 +1,13 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Interfold.Contracts.Configuration;
 
 /// <summary>
 /// Authentication, OAuth, and JWT configuration.
-/// Binds from environment variables with OCTOCON_ and GUARDIAN_ prefixes.
+/// Binds from environment variables with OCTOCON_ and GUARDIAN_ prefixes; the four
+/// <see cref="RequiredAttribute"/>-annotated secret fields below are patched in from
+/// <c>internal.secrets</c> by <c>AuthenticationSecretsPostConfigure</c> before
+/// <c>.ValidateOnStart()</c> runs.
 /// </summary>
 public sealed class AuthenticationConfiguration
 {
@@ -15,11 +20,13 @@ public sealed class AuthenticationConfiguration
     public string? CallbackBaseUrl { get; set; }
 
     /// <summary>
-    /// HMAC signing secret for the phase-F deep-link token exchange.
-    /// Sourced from <c>internal.secrets</c> via <c>auth:deep_link_secret</c> — patched on
-    /// startup by <c>SecretsBootstrapService</c>. Never read from env.
+    /// HMAC signing secret for the deep-link token exchange.
+    /// Sourced from <c>internal.secrets</c> via <c>auth:deep_link_secret</c> — populated
+    /// by <c>AuthenticationSecretsPostConfigure</c>. Never read from env. Required —
+    /// a missing row fails <c>.ValidateOnStart()</c> at boot.
     /// </summary>
-    public string? DeepLinkSecret { get; set; }
+    [Required(AllowEmptyStrings = false)]
+    public string DeepLinkSecret { get; set; } = string.Empty;
 
     /// <summary>
     /// JWT authority fallback
@@ -36,38 +43,46 @@ public sealed class AuthenticationConfiguration
     /// <summary>
     /// ES256 private key (PEM, SEC1) used for token issuance.
     /// Sourced from <c>internal.secrets</c> via <c>auth:jwt_es256_private_pem</c> —
-    /// patched on startup by <c>SecretsBootstrapService</c>. Never read from env.
+    /// populated by <c>AuthenticationSecretsPostConfigure</c>. Never read from env.
+    /// Required — a missing row fails <c>.ValidateOnStart()</c> at boot.
     /// </summary>
-    public string? JwtEs256PrivateKeyPem { get; set; }
+    [Required(AllowEmptyStrings = false)]
+    public string JwtEs256PrivateKeyPem { get; set; } = string.Empty;
 
     /// <summary>
     /// ES256 verification keys (PEM) used for token signature validation. Populated by
-    /// <c>SecretsBootstrapService</c> from the same private PEM as <see cref="JwtEs256PrivateKeyPem"/>
-    /// — <c>ECDsa.ImportFromPem</c> reads the public half out of the private key.
+    /// <c>AuthenticationSecretsPostConfigure</c> from the same private PEM as
+    /// <see cref="JwtEs256PrivateKeyPem"/> — <c>ECDsa.ImportFromPem</c> reads the public
+    /// half out of the private key.
     /// </summary>
     public string[]? JwtEs256VerificationKeyPems { get; set; }
 
     /// <summary>
     /// Static server-side pepper used by E2E key derivation. Sourced exclusively from
-    /// <c>internal.secrets</c> via <c>encryption:pepper</c> — patched on startup by
-    /// <c>SecretsBootstrapService</c>, which refuses to start the API if the row is
-    /// missing. Never read from env.
+    /// <c>internal.secrets</c> via <c>encryption:pepper</c> — populated by
+    /// <c>AuthenticationSecretsPostConfigure</c>. Never read from env. Required — a
+    /// missing row fails <c>.ValidateOnStart()</c> at boot with the offending field named.
     /// </summary>
-    public string EncryptionPepper { get; set; } = null!;
+    [Required(AllowEmptyStrings = false)]
+    public string EncryptionPepper { get; set; } = string.Empty;
 
     /// <summary>
-    /// RSA-2048 JWT public key (PEM, SPKI). Derived in <c>SecretsBootstrapService</c> from
-    /// <see cref="Rsa256PrivateKey"/> after the private PEM is patched from the store.
-    /// Exposed via the API's JWKS endpoint.
+    /// RSA-2048 JWT public key (PEM, SPKI). Derived in
+    /// <c>AuthenticationSecretsPostConfigure</c> from <see cref="Rsa256PrivateKey"/>
+    /// after the private PEM is patched from the store. Exposed via the API's JWKS
+    /// endpoint. Not <c>[Required]</c> directly — its presence is guaranteed transitively
+    /// by <see cref="Rsa256PrivateKey"/> being required.
     /// </summary>
-    public string Rsa256PublicKey { get; set; } = null!;
+    public string Rsa256PublicKey { get; set; } = string.Empty;
 
     /// <summary>
     /// RSA-2048 JWT private key (PEM, PKCS#8). Sourced from <c>internal.secrets</c> via
-    /// <c>auth:jwt_rsa256_private_pem</c> — patched on startup by
-    /// <c>SecretsBootstrapService</c>. Never read from env.
+    /// <c>auth:jwt_rsa256_private_pem</c> — populated by
+    /// <c>AuthenticationSecretsPostConfigure</c>. Never read from env. Required — a
+    /// missing row fails <c>.ValidateOnStart()</c> at boot.
     /// </summary>
-    public string Rsa256PrivateKey { get; set; } = null!;
+    [Required(AllowEmptyStrings = false)]
+    public string Rsa256PrivateKey { get; set; } = string.Empty;
 
     /// <summary>
     /// Google OAuth 2.0 client ID for backend token exchange.

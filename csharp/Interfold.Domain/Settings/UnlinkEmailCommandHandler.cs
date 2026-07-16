@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -28,8 +30,8 @@ public sealed class UnlinkEmailCommandHandler : ICommandHandler<UnlinkEmailComma
     {
         var result = await SettingsCommandHelper.ExecuteAsync(
             command,
-            "email_unlinked",
-            "settings:unlink:email",
+            SettingsAction.EmailUnlinked,
+            EntityRefs.SettingsUnlinkEmail,
             _idempotencyStore,
             ct => _accountRepository.UnlinkEmailAsync(command.PrincipalId, ct),
             cancellationToken);

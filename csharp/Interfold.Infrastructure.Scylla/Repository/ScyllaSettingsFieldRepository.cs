@@ -1,31 +1,18 @@
 using System.Collections.Concurrent;
 using Cassandra;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 {
-    private const short TypeText = 0;
-    private const short TypeNumber = 1;
-    private const short TypeBoolean = 2;
-    private const short TypeDate = 3;
-    private const short TypeColour = 4;
-    private const short TypePlainText = 5;
-    private const short TypeMonth = 6;
-    private const short TypeYear = 7;
-    private const short TypeMonthYear = 8;
-    private const short TypeTimestamp = 9;
-    private const short TypeMonthDay = 10;
-
-    private const short SecurityPublic = 0;
-    private const short SecurityFriendsOnly = 1;
-    private const short SecurityTrustedOnly = 2;
-    private const short SecurityPrivate = 3;
-
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
@@ -34,14 +21,14 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
     public ScyllaSettingsFieldRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
-        PersistenceConfiguration options)
+        IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
-        _options = options;
+        _options = options.Value;
     }
 
-    public async Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(string systemId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
@@ -58,10 +45,10 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             var result = fields
                 .Select((field, index) => new SettingsFieldReadModel(
-                    field.Id.ToString("N"),
+                    new(field.Id),
                     field.Name,
-                    ToDomainType(field.Type),
-                    ToDomainSecurityLevel(field.SecurityLevel),
+                    field.Type.FromCode(FieldType.Text),
+                    field.SecurityLevel.FromCode(VisibilityLevel.Private),
                     field.Locked,
                     index,
                     field.InsertedAt?.UtcDateTime))
@@ -71,16 +58,16 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<string?> CreateAsync(
-        string systemId,
+    public async Task<FieldId?> CreateAsync(
+        SystemId systemId,
         string name,
-        string type,
-        string securityLevel,
+        FieldType type,
+        VisibilityLevel securityLevel,
         bool locked,
         DateTime insertedAtUtc,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await DatabaseTransientRetry.ExecuteScyllaAsync<FieldId?>(async () =>
         {
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
@@ -97,25 +84,20 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 fields,
                 normalizedSystemId));
 
-            return fieldId.ToString("N");
+            return new(fieldId);
         }, _options, cancellationToken);
     }
 
     public async Task<bool> UpdateAsync(
-        string systemId,
-        string fieldId,
+        SystemId systemId,
+        FieldId fieldId,
         string? name,
-        string? securityLevel,
+        VisibilityLevel? securityLevel,
         bool? locked,
         CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId, out var fieldGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -130,7 +112,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             var updated = false;
             for (var i = 0; i < fields.Count; i++)
             {
-                if (fields[i].Id != fieldGuid)
+                if (fields[i].Id != fieldId.Value)
                 {
                     continue;
                 }
@@ -142,7 +124,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
                 if (securityLevel is not null)
                 {
-                    fields[i].SecurityLevel = ParseSecurityLevel(securityLevel);
+                    fields[i].SecurityLevel = (short)securityLevel.Value;
                 }
 
                 if (locked is not null)
@@ -169,54 +151,10 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         }, _options, cancellationToken);
     }
 
-    private static async Task<BatchStatement> RemoveFieldValuesFromAltersAsync(
-        ISession session,
-        string keyspace,
-        string normalizedSystemId,
-        Guid fieldId)
-    {
-        ScyllaAlterRepository.EnsureAlterFieldUdtMapping(session, keyspace);
-
-        var rows = await session.ExecuteAsync(new SimpleStatement(
-            $"SELECT id, fields FROM {keyspace}.alters WHERE user_id = ?",
-            normalizedSystemId));
-
-        var batch = new BatchStatement();
-
-        foreach (var row in rows)
-        {
-            var alterId = row.GetValue<short>("id");
-            var fields = row.GetValue<IEnumerable<ScyllaAlterRepository.AlterFieldUdt>?>("fields")?.ToList();
-            if (fields is null || fields.Count == 0)
-            {
-                continue;
-            }
-
-            var removedAny = fields.RemoveAll(x => x.Id == fieldId) > 0;
-            if (!removedAny)
-            {
-                continue;
-            }
-
-            batch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                fields,
-                normalizedSystemId,
-                alterId));
-        }
-
-        return batch;
-    }
-
-    public async Task<bool> DeleteAsync(string systemId, string fieldId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId, out var fieldGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -228,7 +166,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 return false;
             }
 
-            var removed = fields.RemoveAll(f => f.Id == fieldGuid) > 0;
+            var removed = fields.RemoveAll(f => f.Id == fieldId.Value) > 0;
             if (!removed)
             {
                 return false;
@@ -236,7 +174,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             // Remove the field values from all alters before deleting the field itself
             // We want to ensure that the field values are removed to ensure no leakage of deleted field data
-            var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldGuid);
+            var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldId.Value);
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
                 fields,
@@ -248,15 +186,10 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         }, _options, cancellationToken);
     }
 
-    public async Task<bool> RelocateAsync(string systemId, string fieldId, int index, CancellationToken cancellationToken = default)
+    public async Task<bool> RelocateAsync(SystemId systemId, FieldId fieldId, int index, CancellationToken cancellationToken = default)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
         {
-            if (!TryParseUuid(fieldId, out var fieldGuid))
-            {
-                return false;
-            }
-
             var session = await _sessionProvider.GetSessionAsync(cancellationToken);
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
@@ -268,7 +201,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 return false;
             }
 
-            var currentIndex = fields.FindIndex(f => f.Id == fieldGuid);
+            var currentIndex = fields.FindIndex(f => f.Id == fieldId.Value);
             if (currentIndex < 0)
             {
                 return false;
@@ -310,8 +243,8 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         string keyspace,
         Guid id,
         string name,
-        string type,
-        string securityLevel,
+        FieldType type,
+        VisibilityLevel securityLevel,
         bool locked,
         DateTime insertedAtUtc)
     {
@@ -325,9 +258,9 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         {
             Id = id,
             Name = name,
-            Type = ParseType(type),
+            Type = (short)type,
             Locked = locked,
-            SecurityLevel = ParseSecurityLevel(securityLevel),
+            SecurityLevel = (short)securityLevel,
             InsertedAt = insertedAtOffset,
             UpdatedAt = insertedAtOffset
         };
@@ -355,73 +288,43 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         UdtMappings.TryAdd(key, 0);
     }
 
-    private static short ParseType(string type)
+    private static async Task<BatchStatement> RemoveFieldValuesFromAltersAsync(
+        ISession session,
+        string keyspace,
+        string normalizedSystemId,
+        Guid fieldId)
     {
-        return type switch
-        {
-            "text" => TypeText,
-            "number" => TypeNumber,
-            "boolean" => TypeBoolean,
-            "date" => TypeDate,
-            "colour" => TypeColour,
-            "plaintext" => TypePlainText,
-            "month" => TypeMonth,
-            "year" => TypeYear,
-            "month_year" => TypeMonthYear,
-            "timestamp" => TypeTimestamp,
-            "month_day" => TypeMonthDay,
-            _ => TypeText
-        };
-    }
+        ScyllaAlterRepository.EnsureAlterFieldUdtMapping(session, keyspace);
 
-    private static string ToDomainType(short type)
-    {
-        return type switch
-        {
-            TypeNumber => "number",
-            TypeBoolean => "boolean",
-            TypeDate => "date",
-            TypeColour => "colour",
-            TypePlainText => "plaintext",
-            TypeMonth => "month",
-            TypeYear => "year",
-            TypeMonthYear => "month_year",
-            TypeTimestamp => "timestamp",
-            TypeMonthDay => "month_day",            
-            _ => "text"
-        };
-    }
+        var rows = await session.ExecuteAsync(new SimpleStatement(
+            $"SELECT id, fields FROM {keyspace}.alters WHERE user_id = ?",
+            normalizedSystemId));
 
-    private static short ParseSecurityLevel(string securityLevel)
-    {
-        return securityLevel switch
-        {
-            "public" => SecurityPublic,
-            "friends_only" => SecurityFriendsOnly,
-            "trusted_only" => SecurityTrustedOnly,
-            _ => SecurityPrivate
-        };
-    }
+        var batch = new BatchStatement();
 
-    private static string ToDomainSecurityLevel(short securityLevel)
-    {
-        return securityLevel switch
+        foreach (var row in rows)
         {
-            SecurityPublic => "public",
-            SecurityFriendsOnly => "friends_only",
-            SecurityTrustedOnly => "trusted_only",
-            _ => "private"
-        };
-    }
+            var alterId = row.GetValue<short>("id");
+            var fields = row.GetValue<IEnumerable<ScyllaAlterRepository.AlterFieldUdt>?>("fields")?.ToList();
+            if (fields is null || fields.Count == 0)
+            {
+                continue;
+            }
 
-    internal static bool TryParseUuid(string value, out Guid guid)
-    {
-        if (Guid.TryParseExact(value, "N", out guid))
-        {
-            return true;
+            var removedAny = fields.RemoveAll(x => x.Id == fieldId) > 0;
+            if (!removedAny)
+            {
+                continue;
+            }
+
+            batch.Add(new SimpleStatement(
+                $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
+                fields,
+                normalizedSystemId,
+                alterId));
         }
 
-        return Guid.TryParse(value, out guid);
+        return batch;
     }
 
     // The Cassandra C# driver's UDT serializer routes `timestamp` columns through

@@ -34,7 +34,7 @@ namespace Interfold.Bootstrapper.Phases;
 /// </summary>
 internal static class SystemdInstallPhase
 {
-    private const string Phase = "install-service";
+    private static readonly string Phase = BootstrapCommand.InstallService.ToPhaseLogName();
 
     /// <summary>Default systemd unit installation directory on every supported distro.</summary>
     private const string DefaultUnitDir = "/etc/systemd/system";
@@ -54,20 +54,20 @@ internal static class SystemdInstallPhase
     /// <summary>Names of the units this phase installs, in install order.</summary>
     internal static readonly string[] UnitNames =
     [
-        "interfold.service",
-        "interfold-backup.service",
-        "interfold-backup.timer",
-        "interfold-update.service",
+        SystemdUnitNames.Interfold,
+        SystemdUnitNames.Backup,
+        SystemdUnitNames.BackupTimer,
+        SystemdUnitNames.Update,
     ];
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
         logger.PhaseStart(Phase);
 
-        var configPath = options.ConfigPath ?? Path.Combine(options.OutputDir, "interfold.bootstrap.json");
+        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
         if (!File.Exists(configPath))
         {
-            logger.PhaseFail(Phase, "missing-config");
+            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
             throw new InvalidOperationException(
                 $"install-service requires a populated bootstrap config at {configPath}. " +
                 "Run `bootstrap` first.");
@@ -155,12 +155,12 @@ internal static class SystemdInstallPhase
             if (enableAutostart)
             {
                 logger.Info("    enabling interfold.service");
-                await SystemctlAsync(["enable", "--now", "interfold.service"], logger, ct).ConfigureAwait(false);
+                await SystemctlAsync(["enable", "--now", SystemdUnitNames.Interfold], logger, ct).ConfigureAwait(false);
             }
             if (enableBackupTimer)
             {
                 logger.Info("    enabling interfold-backup.timer");
-                await SystemctlAsync(["enable", "--now", "interfold-backup.timer"], logger, ct).ConfigureAwait(false);
+                await SystemctlAsync(["enable", "--now", SystemdUnitNames.BackupTimer], logger, ct).ConfigureAwait(false);
             }
         }
         else if (options.SystemdUnitDir is not null)
@@ -253,17 +253,7 @@ internal static class SystemdInstallPhase
     }
 
     private static string ResolveComposeFile(BootstrapOptions options)
-    {
-        var direct = Path.Combine(options.OutputDir, "docker-compose.yaml");
-        if (File.Exists(direct)) return Path.GetFullPath(direct);
-        var nested = Directory.EnumerateFiles(options.OutputDir, "docker-compose.yaml", SearchOption.AllDirectories)
-            .FirstOrDefault();
-        // Fall back to the conventional path even if the file doesn't exist yet — install-service
-        // should be runnable before the first `bootstrap` (some operators want the unit files
-        // pre-populated for image-baking workflows). The boot-time `docker compose up` will
-        // surface the missing-file error if the operator never runs the publish phase.
-        return nested is not null ? Path.GetFullPath(nested) : Path.GetFullPath(direct);
-    }
+        => BootstrapArtifactPaths.ResolveComposeFileOrConventional(options.OutputDir);
 
     private static async Task VerifyAllUnitsAsync(string unitDir, PhaseLogger logger, CancellationToken ct)
     {
@@ -274,7 +264,7 @@ internal static class SystemdInstallPhase
                 "systemd-analyze", ["verify", unitPath], ct: ct).ConfigureAwait(false);
             if (verify.ExitCode != 0)
             {
-                logger.PhaseFail(Phase, "systemd-analyze-verify");
+                logger.PhaseFail(Phase, PhaseFailureReasons.SystemdAnalyzeVerify);
                 throw new InvalidOperationException(
                     $"systemd-analyze verify failed for {unitPath} (exit {verify.ExitCode}):\n" +
                     $"{verify.StdErr.Trim()}\n{verify.StdOut.Trim()}");
@@ -289,7 +279,7 @@ internal static class SystemdInstallPhase
             "systemd-analyze", ["calendar", schedule], ct: ct).ConfigureAwait(false);
         if (verify.ExitCode != 0)
         {
-            logger.PhaseFail(Phase, "invalid-calendar");
+            logger.PhaseFail(Phase, PhaseFailureReasons.InvalidCalendar);
             throw new InvalidOperationException(
                 $"systemd-analyze calendar '{schedule}' rejected the schedule (exit {verify.ExitCode}):\n" +
                 $"{verify.StdErr.Trim()}\n{verify.StdOut.Trim()}");
@@ -302,7 +292,7 @@ internal static class SystemdInstallPhase
         var run = await ProcessRunner.RunAsync("systemctl", args, ct: ct).ConfigureAwait(false);
         if (run.ExitCode != 0)
         {
-            logger.PhaseFail(Phase, "systemctl");
+            logger.PhaseFail(Phase, PhaseFailureReasons.Systemctl);
             throw new InvalidOperationException(
                 $"systemctl {string.Join(' ', args)} exited {run.ExitCode}: {run.StdErr.Trim()}");
         }

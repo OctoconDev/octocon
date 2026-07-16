@@ -2,6 +2,7 @@ using Interfold.Api.Helpers;
 using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
@@ -19,8 +20,8 @@ public static class FriendshipSocketEventHandlers
         var friendship = await GetFriendshipWithRetryAsync(friendshipRepository, evt.TargetSystemId, evt.SystemId, context.CancellationToken);
         var qualified = friendship is null
             ? new FriendshipReadModel(
-                new FriendProfileReadModel(evt.SystemId, string.Empty, null, null, string.Empty, string.Empty),
-                new FriendshipModel("friend", DateTimeOffset.UtcNow),
+                new FriendProfileReadModel(evt.SystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)),
+                new FriendshipModel(FriendshipLevel.Friend, DateTimeOffset.UtcNow),
                 [])
             : QualifyFriendship(friendship, context);
         
@@ -28,13 +29,13 @@ public static class FriendshipSocketEventHandlers
     }
 
     public static Task HandleAsync(FriendshipRemovedEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Removed, "friend_id", evt.SystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Removed, SocketPayloadPropertyKeys.FriendId, evt.SystemId, context);
 
     public static Task HandleAsync(FriendshipTrustedEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Trusted, "friend_id", evt.SystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Trusted, SocketPayloadPropertyKeys.FriendId, evt.SystemId, context);
 
     public static Task HandleAsync(FriendshipUntrustedEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Untrusted, "friend_id", evt.SystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.Untrusted, SocketPayloadPropertyKeys.FriendId, evt.SystemId, context);
 
     public static async Task HandleAsync(FriendRequestSentEvent evt, SocketPushContext context, IFriendshipRepository friendshipRepository)
     {
@@ -59,14 +60,14 @@ public static class FriendshipSocketEventHandlers
     }
 
     public static Task HandleAsync(FriendRequestRemovedFromEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, "system_id", evt.FromSystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, SocketPayloadPropertyKeys.SystemId, evt.FromSystemId, context);
 
     public static Task HandleAsync(FriendRequestRemovedToEvent evt, SocketPushContext context)
-        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, "system_id", evt.ToSystemId, context);
+        => SendAsync(evt.TargetSystemId, SocketEventNames.Friendships.RequestRemoved, SocketPayloadPropertyKeys.SystemId, evt.ToSystemId, context);
 
     private static async Task SendRequestPayloadAsync(
-        string targetSystemId,
-        string otherSystemId,
+        SystemId targetSystemId,
+        SystemId otherSystemId,
         string eventName,
         SocketPushContext context,
         IFriendshipRepository friendshipRepository,
@@ -87,7 +88,7 @@ public static class FriendshipSocketEventHandlers
         var payload = matched is null
             ? new FriendRequestSocketPayload(
                 new FriendshipRequestModel(DateTimeOffset.UtcNow),
-                new FriendProfileReadModel(otherSystemId, string.Empty, null, null, string.Empty, string.Empty))
+                new FriendProfileReadModel(otherSystemId, new Username(string.Empty), null, null, string.Empty, new DiscordId(string.Empty)))
             : new FriendRequestSocketPayload(
                 matched.Request,
                 matched.System with { AvatarUrl = AvatarUrlQualifier.QualifyAvatar(matched.System.AvatarUrl, matched.System.AvatarSource, context.RequestOrigin) });
@@ -97,8 +98,8 @@ public static class FriendshipSocketEventHandlers
 
     private static async Task<FriendshipReadModel?> GetFriendshipWithRetryAsync(
         IFriendshipRepository friendshipRepository,
-        string targetSystemId,
-        string friendSystemId,
+        SystemId targetSystemId,
+        SystemId friendSystemId,
         CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < 3; attempt++)
@@ -120,8 +121,8 @@ public static class FriendshipSocketEventHandlers
 
     private static async Task<FriendRequestReadModel?> GetFriendRequestWithRetryAsync(
         IFriendshipRepository friendshipRepository,
-        string targetSystemId,
-        string otherSystemId,
+        SystemId targetSystemId,
+        SystemId otherSystemId,
         bool outgoing,
         CancellationToken cancellationToken)
     {
@@ -129,7 +130,7 @@ public static class FriendshipSocketEventHandlers
         {
             var index = await friendshipRepository.GetFriendRequestsAsync(targetSystemId, cancellationToken);
             var matched = (outgoing ? index.Outgoing : index.Incoming)
-                .FirstOrDefault(r => IdMatches(r.System?.Id, otherSystemId));
+                .FirstOrDefault(r => SystemTopic.IdMatches(r.System?.Id, otherSystemId));
 
             if (matched is not null)
             {
@@ -145,29 +146,7 @@ public static class FriendshipSocketEventHandlers
         return null;
     }
 
-    private static bool IdMatches(string? left, string right)
-    {
-        if (string.Equals(left, right, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        if (string.IsNullOrWhiteSpace(left))
-        {
-            return false;
-        }
-
-        var leftSuffix = left.Contains(':', StringComparison.Ordinal)
-            ? left[(left.IndexOf(':', StringComparison.Ordinal) + 1)..]
-            : left;
-        var rightSuffix = right.Contains(':', StringComparison.Ordinal)
-            ? right[(right.IndexOf(':', StringComparison.Ordinal) + 1)..]
-            : right;
-
-        return string.Equals(leftSuffix, rightSuffix, StringComparison.Ordinal);
-    }
-
-    private static async Task SendAsync(string targetSystemId, string eventName, string payloadKey, string payloadValue, SocketPushContext context)
+    private static async Task SendAsync(SystemId targetSystemId, string eventName, string payloadKey, SystemId payloadValue, SocketPushContext context)
     {
         if (!context.TryGetSystemTopic(targetSystemId, out var topic, out var joinRef, out var asArray))
         {
@@ -176,8 +155,8 @@ public static class FriendshipSocketEventHandlers
 
         ISocketPayload payload = payloadKey switch
         {
-            "friend_id" => new FriendIdSocketPayload(payloadValue),
-            "system_id" => new SystemIdSocketPayload(payloadValue),
+            SocketPayloadPropertyKeys.FriendId => new FriendIdSocketPayload(payloadValue),
+            SocketPayloadPropertyKeys.SystemId => new SystemIdSocketPayload(payloadValue),
             _ => throw new InvalidOperationException($"Unrecognized socket payload key '{payloadKey}'.")
         };
 

@@ -1,16 +1,17 @@
 ﻿using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models.Read;
 
 public sealed record AccountPublicProfileReadModel(
-    string SystemId,
-    string? Username,
+    SystemId SystemId,
+    Username? Username,
     string? Description,
-    string? AvatarUrl,
+    AvatarUrl? AvatarUrl,
     AvatarSource? AvatarSource,
-    string? DiscordId,
-    string? Email,
-    string? AppleId
+    DiscordId? DiscordId,
+    Email? Email,
+    AppleId? AppleId
 );
 
 public enum AccountLinkResult

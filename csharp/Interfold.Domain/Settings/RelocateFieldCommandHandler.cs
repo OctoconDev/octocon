@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -25,8 +27,8 @@ public sealed class RelocateFieldCommandHandler : ICommandHandler<RelocateFieldC
     {
         var result = await SettingsCommandHelper.ExecuteAsync(
             command,
-            "field_relocated",
-            "settings:field:relocate",
+            SettingsAction.FieldRelocated,
+            EntityRefs.SettingsFieldRelocate,
             _idempotencyStore,
             ct => _fieldRepository.RelocateAsync(command.PrincipalId, command.Payload.FieldId, command.Payload.Index, ct),
             cancellationToken);

@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Tags;
 
@@ -31,10 +32,10 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
     )
     {
         if (string.IsNullOrWhiteSpace(command.Payload.Name))
-            return RejectInvariant(command, "tag:name_required");
+            return RejectInvariant(command, EntityRefs.TagNameRequired);
 
         if (command.Payload.Name.Length > 50)
-            return RejectInvariant(command, "tag:name_too_long");
+            return RejectInvariant(command, EntityRefs.TagNameTooLong);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -49,23 +50,23 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "tag:create");
+                return RejectDuplicate(command, EntityRefs.TagCreate);
 
             var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
             if (replay is not null)
                 return CommandExecutionResult<TagCommandResult>.Success(replay with { Replay = true });
         }
 
-        if (!string.IsNullOrWhiteSpace(command.Payload.ParentTagId))
+        if (command.Payload.ParentTagId is { } parentTagId && parentTagId != TagId.Empty)
         {
             var parentExists = await _tagRepository.ExistsAsync(
                 command.PrincipalId,
-                command.Payload.ParentTagId,
+                parentTagId,
                 cancellationToken
             );
 
             if (!parentExists)
-                return RejectInvariant(command, "tag:parent_not_found");
+                return RejectInvariant(command, EntityRefs.TagParentNotFound);
         }
 
         // See CreateTagCommand XML-doc: public-API callers send `default(DateTime)` so the
@@ -78,9 +79,9 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
             command.Payload with { InsertedAtUtc = insertedAtUtc },
             cancellationToken);
         if (tagId is null)
-            return RejectInvariant(command, "tag:create_failed");
+            return RejectInvariant(command, EntityRefs.TagCreateFailed);
 
-        var result = new TagCommandResult(command.PrincipalId, tagId, Replay: false);
+        var result = new TagCommandResult(command.PrincipalId, tagId.Value, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
@@ -94,7 +95,7 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
         );
 
         await _eventBus.PublishAsync(
-            new TagCreatedEvent(command.PrincipalId, tagId),
+            new TagCreatedEvent(command.PrincipalId, tagId.Value),
             cancellationToken);
 
         return CommandExecutionResult<TagCommandResult>.Success(result);
@@ -102,17 +103,17 @@ public sealed class CreateTagCommandHandler : ICommandHandler<CreateTagCommand, 
 
     private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
         CommandEnvelope<CreateTagCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry")
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry)
         );
 
     private static CommandExecutionResult<TagCommandResult> RejectInvariant(
         CommandEnvelope<CreateTagCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required")
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired)
         );
 }

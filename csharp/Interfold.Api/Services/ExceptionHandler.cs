@@ -25,8 +25,8 @@ public class ExceptionHandler : IExceptionHandler
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
         return exception switch
         {
-            BadHttpRequestException badRequestException => new ErrorResponse(badRequestException.Message, "bad_request"),
-            _ => new ErrorResponse($"Unhandled exception: {exception}", "unknown_error")
+            BadHttpRequestException badRequestException => new ErrorResponse(badRequestException.Message, ErrorCodes.BadRequest),
+            _ => new ErrorResponse($"Unhandled exception: {exception}", ErrorCodes.UnknownError)
         };
     }
 }

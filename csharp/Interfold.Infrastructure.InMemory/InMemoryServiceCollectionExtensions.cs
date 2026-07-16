@@ -5,8 +5,8 @@ using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory.Repository;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.InMemory;
 
@@ -34,34 +34,26 @@ public static class InMemoryServiceCollectionExtensions
         PersistenceConfiguration options)
     {
         return services
-            .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext(options.ScyllaKeyspace))
-            // Seed the in-memory secrets store from `OCTOCON_INMEMORY_SECRETS_SEED__*`
-            // configuration values so an external runner (Kotlin Testcontainers harness, ad-hoc
+            .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext(
+                options.ScyllaKeyspace))
+            // Seed the in-memory secrets store from the `OCTOCON_INMEMORY_SECRETS_SEED__*`
+            // env-var family so an external runner (Kotlin Testcontainers harness, ad-hoc
             // local container, etc.) can bootstrap the published image without an in-process
-            // hook. We resolve via IConfiguration rather than Environment.GetEnvironmentVariable
-            // so the same code path serves real env vars (EnvironmentVariablesConfigurationProvider)
-            // *and* the test fixture's FactoryConfigurationProvider overrides — no global
-            // env-state mutation needed in tests. Blank/missing values are skipped silently;
-            // SecretsBootstrapService is the single source of fail-fast for encryption:pepper
-            // and we deliberately don't duplicate that contract here.
-            //
-            // Note on the lookup-key shape: operators set these as `OCTOCON_INMEMORY_SECRETS_SEED__*`
-            // env vars, but the .NET EnvironmentVariablesConfigurationProvider rewrites the `__`
-            // separator to the config-key delimiter `:` on load (so an env var
-            // `OCTOCON_INMEMORY_SECRETS_SEED__ENCRYPTION_PEPPER` lands in IConfiguration under the
-            // key `OCTOCON_INMEMORY_SECRETS_SEED:ENCRYPTION_PEPPER`). The lookup strings below use
-            // the `:`-form deliberately — that's the post-normalisation key. The operator-facing
-            // env-var name is unchanged; only this one-character difference lives here. If you
-            // ever revert to the `__`-form lookup, the env-var path will silently miss and
-            // SecretsBootstrapService will fail-fast on `encryption:pepper` instead.
+            // hook. The `__`-to-`:` remap performed by EnvironmentVariablesConfigurationProvider
+            // means the bound config keys are `OCTOCON_INMEMORY_SECRETS_SEED:*`; both env-var
+            // and FactoryConfigurationProvider overrides land on the same InMemorySecretsSeedOptions
+            // instance, so tests do not need to mutate global env state. Blank/missing values
+            // are skipped silently — SecretsBootstrapService is the single source of fail-fast
+            // for the mandatory `encryption:pepper` row and we deliberately don't duplicate
+            // that contract here.
             .AddSingleton<ISecretsStore>(sp =>
             {
-                var config = sp.GetRequiredService<IConfiguration>();
+                var seed = sp.GetRequiredService<IOptions<InMemorySecretsSeedOptions>>().Value;
                 var store = new InMemorySecretsStore();
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:ENCRYPTION_PEPPER",           "encryption:pepper");
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_ES256_PRIVATE_PEM",  "auth:jwt_es256_private_pem");
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_DEEP_LINK_SECRET",       "auth:deep_link_secret");
-                SeedFromConfig(store, config, "OCTOCON_INMEMORY_SECRETS_SEED:AUTH_JWT_RSA256_PRIVATE_PEM", "auth:jwt_rsa256_private_pem");
+                Seed(store, SecretsStoreKeys.EncryptionPepper,        seed.EncryptionPepper);
+                Seed(store, SecretsStoreKeys.AuthJwtEs256PrivatePem,  seed.AuthJwtEs256PrivatePem);
+                Seed(store, SecretsStoreKeys.AuthDeepLinkSecret,      seed.AuthDeepLinkSecret);
+                Seed(store, SecretsStoreKeys.AuthJwtRsa256PrivatePem, seed.AuthJwtRsa256PrivatePem);
                 return store;
             })
             .AddSingleton<INotificationTokenRepository, InMemoryNotificationTokenRepository>()
@@ -79,9 +71,8 @@ public static class InMemoryServiceCollectionExtensions
             .AddSingleton<IAuthTokenRevocationRepository, InMemoryAuthTokenRevocationRepository>();
     }
 
-    private static void SeedFromConfig(InMemorySecretsStore store, IConfiguration config, string configKey, string secretKey)
+    private static void Seed(InMemorySecretsStore store, SecretsStoreKey secretKey, string? value)
     {
-        var value = config[configKey];
         if (!string.IsNullOrWhiteSpace(value))
             store.Seed(secretKey, value);
     }

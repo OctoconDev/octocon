@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Util;
+using Interfold.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -27,17 +28,30 @@ internal static partial class PrerequisitesPhase
     /// Maps an operator's <see cref="Configuration.BootstrapConfig.DatabaseMode"/> value to the
     /// number of Scylla nodes the deployment will run on the host, for AIO sizing. Cassandra
     /// uses its own (non-Seastar) IO path so it doesn't count against the Seastar AIO budget.
+    /// Kept as a raw-string overload so <see cref="PeekScyllaNodeCountAsync"/> can size AIO from
+    /// the on-disk JSON before <c>ConfigPhase</c> has validated it.
     /// </summary>
-    internal static int ResolveScyllaNodeCount(string? databaseMode) => databaseMode switch
+    internal static int ResolveScyllaNodeCount(string? databaseMode)
+        // TryParseWire returns false for null/empty/whitespace/unknown; falling back to
+        // Single preserves the historical "anything else sizes for one node" behaviour.
+        => ResolveScyllaNodeCount(
+            databaseMode.TryParseWire<DatabaseMode>(out var mode) ? mode : DatabaseMode.Single);
+
+    /// <summary>
+    /// Typed overload used once <see cref="Configuration.BootstrapConfig.DatabaseMode"/> has been
+    /// validated. Same table as the raw-string version — kept separate so callers with a bound
+    /// enum don't have to round-trip through <c>ToWireValue()</c>.
+    /// </summary>
+    internal static int ResolveScyllaNodeCount(DatabaseMode databaseMode) => databaseMode switch
     {
-        "multi" => 7,
-        "cassandra" => 0,
+        DatabaseMode.Multi => 7,
+        DatabaseMode.Cassandra => 0,
         _ => 1,
     };
 
     public static async Task RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
-        const string Phase = "prereqs";
+        string Phase = BootstrapPhase.Prereqs.ToWireName();
         logger.PhaseStart(Phase);
 
         EnsureLinux(logger);
@@ -48,7 +62,7 @@ internal static partial class PrerequisitesPhase
 
         if (distro.Family == DistroFamily.Unknown)
         {
-            logger.PhaseFail(Phase, "unsupported-distro");
+            logger.PhaseFail(Phase, PhaseFailureReasons.UnsupportedDistro);
             throw new InvalidOperationException(
                 $"Unsupported Linux distribution '{distro.Id}'. Supported families: Debian/Ubuntu, RHEL/Fedora. " +
                 "See docs/SELF_HOSTING.md for tested distros.");
@@ -102,7 +116,7 @@ internal static partial class PrerequisitesPhase
         {
             return;
         }
-        logger.PhaseFail("prereqs", "non-linux-host");
+        logger.PhaseFail(BootstrapPhase.Prereqs.ToWireName(), PhaseFailureReasons.NonLinuxHost);
         throw new InvalidOperationException(
             "The bootstrapper is Linux-only. For local development use `aspire run` from " +
             "csharp/Interfold.AppHost instead.");
@@ -114,7 +128,7 @@ internal static partial class PrerequisitesPhase
         // Single-line libc P/Invoke avoids a third-party Unix binding for one check.
         if (NativeMethods.geteuid() == 0) return;
 
-        logger.PhaseFail("prereqs", "non-root");
+        logger.PhaseFail(BootstrapPhase.Prereqs.ToWireName(), PhaseFailureReasons.NonRoot);
         throw new InvalidOperationException(
             "Run the bootstrapper with sudo. Installing Docker, writing to /etc/sysctl.d, " +
             "and editing the system trust store all require root.");

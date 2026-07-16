@@ -1,12 +1,14 @@
 using Cassandra;
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Interfold.IntegrationTests.Services.Migrations;
@@ -154,7 +156,7 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
         await ScyllaMigrationService.MigrateAsync(
             BuildPersistenceConfig(),
             BuildPostgresSecretsStore(),
-            BuildScyllaConfiguration(),
+            BuildScyllaResolver(),
             NullLoggerFactory.Instance.CreateLogger<ScyllaMigrationService>(),
             CancellationToken.None);
 
@@ -196,7 +198,7 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
             await ScyllaMigrationService.MigrateAsync(
                 BuildPersistenceConfig(),
                 BuildPostgresSecretsStore(),
-                BuildScyllaConfiguration(),
+                BuildScyllaResolver(),
                 NullLoggerFactory.Instance.CreateLogger<ScyllaMigrationService>(),
                 CancellationToken.None);
         }
@@ -220,27 +222,37 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
 
     private PersistenceConfiguration BuildPersistenceConfig() => new()
     {
-        Mode = "scylla-postgres",
+        Mode = PersistenceMode.ScyllaPostgres,
         PostgresConnectionString = SharedDb.PostgresConnectionString,
         IsSingleScyllaInstance = true,
-        ScyllaKeyspace = "nam",
+        ScyllaKeyspace = ScyllaKeyspace.Nam,
     };
 
     private ISecretsStore BuildPostgresSecretsStore()
     {
-        var connectionFactory = new PostgresConnectionFactory(BuildPersistenceConfig());
+        var connectionFactory = new PostgresConnectionFactory(Options.Create(BuildPersistenceConfig()));
         return new PostgresSecretsStore(connectionFactory);
     }
 
-    private IConfiguration BuildScyllaConfiguration() =>
-        new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["OCTOCON_SCYLLA_CONTACT_POINTS"] = "127.0.0.1",
-                ["OCTOCON_SCYLLA_PORT"] = SharedDb.ScyllaPort!.Value.ToString(),
-                ["OCTOCON_SCYLLA_KEYSPACE"] = "nam",
-            })
-            .Build();
+    /// <summary>
+    /// Builds a resolver whose contact-point / port overrides point at the shared fixture's
+    /// host-published Scylla endpoint. The <c>ScyllaKeyspace</c> comes from the shared
+    /// <see cref="PersistenceConfiguration"/> — the resolver's <c>GetKeyspace</c> reads it
+    /// straight off <see cref="PersistenceConfiguration.ScyllaKeyspace"/> now instead of
+    /// re-parsing <c>OCTOCON_SCYLLA_KEYSPACE</c> from a throw-away IConfiguration.
+    /// </summary>
+    private IScyllaConfigResolver BuildScyllaResolver()
+    {
+        var overrides = new ScyllaOverrideOptions
+        {
+            ContactPoints = ["127.0.0.1"],
+            Port = SharedDb.ScyllaPort!.Value,
+        };
+        return new ScyllaConfigResolver(
+            BuildPostgresSecretsStore(),
+            Options.Create(overrides),
+            Options.Create(BuildPersistenceConfig()));
+    }
 
     private async Task<ISession> OpenScyllaSessionAsync()
     {
@@ -279,8 +291,8 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
     private async Task<NpgsqlConnection> OpenAdminPostgresConnectionAsync()
     {
         var secrets = BuildPostgresSecretsStore();
-        var adminUser = await secrets.GetAsync("postgres:admin_username");
-        var adminPassword = await secrets.GetAsync("postgres:admin_password");
+        var adminUser = await secrets.GetAsync(SecretsStoreKeys.PostgresAdminUsername);
+        var adminPassword = await secrets.GetAsync(SecretsStoreKeys.PostgresAdminPassword);
 
         var builder = new NpgsqlConnectionStringBuilder(SharedDb.PostgresConnectionString)
         {

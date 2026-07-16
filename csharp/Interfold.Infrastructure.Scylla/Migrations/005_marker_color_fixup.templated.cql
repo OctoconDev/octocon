@@ -1,0 +1,16 @@
+-- =====================
+-- Schema Marker: Replace {{KEYSPACE}} with regional keyspace (nam, eur, ocn, eas, sam, sas, gdpr)
+-- Applied by ScyllaMigrationService at startup, after 004_import_operations.
+--
+-- This file adds no DDL. Its sole purpose is to bump the migration ledger to the
+-- version at which HexColor became strict, so the HexColorFixupService
+-- (registered as an IHostedLifecycleService after ScyllaMigrationService) can
+-- detect whether the ledger row for its own per-table per-keyspace fixup scope
+-- has been recorded and skip the scan on subsequent startups.
+--
+-- Any color-bearing table (alters, tags, alter_journals, alter_journals_by_alter,
+-- global_journals) that carried a non-well-formed value (bare 6-char hex, empty
+-- string, arbitrary spellings) before this migration is normalised in-place by
+-- the fixup service. Well-formed rows are untouched; unrecoverable values are
+-- set to NULL and logged.
+-- =====================

@@ -102,7 +102,7 @@ internal static class Orchestrator
         if (options.Command == BootstrapCommand.Bootstrap && !options.SkipPrereqs)
         {
             await PrerequisitesPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "prereqs", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.Prereqs, logger)) return 0;
         }
 
         // --- Config (skipped only for raw `up`) ---
@@ -110,7 +110,7 @@ internal static class Orchestrator
         if (options.Command != BootstrapCommand.Up)
         {
             config = await ConfigPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "config", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.Config, logger)) return 0;
         }
 
         // --- Secrets ---
@@ -118,7 +118,7 @@ internal static class Orchestrator
         if (options.Command != BootstrapCommand.Up && options.Command != BootstrapCommand.RotateCerts)
         {
             secrets = await SecretsPhase.RunAsync(options, config!, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "secrets", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.Secrets, logger)) return 0;
         }
         else if (options.Command == BootstrapCommand.RotateCerts)
         {
@@ -130,14 +130,14 @@ internal static class Orchestrator
         if (options.Command != BootstrapCommand.Up && options.Command != BootstrapCommand.RotateSecrets)
         {
             await CertificatePhase.RunAsync(options, config!, secrets!, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "certs", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.Certs, logger)) return 0;
         }
 
         // --- Compose publish ---
         if (options.Command != BootstrapCommand.Up)
         {
             await PublishPhase.RunAsync(options, config!, secrets!, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "publish", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.Publish, logger)) return 0;
         }
 
         // --- Firebase inputs (optional; feeds internal.secrets seeding below) ---
@@ -152,7 +152,7 @@ internal static class Orchestrator
             or BootstrapCommand.RotateCerts)
         {
             firebase = await FirebasePhase.RunAsync(options, config!, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "firebase", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.Firebase, logger)) return 0;
         }
 
         // --- Database init (admin role + internal.secrets seeding) ---
@@ -165,7 +165,7 @@ internal static class Orchestrator
             or BootstrapCommand.RotateCerts)
         {
             await DatabaseInitPhase.RunAsync(options, config!, secrets!, firebase, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "db-init", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.DbInit, logger)) return 0;
         }
 
         // --- Launch ---
@@ -173,19 +173,19 @@ internal static class Orchestrator
             or BootstrapCommand.RotateSecrets or BootstrapCommand.RotateCerts)
         {
             await LaunchPhase.RunAsync(options, logger, ct).ConfigureAwait(false);
-            if (HaltAfter(options, "launch", logger)) return 0;
+            if (HaltAfter(options, BootstrapPhase.Launch, logger)) return 0;
         }
 
         return 0;
     }
 
-    private static bool HaltAfter(BootstrapOptions options, string phase, PhaseLogger logger)
+    private static bool HaltAfter(BootstrapOptions options, BootstrapPhase phase, PhaseLogger logger)
     {
-        if (!string.Equals(options.FaultInject, $"after-{phase}", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(options.FaultInject, phase.ToFaultInjectToken(), StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
-        logger.Warn($"--fault-inject=after-{phase} triggered; exiting before next phase.");
+        logger.Warn($"--fault-inject={phase.ToFaultInjectToken()} triggered; exiting before next phase.");
         // Tests use the non-zero process exit (Environment.Exit) elsewhere; here we return 0 because the
         // orchestrator caller decides what to do. The test scenario kills the process with SIGKILL, so
         // this code path is mostly a safety net for `--fault-inject` style assertions in local debugging.

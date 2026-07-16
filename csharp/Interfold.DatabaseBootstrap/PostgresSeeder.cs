@@ -89,7 +89,7 @@ public static class PostgresSeeder
             await executor.ExecScriptWithVarsAsync(
                 options.AdminUser, options.AdminPassword, options.DefaultDatabase,
                 PostgresSqlTemplates.UpsertSecretSql,
-                [(PostgresSqlTemplates.UpsertKeyVar, entry.Key),
+                [(PostgresSqlTemplates.UpsertKeyVar, entry.Key.Value),
                  (PostgresSqlTemplates.UpsertValueVar, value)],
                 ct).ConfigureAwait(false);
         }

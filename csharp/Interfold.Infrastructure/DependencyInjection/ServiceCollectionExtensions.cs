@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Interfold.Domain.Accounts;
 using Interfold.Domain.Alters;
@@ -28,38 +27,34 @@ public static partial class ServiceCollectionExtensions
         }
     }
     
+    /// <summary>
+    /// Registers the persistence adapters for <paramref name="mode"/>, layering the caller-
+    /// supplied snapshot values on top of the env-bound
+    /// <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/> pipeline. Consumers
+    /// resolve <see cref="Microsoft.Extensions.Options.IOptions{PersistenceConfiguration}"/>
+    /// (single source of truth).
+    ///
+    /// The mode-registration lambdas still receive a synchronous
+    /// <see cref="PersistenceConfiguration"/> snapshot because a few of them (e.g.
+    /// InMemoryRegionContext) capture <c>ScyllaKeyspace</c> at registration time — the
+    /// snapshot here is built from the caller's overrides only, and matches what the
+    /// container will hand to IOptions consumers once the layered PostConfigure runs.
+    /// </summary>
     public static IServiceCollection AddInterfoldPersistence(
         this IServiceCollection services,
         PersistenceMode mode,
         PersistenceConfiguration configuration
     ) => AddInterfoldPersistence(services, mode, cfg =>
     {
-        cfg.ScyllaKeyspace            = configuration.ScyllaKeyspace;
+        cfg.Mode                     = configuration.Mode;
+        cfg.ScyllaKeyspace           = configuration.ScyllaKeyspace;
         cfg.PostgresConnectionString = configuration.PostgresConnectionString;
-        cfg.IsSingleScyllaInstance     = configuration.IsSingleScyllaInstance;
+        cfg.IsSingleScyllaInstance   = configuration.IsSingleScyllaInstance;
         cfg.DbRetryAttempts          = configuration.DbRetryAttempts;
-        cfg.DbRetryInitialDelayMs    = configuration.DbRetryInitialDelayMs;
-        cfg.DbRetryMaxDelayMs        = configuration.DbRetryMaxDelayMs;
+        cfg.DbRetryInitialDelay      = configuration.DbRetryInitialDelay;
+        cfg.DbRetryMaxDelay          = configuration.DbRetryMaxDelay;
+        cfg.HydrationMaxConcurrency  = configuration.HydrationMaxConcurrency;
     });
-
-    /// <summary>
-    /// Reads persistence settings from environment variables and registers the appropriate
-    /// persistence services. The mode is derived from OCTOCON_PERSISTENCE.
-    /// </summary>
-    public static IServiceCollection AddInterfoldPersistence(
-        this IServiceCollection services,
-        IConfiguration config)
-    {
-        var opts = new PersistenceConfiguration();
-        ConfigurationServiceCollectionExtensions.ApplyPersistence(opts, config);
-        var mode = opts.Mode switch
-        {
-            "inmemory"        => PersistenceMode.InMemory,
-            "scylla-postgres" => PersistenceMode.ScyllaPostgres,
-            var x             => throw new InvalidOperationException($"Unsupported persistence mode: {x}")
-        };
-        return services.AddInterfoldPersistence(mode, opts);
-    }
 
     public static IServiceCollection AddInterfoldPersistence(
         this IServiceCollection services,
@@ -67,10 +62,22 @@ public static partial class ServiceCollectionExtensions
         Action<PersistenceConfiguration>? configure = null
     )
     {
+        // Snapshot for the mode-registration lambdas' synchronous capture (e.g.
+        // InMemoryRegionContext takes ScyllaKeyspace at registration time). Only the
+        // caller's configure delegate contributes here — the env-bound values are
+        // owned by AddInterfoldOptions.ApplyPersistence and reach consumers via
+        // IOptions<PersistenceConfiguration>.
         var options = new PersistenceConfiguration();
         configure?.Invoke(options);
 
-        services.AddSingleton(options);
+        // Layer the caller-supplied overrides onto the options pipeline as a
+        // PostConfigure so IOptions<PersistenceConfiguration> consumers see the same
+        // values the mode-registration lambdas captured above. Without this the two
+        // views would drift for anything the caller set.
+        if (configure is not null)
+        {
+            services.PostConfigure<PersistenceConfiguration>(configure);
+        }
 
         if (!Enum.IsDefined(mode))
         {
@@ -86,7 +93,7 @@ public static partial class ServiceCollectionExtensions
 
             return services;
         }
-        
+
         throw new InvalidOperationException($"Persistence mode has not yet been implemented: {mode}");
     }
 

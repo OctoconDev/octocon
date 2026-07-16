@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Coordination;
@@ -10,8 +11,8 @@ namespace Interfold.Infrastructure.Coordination;
 public sealed class NullFCMService(ILogger<NullFCMService> logger) : IFCMService
 {
     public Task NotifyFrontingChangedAsync(
-        string systemId,
-        IReadOnlyList<int> currentAlterIds,
+        SystemId systemId,
+        IReadOnlyList<AlterId> currentAlterIds,
         CancellationToken cancellationToken = default)
     {
         logger.LogDebug(

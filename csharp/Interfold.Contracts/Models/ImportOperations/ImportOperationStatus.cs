@@ -1,11 +1,16 @@
+using System.Text.Json.Serialization;
+using Interfold.Contracts.Enums;
+
 namespace Interfold.Contracts.Models.ImportOperations;
 
 /// <summary>
-/// Lifecycle of an asynchronous third-party import (SP or PK). Persisted as the string
-/// value of the enum name in the <c>import_operations.status</c> column so existing rows
-/// don't have to migrate when a new state is added — Cassandra string columns are
-/// schema-free and the repository round-trips via <c>Enum.TryParse</c>.
+/// Lifecycle of an asynchronous third-party import (SP or PK). Persisted in the
+/// <c>import_operations.status</c> column via <see cref="EnumWire{TEnum}"/>, with the
+/// wire spelling of each member pinned by <see cref="JsonStringEnumMemberNameAttribute"/>
+/// so a C# rename can't drift the DB format. Reads are case-insensitive to match the
+/// historical tolerant <c>Enum.TryParse</c> behaviour.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ImportOperationStatus>))]
 public enum ImportOperationStatus
 {
     /// <summary>
@@ -15,6 +20,7 @@ public enum ImportOperationStatus
     /// state for long; if it does, the worker has not picked it up (host bottleneck) or
     /// the worker process crashed before transitioning to <see cref="Running"/>.
     /// </summary>
+    [JsonStringEnumMemberName("Queued")]
     Queued,
 
     /// <summary>
@@ -24,12 +30,14 @@ public enum ImportOperationStatus
     /// <c>started_at</c> is older than the configured ceiling is rewritten to
     /// <see cref="Failed"/> with a host-restart error code).
     /// </summary>
+    [JsonStringEnumMemberName("Running")]
     Running,
 
     /// <summary>
     /// Terminal: the importer returned <c>Success = true</c>. <c>alter_count</c> is
     /// populated. The completion event has been published on the cluster bus.
     /// </summary>
+    [JsonStringEnumMemberName("Succeeded")]
     Succeeded,
 
     /// <summary>
@@ -38,5 +46,6 @@ public enum ImportOperationStatus
     /// <c>error_message</c> are populated. The failure event has been published on the
     /// cluster bus.
     /// </summary>
+    [JsonStringEnumMemberName("Failed")]
     Failed,
 }

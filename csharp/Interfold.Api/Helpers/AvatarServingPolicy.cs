@@ -32,7 +32,7 @@ namespace Interfold.Api.Helpers;
 ///       path-only → serve. The API is the canonical origin for the bytes; the
 ///       <c>RequestPath</c> derives from the <c>AvatarPublicBase</c> (or the
 ///       <c>defaultPublicBase</c> fallback when blank) so the URLs returned by
-///       <see cref="AvatarUrlQualifier.QualifyAvatar(string?, Interfold.Contracts.Enums.AvatarSource?, string, Microsoft.AspNetCore.Http.HostString)"/>
+///       <see cref="AvatarUrlQualifier.QualifyAvatar(Interfold.Contracts.Ids.AvatarUrl?, Interfold.Contracts.Enums.AvatarSource?, string, Microsoft.AspNetCore.Http.HostString)"/>
 ///       line up exactly with what
 ///       <see cref="Microsoft.AspNetCore.Builder.StaticFileExtensions.UseStaticFiles(Microsoft.AspNetCore.Builder.IApplicationBuilder, Microsoft.AspNetCore.Builder.StaticFileOptions)"/>
 ///       matches.
@@ -96,12 +96,22 @@ public static class AvatarServingPolicy
             return (false, string.Empty, string.Empty);
         }
 
-        // Absolute http(s) base → operator has put a CDN / reverse proxy in front; the
-        // API has no business serving the bytes (would duplicate the serving surface).
+        // Absolute http(s) base → CDN / reverse proxy in front unless the host is local
+        // loopback (integration tests and same-origin dev setups stamp http://localhost/…
+        // URLs that the API process itself must still serve).
         if (!string.IsNullOrWhiteSpace(avatarPublicBase)
             && Uri.TryCreate(avatarPublicBase, UriKind.Absolute, out var absolute)
             && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
         {
+            if (IsLocalLoopbackHost(absolute.Host))
+            {
+                var localPath = absolute.AbsolutePath.TrimEnd('/');
+                if (localPath.Length == 0)
+                    localPath = defaultPublicBase.TrimEnd('/');
+
+                return (true, avatarStorageRoot, localPath);
+            }
+
             return (false, string.Empty, string.Empty);
         }
 
@@ -127,5 +137,16 @@ public static class AvatarServingPolicy
         }
 
         return (true, avatarStorageRoot, requestPath);
+    }
+
+    private static bool IsLocalLoopbackHost(string host)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+            return false;
+
+        return host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+               || host.Equals("127.0.0.1", StringComparison.Ordinal)
+               || host.Equals("[::1]", StringComparison.Ordinal)
+               || host.Equals("::1", StringComparison.Ordinal);
     }
 }

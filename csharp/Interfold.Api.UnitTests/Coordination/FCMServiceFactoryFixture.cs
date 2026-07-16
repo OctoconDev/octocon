@@ -1,5 +1,5 @@
+using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
-using Interfold.Contracts.Secrets;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
@@ -57,12 +57,10 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
         services.AddSingleton<IAccountRepository, InMemoryAccountRepository>();
         services.AddSingleton<IAlterRepository, InMemoryAlterRepository>();
 
-        var store = new InMemorySecretsStore();
-        if (seedServiceAccount)
-        {
-            store.Seed("fcm:service_account_json", "{\"type\":\"service_account\",\"project_id\":\"test\"}");
-        }
-        services.AddSingleton<ISecretsStore>(store);
+        services.Configure<FcmConfiguration>(o =>
+            o.ServiceAccountJson = seedServiceAccount 
+                ? "{\"type\":\"service_account\",\"project_id\":\"test\"}" 
+                : null);
 
         services.AddInterfoldCluster(role);
         return new FCMFactoryScope(services.BuildServiceProvider());

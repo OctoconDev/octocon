@@ -1,18 +1,20 @@
 using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
-using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
 
 /// <summary>
 /// Integration tests for the <c>install-service</c> subcommand. The shared Ubuntu DinD
-/// fixture deliberately does NOT include systemd (its PID 1 is <c>dockerd-entrypoint.sh</c>,
-/// not <c>systemd</c>), so we exercise the unit-file rendering + on-disk write path against
-/// an operator-supplied unit dir (<c>--systemd-unit-dir</c>) and skip the daemon-reload /
-/// enable steps. For tests that need <c>systemd-analyze</c> coverage we install the
-/// <c>systemd</c> apt package on demand — the binary itself works fine outside of a
-/// systemd-managed PID 1.
+/// fixture deliberately keeps PID 1 as <c>dockerd-entrypoint.sh</c> (not <c>systemd</c>),
+/// so we exercise the unit-file rendering + on-disk write path against an operator-supplied
+/// unit dir (<c>--systemd-unit-dir</c>) and skip the daemon-reload / enable steps. The
+/// <c>systemd</c> package IS pre-installed in <c>Dockerfile.ubuntu-dind</c> — the binary
+/// (specifically <c>systemd-analyze</c>) works fine outside of a systemd-managed PID 1
+/// and is what <see cref="SystemdAnalyzeAcceptsRenderedUnits"/> and the bootstrapper's
+/// install-service phase both rely on. <c>jq</c> is also baked into the image so
+/// <see cref="OverlayUpdateConfigAsync"/> can rewrite the config JSON without any test
+/// having to shell out to <c>apt-get install</c> at runtime.
 /// </summary>
 [RequiresDocker]
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
@@ -227,20 +229,20 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
 
     /// <summary>
     /// Rewrites the in-DinD config file to set (or unset) <c>update.enabled</c>. Reads the
-    /// existing config, merges an <c>update</c> block via <c>jq</c> (already present in the
-    /// DinD image), and writes it back atomically so a follow-up install-service run sees
-    /// the flipped flag.
+    /// existing config, merges an <c>update</c> block via <c>jq</c> (baked into
+    /// <c>Dockerfile.ubuntu-dind</c> alongside <c>systemd</c>), and writes it back atomically
+    /// so a follow-up install-service run sees the flipped flag.
     /// </summary>
+    /// <remarks>
+    /// <c>jq</c> lives in the image on purpose — before that, this helper installed it
+    /// on-demand under <c>&gt;/dev/null 2&gt;&amp;1</c>, which raced with
+    /// <c>SystemdAnalyzeAcceptsRenderedUnits</c>' equivalent <c>apt-get install systemd</c>
+    /// on <c>/var/lib/dpkg/lock-frontend</c> and produced silent <c>exit 100</c> flakes in CI
+    /// whenever TUnit interleaved the two tests. Moving both installs into the image kills
+    /// the race and makes the helper synchronous / assertion-free.
+    /// </remarks>
     private async Task OverlayUpdateConfigAsync(string configPath, bool updateEnabled)
     {
-        // Install jq on demand — the base DinD image doesn't include it. Cached inside the
-        // fixture container for the lifetime of the test session, so the first test pays
-        // the cost and the rest are free.
-        var install = await dinD.ExecAsync(["sh", "-c",
-            "command -v jq >/dev/null 2>&1 || (apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq >/dev/null 2>&1)"]);
-        await Assert.That(install.ExitCode).IsEqualTo(0L)
-            .Because($"installing jq inside DinD failed: {install.Stderr}");
-
         var enabledLiteral = updateEnabled ? "true" : "false";
         // Merge (+ operator) so any pre-existing update block wins on collision except for
         // enabled, which the outer setter forces. Writes to a sibling tempfile then moves
@@ -256,16 +258,13 @@ public class SystemdInstallTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task SystemdAnalyzeAcceptsRenderedUnits()
     {
-        // Install the `systemd` apt package on demand and run `systemd-analyze verify` against
-        // every rendered unit. The DinD's PID 1 is dockerd-entrypoint, not systemd — that's
+        // Runs `systemd-analyze verify` against every rendered unit via the bootstrapper's
+        // install-service phase. The DinD's PID 1 is dockerd-entrypoint, not systemd — that's
         // fine, systemd-analyze is a static parser that doesn't need a running systemd to run.
-        // The package install is cached inside the DinD for the lifetime of the test session,
-        // so the first test pays ~10s and the rest are free.
-        var install = await dinD.ExecAsync(["sh", "-c",
-            "command -v systemd-analyze >/dev/null 2>&1 || (apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd >/dev/null 2>&1)"]);
-        await Assert.That(install.ExitCode).IsEqualTo(0L)
-            .Because($"installing systemd inside DinD failed: {install.Stderr}");
-
+        // The `systemd` apt package (which ships systemd-analyze) is baked into
+        // Dockerfile.ubuntu-dind alongside `jq` — a previous incarnation of this test installed
+        // it on-demand under `>/dev/null 2>&1` and raced with OverlayUpdateConfigAsync's jq
+        // install on `/var/lib/dpkg/lock-frontend`, producing silent exit-100 flakes in CI.
         var scratch = await dinD.CreateScratchAsync(nameof(SystemdAnalyzeAcceptsRenderedUnits), TestConfigJsonPath);
         var unitDir = $"{scratch.Root}/systemd-units";
         await dinD.ExecAsync(["mkdir", "-p", unitDir]);

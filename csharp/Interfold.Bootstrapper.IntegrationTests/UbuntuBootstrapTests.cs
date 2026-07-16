@@ -3,6 +3,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
+using Interfold.Contracts.Configuration;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
@@ -72,7 +73,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
             .Because("scylla admin password must not appear in compose - it lives in internal.secrets");
         await Assert.That(compose).DoesNotContain("POSTGRES_ADMIN_PASSWORD")
             .Because("postgres admin password must not appear in compose - it lives in internal.secrets");
-        await Assert.That(compose).Contains("db_init")
+        await Assert.That(compose).Contains(PostgresRoles.Init)
             .Because("msg-db cluster owner must be the disposable 'db_init' role, not the app user");
         await Assert.That(compose).Contains("POSTGRES_INIT_PASSWORD")
             .Because("compose must reference POSTGRES_INIT_PASSWORD for the disposable cluster owner");

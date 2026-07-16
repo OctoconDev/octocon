@@ -1,5 +1,6 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -38,7 +39,7 @@ public static class JournalSocketEventHandlers
         await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Journals.AlterDeleted, new EntryDeletedSocketPayload(evt.EntryId));
     }
 
-    private static async Task HandleGlobalUpsertAsync(string systemId, string entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
+    private static async Task HandleGlobalUpsertAsync(SystemId systemId, EntryId entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
     {
         if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
         {
@@ -54,7 +55,7 @@ public static class JournalSocketEventHandlers
         await context.SendAsync(topic, joinRef, asArray, eventName, new GlobalJournalSocketPayload(entry));
     }
 
-    private static async Task HandleAlterUpsertAsync(string systemId, string entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
+    private static async Task HandleAlterUpsertAsync(SystemId systemId, EntryId entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
     {
         if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
         {

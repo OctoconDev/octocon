@@ -6,6 +6,7 @@ using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -31,19 +32,19 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
         CommandEnvelope<ImportPkCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token))
+        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
         {
             return CommandExecutionResult<ImportDispatchCommandResult>.Rejected(
                 new ConflictResult(
                     ConflictCode.ConflictInvariant,
                     command.OperationId,
-                    "settings:import_pk_invalid",
-                    "manual_merge_required"));
+                    EntityRefs.SettingsImportPkInvalid,
+                    ResolutionHint.ManualMergeRequired));
         }
 
         var claim = await _operations.TryClaimAsync(
             command.PrincipalId,
-            ImportOperationKinds.PluralKit,
+            ImportOperationKind.PluralKit,
             command.IdempotencyKey,
             cancellationToken).ConfigureAwait(false);
 
@@ -54,7 +55,7 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
                 new ImportJobItem(
                     claim.OperationId,
                     command.PrincipalId,
-                    ImportOperationKinds.PluralKit,
+                    ImportOperationKind.PluralKit,
                     command.Payload.Token,
                     RecoveryCode: null),
                 cancellationToken).ConfigureAwait(false);
@@ -63,8 +64,10 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
         var result = new ImportDispatchCommandResult(
             command.PrincipalId,
             claim.OperationId,
-            ImportOperationKinds.PluralKit,
-            Status: claim.IsNew ? "queued" : "running",
+            ImportOperationKind.PluralKit,
+            Status: claim.IsNew
+                ? ImportOperationDispatchStatus.Queued
+                : ImportOperationDispatchStatus.Running,
             StartedAt: DateTimeOffset.UtcNow,
             Replay: false);
 

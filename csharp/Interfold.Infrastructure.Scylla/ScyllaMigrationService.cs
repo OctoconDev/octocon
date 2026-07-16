@@ -6,9 +6,9 @@ using System.Text.RegularExpressions;
 using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;
 
@@ -30,12 +30,17 @@ namespace Interfold.Infrastructure.Scylla;
 /// rendered template to the new keyspace.
 /// </remarks>
 public sealed partial class ScyllaMigrationService(
-    PersistenceConfiguration options,
+    IOptions<PersistenceConfiguration> options,
     ISecretsStore secretsStore,
-    IConfiguration configuration,
+    IScyllaConfigResolver configResolver,
     ILogger<ScyllaMigrationService> logger) : IHostedLifecycleService
 {
-    private static readonly string[] RegionalKeyspaces = ["nam", "eur", "sam", "sas", "eas", "ocn", "gdpr"];
+    // Derived from the ScyllaKeyspace enum so the regional list can't drift from the type
+    // that the resolution APIs (IRegionContext) hand around.
+    private static readonly string[] RegionalKeyspaces =
+        Enum.GetValues<Contracts.Enums.ScyllaKeyspace>()
+            .Select(Contracts.Enums.EnumWire<Contracts.Enums.ScyllaKeyspace>.ToWire)
+            .ToArray();
 
     // Singleton keyspaces created once during bootstrap from 000_create_singleton_keyspaces.cql.
     private static readonly string[] SingletonKeyspaces = ["global", "nam_nt", "dummy"];
@@ -49,7 +54,17 @@ public sealed partial class ScyllaMigrationService(
     private const string SchemaMigration = "002_create_interfold_schema.templated.cql";
     private const string FieldTimestampsMigration = "003_field_udt_timestamps.templated.cql";
     private const string ImportOperationsMigration = "004_import_operations.templated.cql";
+    private const string ColorFixupMarkerMigration = "005_marker_color_fixup.templated.cql";
+    private const string PrimaryFrontAddAlterMigration = "006_add_primary_front_alter.templated.cql";
     private const string GrantsVersion = "grants_v1";
+
+    // Ledger constants for the inline backfill that follows migration 006. The backfill
+    // has to be sequenced immediately after the ALTER that introduces primary_front_alter
+    // (see the 006 header), so it can't be a separate hosted service and instead lives
+    // inline in StartingAsync. Same ledger shape as any tracked migration:
+    // (scope, version, checksum) — bump the checksum to force a per-keyspace re-run.
+    private const string PrimaryFrontBackfillVersion = "v1";
+    private const string PrimaryFrontIntToAlterChecksum = "primary_front_int_to_alter_v1";
 
     // Stable template hashed for grant tracking. Bump GrantsVersion whenever this string
     // changes so existing rows mismatch and grants get re-applied across all scopes.
@@ -66,8 +81,8 @@ public sealed partial class ScyllaMigrationService(
     public async Task StartingAsync(CancellationToken cancellationToken)
     {
         // Read admin credentials from secrets store
-        _adminUsername = await secretsStore.GetAsync("scylla:admin_username", cancellationToken);
-        _adminPassword = await secretsStore.GetAsync("scylla:admin_password", cancellationToken);
+        _adminUsername = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaAdminUsername, cancellationToken);
+        _adminPassword = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaAdminPassword, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(_adminUsername) ||
             string.IsNullOrWhiteSpace(_adminPassword))
@@ -77,13 +92,13 @@ public sealed partial class ScyllaMigrationService(
         }
 
         // Read connection details via unified resolver
-        _contactPoints = await ScyllaConfigResolver.GetContactPointsAsync(configuration, secretsStore, cancellationToken);
-        _datacenter = await ScyllaConfigResolver.GetDatacenterAsync(secretsStore, cancellationToken);
-        _appUsername = await ScyllaConfigResolver.GetUsernameAsync(secretsStore, cancellationToken);
-        _port = await ScyllaConfigResolver.GetPortAsync(configuration, secretsStore, cancellationToken);
+        _contactPoints = await configResolver.GetContactPointsAsync(cancellationToken);
+        _datacenter = await configResolver.GetDatacenterAsync(cancellationToken);
+        _appUsername = await configResolver.GetUsernameAsync(cancellationToken);
+        _port = await configResolver.GetPortAsync(cancellationToken);
 
         // Keyspace is the per-node region identity — env-only, never store-shared.
-        _keyspace = await ScyllaConfigResolver.GetKeyspaceAsync(configuration, cancellationToken);
+        _keyspace = configResolver.GetKeyspace();
 
         logger.LogInformation("[scylla-migrate] Applying ScyllaDB schema migrations...");
 
@@ -142,6 +157,19 @@ public sealed partial class ScyllaMigrationService(
             await ApplySchema(session, applied);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, FieldTimestampsMigration);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, ImportOperationsMigration);
+            await ApplyTemplatedMigrationPerKeyspace(session, applied, ColorFixupMarkerMigration);
+
+            // users.primary_front (int) -> users.primary_front_alter (smallint) narrowing.
+            // A same-name DROP+ADD with a different type is rejected server-side (Cassandra
+            // tracks the old type in system_schema.dropped_columns forever) and RENAME is
+            // limited to primary-key columns, so the only safe path is a new column name.
+            // The legacy int column is left in place; a future release can DROP it once
+            // no external tool still reads it. Both steps have to finish inside this
+            // StartingAsync pass because repositories bind to primary_front_alter as soon
+            // as traffic starts.
+            await ApplyTemplatedMigrationPerKeyspace(session, applied, PrimaryFrontAddAlterMigration);
+            await BackfillPrimaryFrontIntToAlterAsync(session, applied, cancellationToken);
+
             await GrantPermissions(session, applied);
         }
         finally
@@ -175,11 +203,14 @@ public sealed partial class ScyllaMigrationService(
     public static Task MigrateAsync(
         PersistenceConfiguration options,
         ISecretsStore secretsStore,
-        IConfiguration configuration,
+        IScyllaConfigResolver configResolver,
         ILogger<ScyllaMigrationService> logger,
         CancellationToken cancellationToken)
     {
-        var service = new ScyllaMigrationService(options, secretsStore, configuration, logger);
+        // Wrap the caller-supplied snapshot so the primary constructor's
+        // IOptions<PersistenceConfiguration> contract is honoured without spreading
+        // Options.Create noise across every test call site.
+        var service = new ScyllaMigrationService(Options.Create(options), secretsStore, configResolver, logger);
         return service.StartingAsync(cancellationToken);
     }
 
@@ -426,6 +457,73 @@ public sealed partial class ScyllaMigrationService(
         }
     }
 
+    // --- Primary Front Backfill ---
+
+    /// <summary>
+    /// Copies every non-null <c>users.primary_front</c> (int, legacy) value into the sibling
+    /// <c>users.primary_front_alter</c> (smallint) column added by migration 006. Runs
+    /// immediately after 006 lands and before any repository code observes the schema.
+    /// Ledger-guarded per keyspace so the scan runs at most once even under crash-restart
+    /// churn; rows where <c>primary_front_alter</c> is already populated are skipped, so a
+    /// crash mid-scan just resumes on the still-null tail.
+    /// </summary>
+    private async Task BackfillPrimaryFrontIntToAlterAsync(
+        ISession session,
+        Dictionary<(string Scope, string Version), string> applied,
+        CancellationToken cancellationToken)
+    {
+        foreach (var keyspace in TargetKeyspaces())
+        {
+            var scope = $"primary_front_backfill_int_to_alter:{keyspace}";
+            if (ShouldSkip(applied, scope, PrimaryFrontBackfillVersion, PrimaryFrontIntToAlterChecksum))
+            {
+                logger.LogDebug("[scylla-migrate] Skipping {Scope}, already applied.", scope);
+                continue;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            var selectStmt = new SimpleStatement(
+                $"SELECT id, primary_front, primary_front_alter FROM {keyspace}.users");
+            selectStmt.SetPageSize(500);
+            var rows = await session.ExecuteAsync(selectStmt);
+
+            var copied = 0;
+            foreach (var row in rows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (row.GetValue<short?>("primary_front_alter") is not null)
+                    continue;
+
+                var legacy = row.GetValue<int?>("primary_front");
+                if (legacy is null)
+                    continue;
+
+                if (legacy is < short.MinValue or > short.MaxValue)
+                {
+                    throw new InvalidDataException(
+                        $"users.primary_front value {legacy} is outside " +
+                        $"[{short.MinValue}, {short.MaxValue}]; a legacy row escaped the " +
+                        $"smallint invariant. Investigate before re-running the migration.");
+                }
+
+                var userId = row.GetValue<string>("id");
+                var smallintValue = (short)legacy.Value;
+                await session.ExecuteAsync(new SimpleStatement(
+                    $"UPDATE {keyspace}.users SET primary_front_alter = ? WHERE id = ?",
+                    smallintValue,
+                    userId));
+                copied++;
+            }
+
+            stopwatch.Stop();
+            logger.LogInformation("[scylla-migrate] {Scope}: copied {Copied} row(s).", scope, copied);
+
+            await RecordMigrationAsync(session, scope, PrimaryFrontBackfillVersion,
+                PrimaryFrontIntToAlterChecksum, (int)stopwatch.ElapsedMilliseconds);
+        }
+    }
+
     // --- Permission Grants ---
 
     private async Task GrantPermissions(
@@ -578,7 +676,7 @@ public sealed partial class ScyllaMigrationService(
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
 
     private string[] TargetKeyspaces() =>
-        options.IsSingleScyllaInstance
+        options.Value.IsSingleScyllaInstance
             ? [_keyspace!]
             : RegionalKeyspaces;
 
@@ -596,7 +694,28 @@ public sealed partial class ScyllaMigrationService(
 
     // --- CQL Execution ---
 
-    private async Task ExecuteStatements(ISession session, string cql)
+    private Task ExecuteStatements(ISession session, string cql)
+        => ExecuteStatementsStatic(session, cql, logger);
+
+    /// <summary>
+    /// CQL execution helper. Swallows two idempotence-critical exception classes:
+    ///
+    /// <list type="bullet">
+    ///   <item>
+    ///     <see cref="AlreadyExistsException"/> — CREATE-side migrations all use
+    ///     <c>IF NOT EXISTS</c> but Scylla still raises this for a small window of
+    ///     edge cases (concurrent CREATE INDEX, older server builds).
+    ///   </item>
+    ///   <item>
+    ///     <see cref="InvalidQueryException"/> where the message signals "column not
+    ///     found" / "column does not exist" / "column already exists" — kept as a
+    ///     forward-compat safety net so that a boot which crashes between an ALTER
+    ///     landing and its ledger row being written can re-run without throwing on
+    ///     the second boot.
+    ///   </item>
+    /// </list>
+    /// </summary>
+    private static async Task ExecuteStatementsStatic(ISession session, string cql, ILogger logger)
     {
         var statements = SplitCqlStatements(cql);
         foreach (var stmt in statements)
@@ -610,7 +729,43 @@ public sealed partial class ScyllaMigrationService(
             {
                 // Idempotent — keyspace/table/type/index already exists
             }
+            catch (InvalidQueryException ex) when (IsColumnNotFound(ex))
+            {
+                // Idempotent — DROP {column} already applied on an earlier boot.
+                logger.LogDebug("[scylla-migrate] Skipping DROP for missing column: {Message}", ex.Message);
+            }
+            catch (InvalidQueryException ex) when (IsColumnAlreadyExists(ex))
+            {
+                // Idempotent — ADD {column} already applied on an earlier boot. The
+                // target ScyllaDB version rejects `ADD IF NOT EXISTS` at parse time
+                // (SyntaxError on the `IF` token), so we lean on this handler to make
+                // any future ALTER ... ADD migrations re-runnable after a crash between
+                // the ALTER landing and the ledger row being written.
+                logger.LogDebug("[scylla-migrate] Skipping ADD for existing column: {Message}", ex.Message);
+            }
         }
+    }
+
+    private static bool IsColumnNotFound(InvalidQueryException ex)
+    {
+        var msg = ex.Message;
+        return msg.Contains("column", StringComparison.OrdinalIgnoreCase)
+               && (msg.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
+                   || msg.Contains("not found", StringComparison.OrdinalIgnoreCase)
+                   || msg.Contains("undefined", StringComparison.OrdinalIgnoreCase)
+                   || msg.Contains("unknown", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsColumnAlreadyExists(InvalidQueryException ex)
+    {
+        var msg = ex.Message;
+        // Scylla surfaces this as "Invalid column name ... conflicts with an existing column"
+        // or "Column X of type Y already exists" depending on version; match on the intent
+        // rather than the exact wording.
+        return (msg.Contains("column", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("conflicts with", StringComparison.OrdinalIgnoreCase))
+               && (msg.Contains("already exists", StringComparison.OrdinalIgnoreCase)
+                   || msg.Contains("conflicts with an existing", StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<string> SplitCqlStatements(string cql)

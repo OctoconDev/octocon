@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -25,8 +27,8 @@ public sealed class DeleteAvatarCommandHandler : ICommandHandler<DeleteAvatarCom
     {
         var result = await SettingsCommandHelper.ExecuteAsync(
             command,
-            "avatar_deleted",
-            "settings:avatar:delete",
+            SettingsAction.AvatarDeleted,
+            EntityRefs.SettingsAvatarDelete,
             _idempotencyStore,
             ct => _accountRepository.ClearAvatarAsync(command.PrincipalId, ct),
             cancellationToken);

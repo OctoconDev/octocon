@@ -1,6 +1,7 @@
 using Interfold.Contracts.Configuration;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Interfold.Infrastructure.Postgres;
@@ -12,11 +13,11 @@ public sealed class PostgresHealthChecker : IHealthCheck
 
     public PostgresHealthChecker(
         IPostgresConnectionFactory postgresConnectionFactory,
-        PersistenceConfiguration options
+        IOptions<PersistenceConfiguration> options
     )
     {
         _postgresConnectionFactory = postgresConnectionFactory;
-        _options = options;
+        _options = options.Value;
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = new CancellationToken())

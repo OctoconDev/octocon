@@ -1,29 +1,32 @@
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Domain.Abstractions.Repository;
 
 public interface ISettingsFieldRepository
 {
-    Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(string systemId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default);
 
-    Task<string?> CreateAsync(
-        string systemId,
+    Task<FieldId?> CreateAsync(
+        SystemId systemId,
         string name,
-        string type,
-        string securityLevel,
+        FieldType type,
+        VisibilityLevel securityLevel,
         bool locked,
         DateTime insertedAtUtc,
         CancellationToken cancellationToken = default);
 
     Task<bool> UpdateAsync(
-        string systemId,
-        string fieldId,
+        SystemId systemId,
+        FieldId fieldId,
         string? name,
-        string? securityLevel,
+        VisibilityLevel? securityLevel,
         bool? locked,
         CancellationToken cancellationToken = default);
 
-    Task<bool> DeleteAsync(string systemId, string fieldId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default);
 
-    Task<bool> RelocateAsync(string systemId, string fieldId, int index, CancellationToken cancellationToken = default);
+    Task<bool> RelocateAsync(SystemId systemId, FieldId fieldId, int index, CancellationToken cancellationToken = default);
 }

@@ -1,6 +1,11 @@
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Interfold.Api.Services.OAuth;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.Options;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Services;
 
@@ -24,7 +29,7 @@ public sealed class AppleOAuthService
     /// Exchanges an Apple authorization code and returns the stable Apple user identifier (sub).
     /// Returns null if configuration is incomplete or exchange fails.
     /// </summary>
-    public async Task<string?> ExchangeCodeForAppleIdAsync(
+    public async Task<AppleId?> ExchangeCodeForAppleIdAsync(
         string code,
         string redirectUri,
         CancellationToken cancellationToken = default)
@@ -40,11 +45,11 @@ public sealed class AppleOAuthService
         {
             var tokenRequest = new Dictionary<string, string>
             {
-                { "grant_type", "authorization_code" },
-                { "code", code },
-                { "redirect_uri", redirectUri },
-                { "client_id", authConfig.AppleOAuthClientId },
-                { "client_secret", authConfig.AppleOAuthClientSecret }
+                { OAuthQueryKeys.GrantType, OAuthQueryKeys.AuthorizationCodeGrant },
+                { OAuthQueryKeys.Code, code },
+                { OAuthQueryKeys.RedirectUri, redirectUri },
+                { OAuthQueryKeys.ClientId, authConfig.AppleOAuthClientId },
+                { OAuthQueryKeys.ClientSecret, authConfig.AppleOAuthClientSecret }
             };
 
             using var content = new FormUrlEncodedContent(tokenRequest);
@@ -55,14 +60,8 @@ public sealed class AppleOAuthService
                 return null;
             }
 
-            var tokenJson = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var tokenDoc = JsonDocument.Parse(tokenJson);
-            if (!tokenDoc.RootElement.TryGetProperty("id_token", out var idTokenProp))
-            {
-                return null;
-            }
-
-            return ExtractSubFromJwt(idTokenProp.GetString());
+            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>(cancellationToken);
+            return ExtractSubFromJwt(tokenPayload?.IdToken);
         }
         catch
         {
@@ -70,7 +69,7 @@ public sealed class AppleOAuthService
         }
     }
 
-    public string? ExtractSubFromJwt(string? jwt)
+    public AppleId? ExtractSubFromJwt(string? jwt)
     {
         if (string.IsNullOrWhiteSpace(jwt))
         {
@@ -86,18 +85,19 @@ public sealed class AppleOAuthService
         try
         {
             var payloadBytes = Base64UrlDecode(parts[1]);
-            using var payloadDoc = JsonDocument.Parse(payloadBytes);
-            if (payloadDoc.RootElement.TryGetProperty("sub", out var subProp))
-            {
-                return subProp.GetString();
-            }
-
-            return null;
+            var payload = JsonSerializer.Deserialize<AppleIdTokenPayload>(payloadBytes);
+            return string.IsNullOrWhiteSpace(payload?.Sub) ? null : new AppleId(payload.Sub);
         }
         catch
         {
             return null;
         }
+    }
+
+    private sealed record AppleIdTokenPayload
+    {
+        [JsonPropertyName("sub")]
+        public string? Sub { get; init; }
     }
 
     private static byte[] Base64UrlDecode(string input)

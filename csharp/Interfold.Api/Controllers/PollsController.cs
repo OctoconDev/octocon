@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Api.Models;
+using Interfold.Contracts;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Polls;
 using Interfold.Contracts.Models.Commands;
@@ -30,20 +33,20 @@ public sealed class PollsController : InterfoldControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> Index(CancellationToken ct)
+    public async Task<Response<IReadOnlyList<PollReadModel>>> Index(CancellationToken ct)
     {
         var polls = await _pollRepository.ListAsync(PrincipalId, ct);
-        return Ok(new { data = polls });
+        return new SuccessResponse<IReadOnlyList<PollReadModel>>(polls);
     }
 
     //TODO: To ensure route works as expected
     [HttpGet("{id}")]
-    public async Task<IActionResult> Show(string id, CancellationToken ct)
+    public async Task<Response<PollReadModel>> Show(PollId id, CancellationToken ct)
     {
         var poll = await _pollRepository.GetAsync(PrincipalId, id, ct);
         return poll is null
-            ? NotFound(new { error = "Poll not found.", code = "poll_not_found" })
-            : Ok(new { data = poll });
+            ? new ErrorResponse("Poll not found.", ErrorCodes.PollNotFound, System.Net.HttpStatusCode.NotFound)
+            : poll;
     }
 
     [HttpPost]
@@ -59,9 +62,9 @@ public sealed class PollsController : InterfoldControllerBase
             OperationIds.PollCreate,
             Guid.NewGuid(),
             PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreatePollCommand(req.Title, req.Description, req.Type ?? "vote", req.TimeEnd, InsertedAtUtc: default)
+            Payload: new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default)
         );
 
         var execution = await _create.HandleAsync(envelope, ct);
@@ -72,39 +75,44 @@ public sealed class PollsController : InterfoldControllerBase
 
         var poll = await _pollRepository.GetAsync(principal, execution.Result!.PollId, ct);
         if (poll is null)
-            return new ErrorResponse("An unknown error occurred.", "unknown_error", System.Net.HttpStatusCode.InternalServerError);
+            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
 
         return new SuccessResponse<PollReadModel>(poll, System.Net.HttpStatusCode.Created, execution.Result.Replay);
     }
 
     [HttpPatch("{id}")]
-    public async Task<Response> Update(string id, [FromBody] UpdatePollRequest req, CancellationToken ct)
+    public async Task<Response> Update(PollId id, [FromBody] UpdatePollRequest req, CancellationToken ct)
     {
-        if (!req.TryResolveTimeEnd(out var resolvedTimeEnd))
+        // time_end is tri-state (absent / null / value); an unparseable value surfaces as
+        // PatchValueState.Invalid so we can keep this exact error body instead of MVC's
+        // generic model-binding 400.
+        if (req.TimeEnd.IsInvalid)
         {
-            return new ErrorResponse("Invalid time_end.", "poll_invalid_time_end", System.Net.HttpStatusCode.BadRequest);
+            return new ErrorResponse("Invalid time_end.", ErrorCodes.PollInvalidTimeEnd, System.Net.HttpStatusCode.BadRequest);
         }
+
+        DateTime? resolvedTimeEnd = req.TimeEnd.State == PatchValueState.Value ? req.TimeEnd.Value : null;
 
         var envelope = new CommandEnvelope<UpdatePollCommand>(
             OperationIds.PollUpdate,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.HasTimeEnd, req.Data)
+            Payload: new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.TimeEnd.IsSet, req.Data)
         );
 
         return CommandNoContent(await _update.HandleAsync(envelope, ct));
     }
 
     [HttpDelete("{id}")]
-    public async Task<Response> Delete(string id, [FromBody] BaseRequest? req, CancellationToken ct)
+    public async Task<Response> Delete(PollId id, CancellationToken ct)
     {
         var envelope = new CommandEnvelope<DeletePollCommand>(
             OperationIds.PollDelete,
             Guid.NewGuid(),
             PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(req?.IdempotencyKey),
+            IdempotencyKey: GetIdempotencyKey(),
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: new DeletePollCommand(id)
         );

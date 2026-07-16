@@ -4,7 +4,9 @@ using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Cassandra;
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
@@ -13,6 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using TUnit.Aspire;
 
 namespace Interfold.IntegrationTests.TestServices;
@@ -63,22 +66,22 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
     [
         // Drives a 7-region multi-DC Scylla layout in this fixture's own Aspire host. Postgres
         // lives in SharedDbFixture's host instead — see class-level remarks.
-        "Parameters:include-postgres=false",
-        "Parameters:include-scylla=true",
-        "Parameters:include-cassandra=false",
-        "Parameters:scylla-topology=multi",
-        "Parameters:include-api=false",
-        "Parameters:include-web=false",
-        "Parameters:persistent-containers=false",
+        $"{AppHostParameterKeys.IncludePostgres}=false",
+        $"{AppHostParameterKeys.IncludeScylla}=true",
+        $"{AppHostParameterKeys.IncludeCassandra}=false",
+        $"{AppHostParameterKeys.ScyllaTopology}={ScyllaTopologyExtensions.MultiWireValue}",
+        $"{AppHostParameterKeys.IncludeApi}=false",
+        $"{AppHostParameterKeys.IncludeWeb}=false",
+        $"{AppHostParameterKeys.PersistentContainers}=false",
         // Distinct port range so the Aspire host can run side-by-side with SharedDbFixture
         // without the Aspire test-mode port allocator complaining about reuse. SharedDbFixture
         // claims 14200 / 19042 / 19043; this fixture claims 39042.
-        "Ports:scylla=39042",
+        $"{AppHostParameterKeys.PortsScylla}=39042",
         // postgres-* parameters intentionally omitted — they're only consumed by the msg-db
         // container, which include-postgres=false skips entirely.
-        $"Parameters:scylla-user={TestDbCredentials.ScyllaAppUser}",
-        $"Parameters:scylla-password={TestDbCredentials.ScyllaAppPassword}",
-        "Parameters:encryption-private-key=TEST"
+        $"{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}",
+        $"{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}",
+        $"{AppHostParameterKeys.EncryptionPrivateKey}=TEST"
     ];
 
     // Multi-DC Scylla startup itself takes ~2 minutes, then SeedScyllaAsync, the per-keyspace
@@ -111,6 +114,29 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
             .EnsureAsync(HostAioPrerequisite.TotalScyllaNodesForSession())
             .ConfigureAwait(false);
         await base.InitializeAsync().ConfigureAwait(false);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        using var _ = LifecycleProbe.BeginTimed("AfterFixtureDispose:MultiNodeScyllaFixture");
+        LifecycleProbe.Log("BeforeFixtureDispose:MultiNodeScyllaFixture");
+
+        try
+        {
+            await AspireContainerCleanup
+                .StopResourcesAsync(AspireContainerCleanup.MultiNodeScyllaResourceNames())
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best-effort pre-stop; base dispose must still run.
+        }
+
+        await base.DisposeAsync().ConfigureAwait(false);
+
+        var remaining = await AspireContainerCleanup.CountRunningAspireContainersAsync().ConfigureAwait(false);
+        if (remaining > 0)
+            LifecycleProbe.Log($"MultiNodeScyllaFixture.RemainingAspireContainers:{remaining}");
     }
 
     protected override async Task WaitForResourcesAsync(DistributedApplication app, CancellationToken cancellationToken)
@@ -151,27 +177,28 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
         // one.
         var persistenceConfig = new PersistenceConfiguration
         {
-            Mode = "scylla-postgres",
+            Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = SharedDb.PostgresConnectionString,
             IsSingleScyllaInstance = false,
-            ScyllaKeyspace = "nam",
+            ScyllaKeyspace = ScyllaKeyspace.Nam,
         };
-        var connectionFactory = new PostgresConnectionFactory(persistenceConfig);
+        var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);
 
-        var migrationConfig = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["OCTOCON_SCYLLA_CONTACT_POINTS"] = scEndpoint.Host,
-                ["OCTOCON_SCYLLA_PORT"] = scEndpoint.Port.ToString(),
-                ["OCTOCON_SCYLLA_KEYSPACE"] = "nam",
-            })
-            .Build();
+        var overrides = new ScyllaOverrideOptions
+        {
+            ContactPoints = [scEndpoint.Host],
+            Port = scEndpoint.Port,
+        };
+        var resolver = new ScyllaConfigResolver(
+            secretsStore,
+            Options.Create(overrides),
+            Options.Create(persistenceConfig));
 
         await ScyllaMigrationService.MigrateAsync(
             persistenceConfig,
             secretsStore,
-            migrationConfig,
+            resolver,
             NullLoggerFactory.Instance.CreateLogger<ScyllaMigrationService>(),
             cancellationToken);
 

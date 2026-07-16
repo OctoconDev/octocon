@@ -5,6 +5,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -28,8 +30,8 @@ public sealed class UnlinkDiscordCommandHandler : ICommandHandler<UnlinkDiscordC
     {
         var result = await SettingsCommandHelper.ExecuteAsync(
             command,
-            "discord_unlinked",
-            "settings:unlink:discord",
+            SettingsAction.DiscordUnlinked,
+            EntityRefs.SettingsUnlinkDiscord,
             _idempotencyStore,
             ct => _accountRepository.UnlinkDiscordAsync(command.PrincipalId, ct),
             cancellationToken);

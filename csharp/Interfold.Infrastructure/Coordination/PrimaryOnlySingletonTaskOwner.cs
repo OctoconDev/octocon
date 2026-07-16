@@ -1,3 +1,4 @@
+using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.Domain.Abstractions;
 
@@ -11,10 +12,10 @@ namespace Interfold.Infrastructure.Coordination;
 /// </summary>
 public sealed class PrimaryOnlySingletonTaskOwner : ISingletonTaskOwner
 {
-    public bool OwnsTask(string taskName) => true;
+    public bool OwnsTask(SingletonTaskName taskName) => true;
 
     public Task RunIfOwnerAsync(
-        string taskName,
+        SingletonTaskName taskName,
         Func<CancellationToken, Task> work,
         CancellationToken cancellationToken = default)
         => work(cancellationToken);

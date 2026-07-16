@@ -1,3 +1,4 @@
+using Interfold.Contracts;
 using System.Net;
 using System.Text.Json;
 using Interfold.Api.Helpers;
@@ -106,7 +107,7 @@ public sealed class FirebaseConfigResolverTests
 
         await Assert.That(payload).IsNull();
         await Assert.That(error).IsNotNull();
-        await Assert.That(error!.Code).IsEqualTo("firebase_config_unavailable");
+        await Assert.That(error!.Code).IsEqualTo(ErrorCodes.FirebaseConfigUnavailable);
         await Assert.That(error.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
     }
 
@@ -117,7 +118,7 @@ public sealed class FirebaseConfigResolverTests
 
         await Assert.That(payload).IsNull();
         await Assert.That(error).IsNotNull();
-        await Assert.That(error!.Code).IsEqualTo("invalid_platform");
+        await Assert.That(error!.Code).IsEqualTo(ErrorCodes.InvalidPlatform);
         await Assert.That(error.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
     }
 
@@ -128,7 +129,7 @@ public sealed class FirebaseConfigResolverTests
 
         await Assert.That(payload).IsNull();
         await Assert.That(error).IsNotNull();
-        await Assert.That(error!.Code).IsEqualTo("invalid_platform");
+        await Assert.That(error!.Code).IsEqualTo(ErrorCodes.InvalidPlatform);
     }
 
     [Test]

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Interfold.Api.Models;
 using Interfold.Domain.Abstractions;
 using Interfold.Api.Controllers.Base;
 
@@ -28,10 +29,6 @@ public sealed class NodeRoleController : InterfoldControllerBase
     [HttpGet("node-role")]
     public IActionResult GetNodeRole()
     {
-        return Ok(new
-        {
-            role = _nodeRole.Role.ToString().ToLowerInvariant(),
-            owns_singletons = _nodeRole.IsPrimary
-        });
+        return Ok(new NodeRoleResponse(_nodeRole.Role, _nodeRole.IsPrimary));
     }
 }

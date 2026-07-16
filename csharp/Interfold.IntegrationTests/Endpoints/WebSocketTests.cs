@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Interfold.Contracts;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
@@ -19,6 +21,13 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 {
     internal static string UniqueId(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 
+    // Events carry ScopedSystemId, so tests that publish directly onto the bus compose
+    // one from the raw test id. NAM is the only region the test bootstrapper seeds;
+    // compose is idempotent, so callers that already pass "nam:..." (or another valid
+    // region prefix) keep the same wire bytes.
+    internal static ScopedSystemId AsScopedSystemId(string rawSystemId)
+        => ScopedSystemId.Compose(ScyllaKeyspace.Nam, rawSystemId);
+
     [Test]
     public async Task Api_UserSocketEndpoint_AllowsWebSocketUpgrade(CancellationToken token)
     {
@@ -33,9 +42,17 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         await Assert.That(ws.State).IsEqualTo(WebSocketState.Open).Because($"Expected websocket to be open after connecting to /api/socket/weboscket, got {ws.State}.");
 
+        // Raw dictionary payload (not the typed PhxJoinPayload): pins the server's tolerance
+        // for unknown platform spellings ("wasm") which the typed record can no longer emit.
         var arrayJoinFrame = PhxArrayFrame.CreateBytes(
             "51", "51", $"system:{systemId}", "phx_join",
-            new PhxJoinPayload { Token = socketToken, ProtocolVersion = "2.0.0", Platform = "wasm", IsReconnect = true });
+            new Dictionary<string, object?>
+            {
+                ["token"] = socketToken,
+                ["protocolVersion"] = "2.0.0",
+                ["platform"] = "wasm",
+                ["isReconnect"] = true,
+            });
 
         await ws.SendAsync(arrayJoinFrame, WebSocketMessageType.Text, endOfMessage: true, token);
 
@@ -48,8 +65,8 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
             await Assert.That(frame.Topic).IsEqualTo($"system:{systemId}").Because("Expected topic to match array join topic.");
             await Assert.That(frame.Event).IsEqualTo("phx_reply").Because("Expected array reply event phx_reply.");
             var reply = frame.Reply<SocketJoinReconnectPayload>();
-            await Assert.That(reply.Status).IsEqualTo("ok").Because("Expected status=ok for reconnect join.");
-            await Assert.That(reply.Response.System.Id).IsEqualTo(systemId).Because("Expected system ID in reconnect payload.");
+            await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected status=ok for reconnect join.");
+            await Assert.That(reply.Response.System.Id).IsEqualTo(new SystemId(systemId)).Because("Expected system ID in reconnect payload.");
         }
     }
     
@@ -66,7 +83,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = $"system:{systemId}",
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = socketToken, ProtocolVersion = "not-a-version" },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), ProtocolVersion = "not-a-version" },
             Ref = "1",
             JoinRef = "1"
         }.ToBytes();
@@ -76,8 +93,8 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(reply.Status).IsEqualTo("error").Because("Expected status=error for unsupported protocol version.");
-            await Assert.That(reply.Response.Reason).IsEqualTo("unsupported_protocol_version").Because("Expected reason=unsupported_protocol_version.");
+            await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Error).Because("Expected status=error for unsupported protocol version.");
+            await Assert.That(reply.Response.Reason).IsEqualTo(ErrorCodes.SocketReasons.UnsupportedProtocolVersion).Because("Expected reason=unsupported_protocol_version.");
         }
 
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
@@ -96,7 +113,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = $"system:{systemId}",
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = socketToken, Platform = "ios", ProtocolVersion = "2.0.0", ForceBatch = true },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), Platform = ClientPlatform.Ios, ProtocolVersion = "2.0.0", ForceBatch = true },
             Ref = "1",
             JoinRef = "1"
         }.ToBytes();
@@ -106,7 +123,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(reply.Status).IsEqualTo("ok").Because("Expected status=ok for iOS batched join.");
+            await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected status=ok for iOS batched join.");
             await Assert.That(reply.Response.Batched).IsTrue().Because("Expected batched=true for iOS join above threshold.");
         }
 
@@ -131,14 +148,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(firstReply.Status).IsEqualTo("ok").Because("Expected first join to be accepted.");
-            await Assert.That(secondReply.Status).IsEqualTo("ok").Because("Expected second join to be accepted.");
-            await Assert.That(thirdReply.Status).IsEqualTo("error").Because("Expected third join to be rate-limited.");
+            await Assert.That(firstReply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected first join to be accepted.");
+            await Assert.That(secondReply.Status).IsEqualTo(PhoenixReplyStatus.Ok).Because("Expected second join to be accepted.");
+            await Assert.That(thirdReply.Status).IsEqualTo(PhoenixReplyStatus.Error).Because("Expected third join to be rate-limited.");
         }
 
         var thirdResponse = JsonSerializer.Deserialize<SocketReasonResponse>(
             JsonSerializer.Serialize(thirdReply.Response, SocketJson.Options), SocketJson.Options);
-        await Assert.That(thirdResponse!.Reason).IsEqualTo("rate_limited").Because("Expected reason=rate_limited on third join.");
+        await Assert.That(thirdResponse!.Reason).IsEqualTo(ErrorCodes.SocketReasons.RateLimited).Because("Expected reason=rate_limited on third join.");
 
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
     }
@@ -997,14 +1014,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         await JoinTopicAsync(ws, topic, socketToken, token);
 
-        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportCompletedEvent(systemId, 7), token);
+        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportCompletedEvent(AsScopedSystemId(systemId), 7), token);
 
         var completeFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.SpComplete, maxFrames: 4);
         await Assert.That(completeFrame).IsNotNull().Because("Expected sp_import_complete push after bus publish.");
         await Assert.That(completeFrame!.RawPayload?.GetProperty("alter_count").GetInt32() ?? -1)
             .IsEqualTo(7).Because("Expected alter_count=7 in sp_import_complete payload (legacy contract is snake_case).");
 
-        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportFailedEvent(systemId), token);
+        await fixture.Factory.EventBus.PublishAsync(new SimplyPluralImportFailedEvent(AsScopedSystemId(systemId)), token);
 
         var failedFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.SpFailed, maxFrames: 4);
         await Assert.That(failedFrame).IsNotNull().Because("Expected sp_import_failed push after bus publish.");
@@ -1027,14 +1044,14 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
         await JoinTopicAsync(ws, topic, socketToken, token);
 
-        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportCompletedEvent(systemId, 3), token);
+        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportCompletedEvent(AsScopedSystemId(systemId), 3), token);
 
         var completeFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.PkComplete, maxFrames: 4);
         await Assert.That(completeFrame).IsNotNull().Because("Expected pk_import_complete push after bus publish.");
         await Assert.That(completeFrame!.RawPayload?.GetProperty("alter_count").GetInt32() ?? -1)
             .IsEqualTo(3).Because("Expected alter_count=3 in pk_import_complete payload (legacy contract is snake_case).");
 
-        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportFailedEvent(systemId), token);
+        await fixture.Factory.EventBus.PublishAsync(new PluralKitImportFailedEvent(AsScopedSystemId(systemId)), token);
 
         var failedFrame = await ReceivedPhxFrame.ReceiveEventFrameAsync(ws, token, SocketEventNames.Imports.PkFailed, maxFrames: 4);
         await Assert.That(failedFrame).IsNotNull().Because("Expected pk_import_failed push after bus publish.");
@@ -1156,9 +1173,9 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 // "Name or service not known" SocketException seen in the production
                 // crash. Under TestServer the authority is cosmetic, so this assertion
                 // alone is not sufficient — see the URI-recorder assertions below.
-                await Assert.That(reply.Status).IsEqualTo("ok")
+                await Assert.That(reply.Status).IsEqualTo(PhoenixReplyStatus.Ok)
                     .Because("Expected the endpoint-proxy phx_reply to be ok; the proxy must succeed regardless of the inbound Host header.");
-                await Assert.That(reply.Response.Status).IsEqualTo(StatusCodes.Status201Created)
+                await Assert.That(reply.Response.Status).IsEqualTo(System.Net.HttpStatusCode.Created)
                     .Because("Expected the relayed POST /api/systems/me/alters to return 201 Created (mirrors the contract from the existing endpoint-proxy tests above).");
 
                 // The outbound recorder assertions ARE the regression guard. Pre-fix the
@@ -1171,12 +1188,19 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 await Assert.That(recorded.Length).IsGreaterThan(0)
                     .Because("Expected the endpoint proxy to issue at least one outbound HttpClient call (the relayed POST to /api/systems/me/alters).");
 
-                // Filter to the relayed path — other HttpClient activity from this test
-                // (token generation, EnsureUserExistsAsync, etc.) may also be captured.
+                // Filter to the relayed path AND our operator-facing Host header. The
+                // recorder hook is process-wide, so concurrent websocket tests that relay
+                // the same endpoint through the proxy (with their own default `localhost`
+                // upgrade host) also land in the queue — matching on this test's unique
+                // Host value picks out OUR relay deterministically. This keeps the
+                // regression guard intact: if the proxy stopped forwarding the outer Host,
+                // no recorded call would carry it and this lookup would come back null.
+                var operatorFacingHostHeader = $"{operatorFacingHost}:{hostSideMappedPort}";
                 var proxyCall = recorded.FirstOrDefault(c =>
-                    c.Uri.AbsolutePath.Equals("/api/systems/me/alters", StringComparison.Ordinal));
+                    c.Uri.AbsolutePath.Equals("/api/systems/me/alters", StringComparison.Ordinal)
+                    && string.Equals(c.HostHeader, operatorFacingHostHeader, StringComparison.OrdinalIgnoreCase));
                 await Assert.That(proxyCall).IsNotNull()
-                    .Because($"Expected to record an HttpClient call to /api/systems/me/alters from the endpoint proxy. Recorded calls: [{string.Join(", ", recorded.Select(c => $"({c.Uri}, Host={c.HostHeader ?? "<null>"})"))}].");
+                    .Because($"Expected to record an HttpClient call to /api/systems/me/alters carrying the forwarded outer Host header '{operatorFacingHostHeader}' — its absence means the endpoint proxy either never dialed the relay target or stopped forwarding the upgrade's Host. Recorded calls: [{string.Join(", ", recorded.Select(c => $"({c.Uri}, Host={c.HostHeader ?? "<null>"})"))}].");
 
                 var proxyUri = proxyCall!.Uri;
                 await Assert.That(proxyUri.Host).IsNotEqualTo(operatorFacingHost)
@@ -1209,8 +1233,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
                 // 10.0.9 on Linux observed to drop it). Real Kestrel always honors the
                 // Host header from the HTTP wire as a matter of HTTP standard, so the
                 // outbound assertion is sufficient for production correctness.
-                var operatorFacingHostHeader = $"{operatorFacingHost}:{hostSideMappedPort}";
-                await Assert.That(proxyCall.HostHeader).IsEqualTo(operatorFacingHostHeader)
+                await Assert.That(proxyCall!.HostHeader).IsEqualTo(operatorFacingHostHeader)
                     .Because($"Regression: the proxy must forward the OUTER upgrade's Host header ('{operatorFacingHostHeader}') onto the inner HttpRequestMessage so the inner pipeline observes the operator-facing origin, not the loopback dial target. Recorded Host header was '{proxyCall.HostHeader ?? "<null>"}'.");
             }
 
@@ -1231,7 +1254,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = topic,
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = socketToken, IsReconnect = true },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), IsReconnect = true },
             Ref = "1",
             JoinRef = "1"
         };
@@ -1239,7 +1262,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await ws.SendAsync(joinFrame.ToBytes(), WebSocketMessageType.Text, endOfMessage: true, timeoutToken);
         var frame = await ReceivedPhxFrame.ReceiveAsync(ws, timeoutToken);
         var reply = frame.Reply<object>();
-        if (reply.Status != "ok")
+        if (reply.Status != PhoenixReplyStatus.Ok)
             throw new InvalidOperationException($"JoinTopicAsync failed for topic '{topic}'. Status: {reply.Status}");
     }
 
@@ -1259,7 +1282,7 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         {
             Topic = $"system:{systemId}",
             Event = "phx_join",
-            Payload = new PhxJoinPayload { Token = socketToken, IsReconnect = true },
+            Payload = new PhxJoinPayload { Token = new SocketToken(socketToken), IsReconnect = true },
             Ref = refId,
             JoinRef = "1"
         };

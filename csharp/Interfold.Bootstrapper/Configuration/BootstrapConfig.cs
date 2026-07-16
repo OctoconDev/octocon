@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Interfold.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Configuration;
 
@@ -22,7 +23,7 @@ public sealed class BootstrapConfig
     /// <c>include-scylla</c> / <c>include-cassandra</c> / <c>scylla-topology</c>.
     /// </summary>
     [JsonPropertyName("databaseMode")]
-    public string DatabaseMode { get; set; } = "single";
+    public DatabaseMode DatabaseMode { get; set; } = DatabaseMode.Single;
 
     /// <summary>
     /// Pre-built Interfold API container image reference. The bootstrapper does NOT build the API
@@ -71,7 +72,7 @@ public sealed class BootstrapConfig
     /// API container via the AppHost <c>scylla-keyspace</c> parameter.
     /// </summary>
     [JsonPropertyName("scyllaKeyspace")]
-    public string ScyllaKeyspace { get; set; } = "nam";
+    public ScyllaKeyspace ScyllaKeyspace { get; set; } = ScyllaKeyspace.Nam;
 
     [JsonPropertyName("apiRuntime")]
     public ApiRuntimeSection ApiRuntime { get; set; } = new();
@@ -443,7 +444,7 @@ public sealed class ClusterSection
     /// deployments override this via <c>FLY_PROCESS_GROUP</c> at runtime.
     /// </summary>
     [JsonPropertyName("nodeGroup")]
-    public string NodeGroup { get; set; } = "auxiliary";
+    public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;
 }
 
 /// <summary>

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
@@ -20,18 +21,18 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 /// </summary>
 public sealed class InMemoryImportOperationRepository : IImportOperationRepository
 {
-    private readonly ConcurrentDictionary<(string SystemId, Guid OperationId), Row> _operations = new();
-    private readonly ConcurrentDictionary<(string SystemId, string Kind), Guid> _active = new();
+    private readonly ConcurrentDictionary<(SystemId SystemId, ImportOperationId OperationId), Row> _operations = new();
+    private readonly ConcurrentDictionary<(SystemId SystemId, ImportOperationKind Kind), ImportOperationId> _active = new();
 
     public Task<ImportOperationClaim> TryClaimAsync(
-        string systemId,
-        string kind,
-        string idempotencyKey,
+        SystemId systemId,
+        ImportOperationKind kind,
+        IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var newOperationId = Guid.NewGuid();
+        ImportOperationId newOperationId = new(Guid.NewGuid());
         var key = (systemId, kind);
 
         // TryAdd is the in-memory equivalent of the Cassandra LWT IF NOT EXISTS — atomic
@@ -60,8 +61,8 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task MarkRunningAsync(
-        string systemId,
-        Guid operationId,
+        SystemId systemId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -84,9 +85,9 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task MarkSucceededAsync(
-        string systemId,
-        Guid operationId,
-        string kind,
+        SystemId systemId,
+        ImportOperationId operationId,
+        ImportOperationKind kind,
         int alterCount,
         CancellationToken cancellationToken = default)
     {
@@ -107,10 +108,10 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task MarkFailedAsync(
-        string systemId,
-        Guid operationId,
-        string kind,
-        string errorCode,
+        SystemId systemId,
+        ImportOperationId operationId,
+        ImportOperationKind kind,
+        ImportErrorCode errorCode,
         string? errorMessage,
         CancellationToken cancellationToken = default)
     {
@@ -132,8 +133,8 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     }
 
     public Task<ImportOperationSnapshot?> GetByIdAsync(
-        string systemId,
-        Guid operationId,
+        SystemId systemId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -146,19 +147,19 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
         return Task.FromResult<ImportOperationSnapshot?>(Snapshot(row));
     }
 
-    public Task<Guid?> GetActiveOperationIdAsync(
-        string systemId,
-        string kind,
+    public Task<ImportOperationId?> GetActiveOperationIdAsync(
+        SystemId systemId,
+        ImportOperationKind kind,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         if (_active.TryGetValue((systemId, kind), out var id))
         {
-            return Task.FromResult<Guid?>(id);
+            return Task.FromResult<ImportOperationId?>(id);
         }
 
-        return Task.FromResult<Guid?>(null);
+        return Task.FromResult<ImportOperationId?>(null);
     }
 
     public Task<IReadOnlyList<ImportOperationSnapshot>> GetStaleRunningAsync(
@@ -194,14 +195,14 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     /// so a stale terminal call (e.g. from a sweep) can't accidentally evict a different
     /// in-flight operation that took the slot afterwards.
     /// </summary>
-    private void ReleaseSlot(string systemId, string kind, Guid operationId)
+    private void ReleaseSlot(SystemId systemId, ImportOperationKind kind, ImportOperationId operationId)
     {
         var key = (systemId, kind);
         // ConcurrentDictionary doesn't expose conditional-remove on key+value pairs as
         // a single primitive, but TryRemove(KeyValuePair) does. .NET's collection treats
         // this as atomic-on-match.
-        var pair = new KeyValuePair<(string, string), Guid>(key, operationId);
-        ((ICollection<KeyValuePair<(string, string), Guid>>)_active).Remove(pair);
+        var pair = new KeyValuePair<(SystemId, ImportOperationKind), ImportOperationId>(key, operationId);
+        ((ICollection<KeyValuePair<(SystemId, ImportOperationKind), ImportOperationId>>)_active).Remove(pair);
     }
 
     private static ImportOperationSnapshot Snapshot(Row row) =>
@@ -223,15 +224,15 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
     /// </summary>
     private sealed class Row
     {
-        public required string SystemId { get; init; }
-        public required Guid OperationId { get; init; }
-        public required string Kind { get; init; }
+        public required SystemId SystemId { get; init; }
+        public required ImportOperationId OperationId { get; init; }
+        public required ImportOperationKind Kind { get; init; }
         public ImportOperationStatus Status { get; set; }
         public DateTimeOffset StartedAt { get; init; }
         public DateTimeOffset? FinishedAt { get; set; }
         public int? AlterCount { get; set; }
-        public string? ErrorCode { get; set; }
+        public ImportErrorCode? ErrorCode { get; set; }
         public string? ErrorMessage { get; set; }
-        public required string IdempotencyKey { get; init; }
+        public required IdempotencyKey IdempotencyKey { get; init; }
     }
 }

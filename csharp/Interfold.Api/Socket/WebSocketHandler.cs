@@ -12,6 +12,8 @@ using Interfold.Api.Helpers;
 using Interfold.Api.Models;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 
@@ -34,26 +36,28 @@ public static async Task HandleUserSocketAsync(HttpContext context)
     {
         logger.LogWarning("Request is not a WebSocket upgrade request");
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            error = "WebSocket upgrade required.",
-            code = "websocket_upgrade_required"
-        });
+        await context.Response.WriteAsJsonAsync(
+            new ErrorResponse("WebSocket upgrade required.", ErrorCodes.WebSocketUpgradeRequired));
         return;
     }
 
-    var token = context.Request.Query["token"].ToString();
-    logger.LogInformation("Token from query string length: {TokenLength}", token?.Length ?? 0);
-    
-    if (string.IsNullOrWhiteSpace(token))
+    // Wrap the raw query-string value in SocketToken at the boundary. Every hop from here
+    // through the socket-join and endpoint-proxy paths carries the typed wrapper so an
+    // accidental $"{token}" interpolation (structured log, debug string) goes through
+    // SocketToken.ToString() and gets redacted instead of leaking the JWT. The wrapper is
+    // unwrapped via .Value in exactly three sites: the two IsNullOrWhiteSpace guards below
+    // (guards, not logs — no leak risk), the framework's JwtSecurityTokenHandler string-only
+    // API in IsSocketJoinTokenAuthorizedAsync, and the final Authorization: Bearer header
+    // write in HandleEndpointProxyAsync which needs the raw value on the wire.
+    SocketToken token = new(context.Request.Query[SocketQueryKeys.Token].ToString());
+    logger.LogInformation("Token from query string length: {TokenLength}", token.Value.Length);
+
+    if (string.IsNullOrWhiteSpace(token.Value))
     {
         logger.LogWarning("Missing or empty token in query string");
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            error = "Missing socket token.",
-            code = "missing_socket_token"
-        });
+        await context.Response.WriteAsJsonAsync(
+            new ErrorResponse("Missing socket token.", ErrorCodes.MissingSocketToken));
         return;
     }
 
@@ -64,7 +68,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         .CurrentValue.BatchBytesThreshold ?? 1_048_576;
     var buffer = new byte[1024 * 16];
     var joinedTopics = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
-    string? joinedSystemId = null;
+    SystemId? joinedSystemId = null;
     var topicReplyAsArrayFrame = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
     var topicJoinReference = new System.Collections.Concurrent.ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
     using var sendGate = new SemaphoreSlim(1, 1);
@@ -100,7 +104,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             break;
         }
 
-        if (!TryParsePhoenixFrame(incomingText, out var eventName, out var topic, out var payload, out var reference, out var joinReference, out var replyAsArrayFrame))
+        if (!PhoenixInboundFrame.TryParse(incomingText, out var frame))
         {
             // Unrecognised frame; close with a protocol-error code rather than
             // echoing raw JSON (which is itself not a valid Phoenix frame).
@@ -111,14 +115,16 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             break;
         }
 
-        if (string.Equals(eventName, "heartbeat", StringComparison.OrdinalIgnoreCase))
+        var (eventName, topic, payload, reference, joinReference, replyAsArrayFrame) = frame;
+
+        if (string.Equals(eventName, PhoenixEventNames.Heartbeat, StringComparison.OrdinalIgnoreCase))
         {
             await SendPhoenixReplyAsync(
                 socket,
                 topic,
                 reference,
                 joinReference,
-                status: "ok",
+                status: PhoenixReplyStatus.Ok,
                 response: new EmptyPayload(),
                 replyAsArrayFrame,
                 context.RequestAborted,
@@ -126,59 +132,50 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             continue;
         }
 
-        if (string.Equals(eventName, "phx_join", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(eventName, PhoenixEventNames.Join, StringComparison.OrdinalIgnoreCase))
         {
-            var payloadToken = string.Empty;
-            var isReconnect = false;
-            var forceBatch = false;
-            var platform = "unknown";
-            var protocolVersion = new Version(1, 0, 0);
-            var protocolSupported = true;
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("token", out var tokenProp)
-                && tokenProp.ValueKind == JsonValueKind.String)
+            // Deserialize the typed join payload. Per-property tolerance for the ONE
+            // field that historically saw stray wire spellings — the platform enum —
+            // is enforced by TolerantWireEnumJsonConverter on PhxJoinPayload.Platform,
+            // so an unknown platform value round-trips to null WITHOUT throwing a
+            // JsonException that would take the sibling token / protocolVersion down
+            // with it. The outer try/catch stays as a belt-and-braces guard for
+            // wholly-malformed payloads (e.g. `payload: 42`) where "keep defaults"
+            // is a safer floor than crashing the socket loop, but a valid join with
+            // an unknown platform must never hit this catch — that path would zero
+            // out the token and turn the reply into a bogus Unauthorized (regression
+            // pinned by Api_UserSocketEndpoint_AllowsWebSocketUpgrade).
+            var joinPayload = new PhxJoinPayload();
+            if (payload?.ValueKind == JsonValueKind.Object)
             {
-                payloadToken = tokenProp.GetString() ?? string.Empty;
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("isReconnect", out var isReconnectProp)
-                && isReconnectProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
-            {
-                isReconnect = isReconnectProp.GetBoolean();
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("forceBatch", out var forceBatchProp)
-                && forceBatchProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
-            {
-                forceBatch = forceBatchProp.GetBoolean();
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("platform", out var platformProp)
-                && platformProp.ValueKind == JsonValueKind.String)
-            {
-                platform = platformProp.GetString() ?? "unknown";
-            }
-
-            if (payload?.ValueKind == JsonValueKind.Object
-                && payload.Value.TryGetProperty("protocolVersion", out var protocolVersionProp)
-                && protocolVersionProp.ValueKind == JsonValueKind.String)
-            {
-                var rawVersion = protocolVersionProp.GetString();
-                if (!TryParseLooseVersion(rawVersion, out protocolVersion))
+                try
                 {
-                    protocolSupported = false;
+                    joinPayload = payload.Value.Deserialize<PhxJoinPayload>(SocketJson.Options) ?? new PhxJoinPayload();
+                }
+                catch (JsonException)
+                {
+                    // keep defaults
                 }
             }
 
-            var isSystemTopic = !string.IsNullOrWhiteSpace(topic)
-                && topic.StartsWith("system:", StringComparison.OrdinalIgnoreCase)
-                && topic.Length > "system:".Length;
+            var payloadToken = joinPayload.Token;
+            var isReconnect = joinPayload.IsReconnect ?? false;
+            var forceBatch = joinPayload.ForceBatch ?? false;
+            var platform = joinPayload.Platform;
+            var protocolVersion = new Version(1, 0, 0);
+            var protocolSupported = joinPayload.ProtocolVersion is null
+                || TryParseLooseVersion(joinPayload.ProtocolVersion, out protocolVersion);
 
-            var requestedSystemId = isSystemTopic ? topic["system:".Length..] : string.Empty;
-            var (tokenAuthorized, tokenAuthFailureReason) = await IsSocketJoinTokenAuthorizedAsync(
+            var isSystemTopic = SystemTopic.TryParse(topic, out var requestedTopic);
+            // SystemId? mirrors the joinedSystemId idiom above — null means "no system
+            // topic on this join" and gates the downstream sub-vs-topic comparison.
+            SystemId? requestedSystemId = isSystemTopic ? requestedTopic.Id : null;
+            // scopedSub is the ScopedSystemId? parsed from the JWT sub inside the helper.
+            // Feeding it into SocketPushContext.JoinedScopedSystemId lets the event-pump
+            // subscribe with the scoped composite (matching every
+            // ITargetedClusterEvent.TargetSystemId), so the bus PublishAsync filter can
+            // compare scoped-to-scoped directly.
+            var (tokenAuthorized, tokenAuthFailureReason, scopedSub) = await IsSocketJoinTokenAuthorizedAsync(
                 context,
                 token,
                 requestedSystemId,
@@ -191,25 +188,25 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     topic,
                     reference,
                     joinReference,
-                    status: "error",
-                    response: new SocketReasonResponse("unsupported_protocol_version"),
+                    status: PhoenixReplyStatus.Error,
+                    response: new SocketReasonResponse(ErrorCodes.SocketReasons.UnsupportedProtocolVersion),
                     replyAsArrayFrame,
                         context.RequestAborted,
                         sendGate);
             }
             else if (isSystemTopic
-                && string.Equals(payloadToken, token, StringComparison.Ordinal)
+                && payloadToken == token
                 && tokenAuthorized)
             {
-                if (!rateLimiter.Allow(requestedSystemId))
+                if (!rateLimiter.Allow(requestedTopic.Id))
                 {
                     await SendPhoenixReplyAsync(
                         socket,
                         topic,
                         reference,
                         joinReference,
-                        status: "error",
-                        response: new SocketReasonResponse("rate_limited"),
+                        status: PhoenixReplyStatus.Error,
+                        response: new SocketReasonResponse(ErrorCodes.SocketReasons.RateLimited),
                         replyAsArrayFrame,
                         context.RequestAborted,
                         sendGate);
@@ -217,12 +214,13 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 }
 
                 joinedTopics[topic] = 0;
-                joinedSystemId = requestedSystemId;
+                joinedSystemId = requestedTopic.Id;
                 topicReplyAsArrayFrame[topic] = replyAsArrayFrame;
                 topicJoinReference[topic] = joinReference;
 
                 // Start the per-socket event pump now that we know which system this socket is bound to.
-                // The bus filter only delivers events whose TargetSystemId matches JoinedSystemId, so the
+                // The bus filter only delivers events whose TargetSystemId matches
+                // JoinedScopedSystemId (scoped-to-scoped record-struct equality), so the
                 // pump's ~38 subscriptions only see traffic for this user.
                 //
                 // Interlocked.CompareExchange flips pumpStarted from 0 to 1 atomically and returns the
@@ -231,9 +229,13 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 // becomes a no-op rather than spinning a second pump / second SocketPushContext.
                 if (Interlocked.CompareExchange(ref pumpStarted, 1, 0) == 0)
                 {
+                    // scopedSub (from IsSocketJoinTokenAuthorizedAsync) threads through
+                    // SocketPushContext into every SocketEventPumpRunner subscription, so
+                    // the bus filter compares scoped-to-scoped without a runtime
+                    // StripRegionPrefix normalisation on either side.
                     var socketPushContext = new SocketPushContext(
                         socket,
-                        joinedSystemId,
+                        scopedSub,
                         joinedTopics,
                         topicJoinReference,
                         topicReplyAsArrayFrame,
@@ -256,18 +258,22 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                         encryptionStateRepository);
                 }
 
-                var initPayload = await WebSocketInitialization.BuildJoinInitPayloadAsync(context, joinedSystemId, context.RequestAborted);
+                var initPayload = await WebSocketInitialization.BuildJoinInitPayloadAsync(context, joinedSystemId.Value, context.RequestAborted);
                 var useBatchedInit = false;
 
                 if (!isReconnect)
                 {
                     var estimatedEncodedBytes = (int)(Encoding.UTF8.GetByteCount(WebSocketEvents.SerializeSocketJson(initPayload)) * 1.1);
                     useBatchedInit = forceBatch
-                        || (string.Equals(platform, "ios", StringComparison.OrdinalIgnoreCase)
+                        || (platform == ClientPlatform.Ios
                             && estimatedEncodedBytes > batchedInitThresholdBytes
                             && protocolVersion >= new Version(2, 0, 0));
                 }
 
+                // Deliberately `object`, not ISocketPayload: System.Text.Json serializes
+                // interface-declared values by the interface's (empty) member set, while
+                // `object` triggers runtime-type serialization — which is what puts the
+                // payload's real properties on the wire.
                 object joinResponse;
                 if (isReconnect)
                 {
@@ -292,7 +298,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     topic,
                     reference,
                     joinReference,
-                    status: "ok",
+                    status: PhoenixReplyStatus.Ok,
                     response: joinResponse,
                     replyAsArrayFrame,
                     context.RequestAborted,
@@ -312,24 +318,24 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             }
             else
             {
-                var unauthorizedReason = tokenAuthFailureReason ?? "unauthorized";
+                var unauthorizedReason = tokenAuthFailureReason ?? ErrorCodes.SocketReasons.Unauthorized;
                 await SendPhoenixReplyAsync(
                     socket,
                     topic,
                     reference,
                     joinReference,
-                    status: "error",
+                    status: PhoenixReplyStatus.Error,
                     response: new SocketReasonResponse(unauthorizedReason),
                     replyAsArrayFrame,
                     context.RequestAborted,
                     sendGate);
-                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, unauthorizedReason, context.RequestAborted);
+                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, unauthorizedReason.Value, context.RequestAborted);
             }
 
             continue;
         }
 
-        if (string.Equals(eventName, "endpoint", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(eventName, PhoenixEventNames.Endpoint, StringComparison.OrdinalIgnoreCase))
         {
             if (!joinedTopics.ContainsKey(topic))
             {
@@ -338,8 +344,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                     topic,
                     reference,
                     joinReference,
-                    status: "error",
-                    response: new SocketReasonResponse("not_joined"),
+                    status: PhoenixReplyStatus.Error,
+                    response: new SocketReasonResponse(ErrorCodes.SocketReasons.NotJoined),
                     replyAsArrayFrame,
                     context.RequestAborted,
                     sendGate);
@@ -353,7 +359,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                 topic,
                 reference,
                 joinReference,
-                status: "ok",
+                status: PhoenixReplyStatus.Ok,
                 response: endpointResult,
                 replyAsArrayFrame,
                 context.RequestAborted,
@@ -367,8 +373,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             topic,
             reference,
             joinReference,
-            status: "error",
-            response: new SocketReasonResponse("event_not_implemented"),
+            status: PhoenixReplyStatus.Error,
+            response: new SocketReasonResponse(ErrorCodes.SocketReasons.EventNotImplemented),
             replyAsArrayFrame,
             context.RequestAborted,
             sendGate);
@@ -399,47 +405,49 @@ public static async Task HandleUserSocketAsync(HttpContext context)
 static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     HttpContext websocketContext,
     JsonElement? payload,
-    string socketToken,
-    string? joinedSystemId)
+    SocketToken socketToken,
+    SystemId? joinedSystemId)
 {
     if (payload is null || payload.Value.ValueKind != JsonValueKind.Object)
     {
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status400BadRequest,
+            System.Net.HttpStatusCode.BadRequest,
             ToJsonString(new ErrorResponse(
                 "Invalid endpoint payload.",
-                "socket_endpoint_payload_invalid",
+                ErrorCodes.SocketEndpointPayloadInvalid,
                 System.Net.HttpStatusCode.BadRequest)));
     }
 
-    var payloadObj = payload.Value;
-    var method = payloadObj.TryGetProperty("method", out var methodProp)
-                 && methodProp.ValueKind == JsonValueKind.String
-        ? methodProp.GetString() ?? string.Empty
-        : string.Empty;
+    SocketEndpointProxyRequest? proxyRequest;
+    try
+    {
+        proxyRequest = payload.Value.Deserialize<SocketEndpointProxyRequest>(SocketJson.Options);
+    }
+    catch (JsonException)
+    {
+        proxyRequest = null;
+    }
 
-    var path = payloadObj.TryGetProperty("path", out var pathProp)
-               && pathProp.ValueKind == JsonValueKind.String
-        ? pathProp.GetString() ?? string.Empty
-        : string.Empty;
+    var method = proxyRequest?.Method ?? string.Empty;
+    var path = proxyRequest?.Path ?? string.Empty;
 
     if (string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(path))
     {
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status400BadRequest,
+            System.Net.HttpStatusCode.BadRequest,
             ToJsonString(new ErrorResponse(
                 "Endpoint payload must include method and path.",
-                "socket_endpoint_method_path_required",
+                ErrorCodes.SocketEndpointMethodPathRequired,
                 System.Net.HttpStatusCode.BadRequest)));
     }
 
     if (!path.StartsWith("/api", StringComparison.OrdinalIgnoreCase))
     {
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status403Forbidden,
+            System.Net.HttpStatusCode.Forbidden,
             ToJsonString(new ErrorResponse(
                 "Socket endpoint relay is restricted to /api paths.",
-                "socket_endpoint_path_forbidden",
+                ErrorCodes.SocketEndpointPathForbidden,
                 System.Net.HttpStatusCode.Forbidden)));
     }
 
@@ -470,10 +478,10 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
         // HttpClient skips TLS validation, so a future regression that let a non-loopback
         // host through here would silently weaken every self-call. Fail fast instead.
         return new SocketEndpointProxyResponse(
-            StatusCodes.Status500InternalServerError,
+            System.Net.HttpStatusCode.InternalServerError,
             ToJsonString(new ErrorResponse(
                 "Socket endpoint relay resolved a non-loopback target.",
-                "socket_endpoint_proxy_misrouted",
+                ErrorCodes.SocketEndpointProxyMisrouted,
                 System.Net.HttpStatusCode.InternalServerError)));
     }
 
@@ -482,23 +490,25 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     // origin, not the loopback dial target — anything reading `Request.Host` for URL
     // qualification (`QualifyAvatar`, OAuth callbacks) would otherwise emit unreachable URLs.
     request.Headers.Host = websocketContext.Request.Host.Value;
-    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {socketToken}");
+    // Wire-format unwrap: this is the single site in the file (paired with the JWT
+    // framework calls in IsSocketJoinTokenAuthorizedAsync) where SocketToken.Value is
+    // exposed. Interpolating the wrapper itself would emit the redacted `abcd…` form and
+    // authentication would fail — the actual JWT must go on the wire verbatim.
+    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {socketToken.Value}");
     request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
-    if (!string.IsNullOrWhiteSpace(joinedSystemId))
+    if (joinedSystemId is { } principal && !string.IsNullOrWhiteSpace(principal.Value))
     {
-        request.Headers.TryAddWithoutValidation("X-Interfold-Principal", joinedSystemId);
+        request.Headers.TryAddWithoutValidation(InterfoldHeaders.Principal, principal.Value);
     }
 
-    if (payloadObj.TryGetProperty("body", out var bodyProp)
-        && bodyProp.ValueKind != JsonValueKind.Null
+    // Body is deserialized straight from the payload's JSON string (Phoenix carries
+    // the inner request body as a JSON-string field so we forward it byte-identical
+    // without re-serializing).
+    if (!string.IsNullOrWhiteSpace(proxyRequest?.Body)
         && method is not "GET" and not "HEAD")
     {
-        //This NEEDS to be GetString() because the raw JSON is what we want to forward, not a re-serialized version of the body element.
-        var requestBodyJson = bodyProp.GetString();
-        if (requestBodyJson != null) {
-            request.Content = new StringContent(requestBodyJson, Encoding.UTF8, "application/json");
-        }
+        request.Content = new StringContent(proxyRequest.Body, Encoding.UTF8, "application/json");
     }
 
     var httpClientFactory = websocketContext.RequestServices.GetRequiredService<IHttpClientFactory>();
@@ -508,7 +518,7 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
     try
     {
         var responseBody = await response.Content.ReadAsStringAsync(websocketContext.RequestAborted);
-        return new SocketEndpointProxyResponse((int)response.StatusCode, responseBody);
+        return new SocketEndpointProxyResponse(response.StatusCode, responseBody);
     }
     finally
     {
@@ -560,10 +570,60 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
         .Replace("://*",       "://127.0.0.1", StringComparison.Ordinal);
 }
 
-static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenAuthorizedAsync(
+/// <summary>
+/// Region-prefix-tolerant equality between the JWT <c>sub</c> claim and the socket topic id.
+/// <para>
+/// JWTs that land on an HTTP controller must carry a scoped <c>{region}:{rawId}</c> sub
+/// (enforced by <c>InterfoldPrincipalMiddleware</c>). Socket topics on the wire stay in
+/// raw <c>system:{rawId}</c> form. This helper is the third comparison site — after the
+/// middleware and after <c>InProcessEventBus.PublishAsync</c>'s publisher-side filter —
+/// that has to agree on what "same principal" means: without it, a scoped-sub JWT joining
+/// a raw-topic channel would 401 at the socket layer even though the middleware and pump
+/// would both accept it.
+/// </para>
+/// <para>
+/// The <c>ScopedSystemId?</c> first parameter can only be produced by
+/// <see cref="ScopedSystemId.TryParseScoped"/>, which is the identical parse call the
+/// middleware performs on the HTTP path — the "you must parse the sub first" rejection
+/// matrix is enforced by construction rather than by convention.
+/// </para>
+/// <para>
+/// Sub-side normalisation reads <see cref="ScopedSystemId.RawId"/> directly.
+/// Topic-side normalisation keeps <see cref="ScopedSystemId.StripRegionPrefix(string)"/>
+/// because <c>SystemTopic.TryParse</c> wraps whatever the client put after
+/// <c>system:</c> into a bare <c>SystemId</c>, which can still arrive raw <b>or</b>
+/// scoped depending on the client.
+/// </para>
+/// <para>
+/// Marked <c>internal</c> so unit tests can drive the scoped-sub × raw/scoped-topic
+/// matrix directly rather than spinning up a full <c>WebApplicationFactory</c>.
+/// </para>
+/// </summary>
+internal static bool IsTokenSubjectAuthorizedForTopic(
+    ScopedSystemId? tokenSubject,
+    SystemId? requestedSystemId)
+{
+    if (tokenSubject is null
+        || requestedSystemId is null
+        || string.IsNullOrWhiteSpace(requestedSystemId.Value.Value))
+    {
+        return false;
+    }
+
+    return string.Equals(
+        tokenSubject.Value.RawId,
+        ScopedSystemId.StripRegionPrefix(requestedSystemId.Value.Value),
+        StringComparison.Ordinal);
+}
+
+// The return tuple carries the parsed ScopedSystemId? so the caller in HandleAsync can
+// feed it into SocketPushContext.JoinedScopedSystemId without re-parsing the JWT. The
+// parse already happens at the TryParseScoped gate below, so returning it is free —
+// the scoped sub is the single source of truth end-to-end.
+static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? TokenSubject)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
-    string token,
-    string requestedSystemId,
+    SocketToken token,
+    SystemId? requestedSystemId,
     CancellationToken cancellationToken)
 {
     var authConfig = context.RequestServices
@@ -572,19 +632,24 @@ static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenA
     var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
         .CreateLogger("WebSocketTokenAuth");
 
-    if (string.IsNullOrWhiteSpace(token))
+    if (string.IsNullOrWhiteSpace(token.Value))
     {
         logger.LogWarning("Token is empty or whitespace");
-        return (false, "missing_socket_token");
+        return (false, ErrorCodes.SocketReasons.MissingSocketToken, null);
     }
 
     logger.LogInformation("Validating token. RequestedSystemId: {SystemId}", requestedSystemId);
-    
+
+    // The three .Value unwraps below are the JWT framework survival points:
+    // JwtSecurityTokenHandler.CanReadToken, ValidateToken, and the SignatureValidator
+    // callback are all typed as `string` by Microsoft.IdentityModel and can't take the
+    // wrapper. Everything else in this method — logging, comparisons, error return —
+    // uses the redacted-by-default typed value.
     var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
-    if (!handler.CanReadToken(token))
+    if (!handler.CanReadToken(token.Value))
     {
         logger.LogWarning("Handler cannot read token");
-        return (false, "invalid_socket_token");
+        return (false, ErrorCodes.SocketReasons.InvalidSocketToken, null);
     }
 
     logger.LogInformation("Token is readable. Verification key count: {KeyCount}", 
@@ -600,53 +665,64 @@ static async Task<(bool IsAuthorized, string? FailureReason)> IsSocketJoinTokenA
         ClockSkew = TimeSpan.FromMinutes(1),
         ValidateIssuerSigningKey = false,
         RequireSignedTokens = true,
-        SignatureValidator = (socketToken, validationParameters) =>
-            ValidateJwtTokenSignatureForSocket(socketToken, validationParameters, authConfig),
-        NameClaimType = "sub"
+        // Framework hands the raw string back to us via this callback; forward straight to
+        // the ES256 verifier. Renamed from `socketToken` so this local can't be confused
+        // with the outer typed `token` — the framework's string leg is deliberately narrow.
+        SignatureValidator = (frameworkRawToken, validationParameters) =>
+            ValidateJwtTokenSignatureForSocket(frameworkRawToken, validationParameters, authConfig),
+        NameClaimType = JwtClaimNames.Sub
     };
 
     try
     {
         logger.LogInformation("Starting token validation");
-        var principal = handler.ValidateToken(token, parameters, out _);
-        var tokenSystemId = principal.FindFirstValue("sub");
-        
+        var principal = handler.ValidateToken(token.Value, parameters, out _);
+        var tokenSub = principal.FindFirstValue(JwtClaimNames.Sub);
+
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
-            tokenSystemId, requestedSystemId);
-            
-        if (string.IsNullOrWhiteSpace(tokenSystemId))
+            tokenSub, requestedSystemId);
+
+        // Mirror InterfoldPrincipalMiddleware.ResolvePrincipalId: the HTTP path 401s on
+        // any JWT whose sub isn't in scoped {region}:{rawId} shape, and the socket path
+        // applies the identical parse so a legacy or hand-crafted unscoped-sub token
+        // can't authorise a socket join it would fail on any subsequent HTTP call.
+        // TryParseScoped rejects null, blank, no-colon, bare-colon, and unknown-region-
+        // prefix inputs — the exact rejection matrix the middleware uses.
+        if (!ScopedSystemId.TryParseScoped(tokenSub, out var scopedSub))
         {
-            logger.LogWarning("Token subject (sub) claim is missing or empty");
-            return (false, "invalid_socket_token_subject");
+            logger.LogWarning("Token subject (sub) claim is missing, unscoped, or has an unknown region prefix");
+            return (false, ErrorCodes.SocketReasons.InvalidSocketTokenSubject, null);
         }
 
-        if (!string.Equals(tokenSystemId, requestedSystemId, StringComparison.Ordinal))
+        if (!IsTokenSubjectAuthorizedForTopic(scopedSub, requestedSystemId))
         {
             logger.LogWarning("Token subject does not match requested system ID");
-            return (false, "unauthorized_topic");
+            return (false, ErrorCodes.SocketReasons.UnauthorizedTopic, null);
         }
 
-            // Check if token has been revoked
-            var jti = principal.FindFirstValue("jti");
-            if (!string.IsNullOrWhiteSpace(jti))
+            // Jti.From wraps the possibly-null JWT claim so the null-check runs on the
+            // typed Jti? and every log site routes through Jti.ToString (which redacts)
+            // rather than interpolating a bare string.
+            var jti = Jti.From(principal.FindFirstValue(JwtClaimNames.Jti));
+            if (jti is { } typedJti)
             {
                 var revocationRepository = context.RequestServices
                     .GetRequiredService<IAuthTokenRevocationRepository>();
-                var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(jti, cancellationToken);
+                var isTokenValid = await revocationRepository.ValidateTokenNotRevokedAsync(typedJti, cancellationToken);
                 if (!isTokenValid)
                 {
-                    logger.LogWarning("Token has been revoked. JTI: {Jti}", jti);
-                    return (false, "token_revoked");
+                    logger.LogWarning("Token has been revoked. JTI: {Jti}", typedJti);
+                    return (false, ErrorCodes.SocketReasons.TokenRevoked, null);
                 }
             }
 
             logger.LogInformation("Token authorization successful");
-            return (true, null);
+            return (true, null, scopedSub);
     }
     catch (Exception ex)
     {
         logger.LogWarning(ex, "WebSocket token validation failed: {ExceptionMessage}", ex.Message);
-        return (false, "invalid_socket_token");
+        return (false, ErrorCodes.SocketReasons.InvalidSocketToken, null);
     }
 }
 
@@ -739,16 +815,10 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
         throw new SecurityTokenInvalidSignatureException($"Failed to decode header: {ex.Message}");
     }
 
-    var alg = string.Empty;
-    using (var headerDoc = JsonDocument.Parse(headerJson))
+    var header = JsonSerializer.Deserialize<JwsHeader>(headerJson);
+    if (header is null || string.IsNullOrWhiteSpace(header.Alg))
     {
-        if (!headerDoc.RootElement.TryGetProperty("alg", out var algProp)
-            || string.IsNullOrWhiteSpace(algProp.GetString()))
-        {
-            throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm in header.");
-        }
-
-        alg = algProp.GetString()!;
+        throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");
     }
 
     var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
@@ -763,9 +833,9 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
     }
 
     // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(alg, "ES256", StringComparison.Ordinal))
+    if (!string.Equals(header.Alg, JwsHeader.Es256, StringComparison.Ordinal))
     {
-        throw new SecurityTokenInvalidSignatureException($"Algorithm '{alg}' is not supported. Only ES256 is accepted.");
+        throw new SecurityTokenInvalidSignatureException($"Algorithm '{header.Alg}' is not supported. Only ES256 is accepted.");
     }
 
     var pems = config.JwtEs256VerificationKeyPems ?? [];
@@ -828,122 +898,12 @@ static string NormalizePem(string pem)
     return normalized;
 }
 
-static bool TryParsePhoenixFrame(
-    string frame,
-    out string eventName,
-    out string topic,
-    out JsonElement? payload,
-    out string? reference,
-    out string? joinReference,
-    out bool replyAsArrayFrame)
-{
-    eventName = string.Empty;
-    topic = "phoenix";
-    payload = null;
-    reference = null;
-    joinReference = null;
-    replyAsArrayFrame = false;
-
-    var trimmed = frame.TrimStart();
-
-    if (trimmed.StartsWith('['))
-    {
-        try
-        {
-            using var arrayDoc = JsonDocument.Parse(frame);
-            var root = arrayDoc.RootElement;
-            if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() < 5)
-            {
-                return false;
-            }
-
-            var joinRefElement = root[0];
-            var refElement = root[1];
-            var topicElement = root[2];
-            var eventElement = root[3];
-
-            if (topicElement.ValueKind != JsonValueKind.String
-                || eventElement.ValueKind != JsonValueKind.String)
-            {
-                return false;
-            }
-
-            // Preserve JSON null so replies can mirror it back as null (not "").
-            joinReference = joinRefElement.ValueKind == JsonValueKind.String
-                ? joinRefElement.GetString()
-                : null;
-
-            reference = refElement.ValueKind == JsonValueKind.String
-                ? refElement.GetString()
-                : null;
-
-            topic = topicElement.GetString() ?? topic;
-            eventName = eventElement.GetString() ?? string.Empty;
-            payload = root[4].Clone();
-            replyAsArrayFrame = true;
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    try
-    {
-        using var doc = JsonDocument.Parse(frame);
-        var root = doc.RootElement;
-
-        if (root.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        if (!root.TryGetProperty("event", out var eventProp)
-            || eventProp.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        eventName = eventProp.GetString() ?? string.Empty;
-
-        if (root.TryGetProperty("topic", out var topicProp)
-            && topicProp.ValueKind == JsonValueKind.String)
-        {
-            topic = topicProp.GetString() ?? topic;
-        }
-
-        if (root.TryGetProperty("payload", out var payloadProp))
-        {
-            payload = payloadProp.Clone();
-        }
-
-        if (root.TryGetProperty("ref", out var refProp)
-            && refProp.ValueKind == JsonValueKind.String)
-        {
-            reference = refProp.GetString() ?? string.Empty;
-        }
-
-        if (root.TryGetProperty("join_ref", out var joinRefProp)
-            && joinRefProp.ValueKind == JsonValueKind.String)
-        {
-            joinReference = joinRefProp.GetString() ?? string.Empty;
-        }
-
-        return true;
-    }
-    catch (JsonException)
-    {
-        return false;
-    }
-}
-
  static async Task SendPhoenixReplyAsync<TResponse>(
      WebSocket socket,
      string topic,
      string? reference,
      string? joinReference,
-     string status,
+     PhoenixReplyStatus status,
      TResponse response,
      bool replyAsArrayFrame,
      CancellationToken cancellationToken,
@@ -951,11 +911,11 @@ static bool TryParsePhoenixFrame(
  {
      var payload = new PhoenixReplyPayload<TResponse>(status, response);
      var bytes = replyAsArrayFrame
-         ? PhxArrayFrame.CreateBytes(joinReference, reference, topic, "phx_reply", payload)
+         ? PhxArrayFrame.CreateBytes(joinReference, reference, topic, PhoenixEventNames.Reply, payload)
          : new PhxFrame<PhoenixReplyPayload<TResponse>>
          {
              Topic = topic,
-             Event = "phx_reply",
+             Event = PhoenixEventNames.Reply,
              Payload = payload,
              Ref = reference,
              JoinRef = joinReference

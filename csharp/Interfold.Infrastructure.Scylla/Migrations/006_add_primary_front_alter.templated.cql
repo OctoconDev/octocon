@@ -1,0 +1,31 @@
+-- =====================
+-- Schema Template: Replace {{KEYSPACE}} with regional keyspace (nam, eur, ocn, eas, sam, sas, gdpr)
+-- Applied by ScyllaMigrationService at startup, immediately followed by
+-- BackfillPrimaryFrontIntToAlterAsync which copies every non-null users.primary_front
+-- (int) value into users.primary_front_alter (smallint).
+--
+-- Why the "_alter" suffix instead of just narrowing the existing column:
+--   Cassandra/Scylla forbids re-adding a dropped column with a different type — an
+--   entry is kept in system_schema.dropped_columns to protect old SSTables from being
+--   reinterpreted under an incompatible type. That closes both the "DROP + re-ADD as
+--   smallint" trick and the "RENAME to primary_front" shortcut (RENAME is limited to
+--   primary-key columns). The only safe path is to introduce a new column name whose
+--   type we control from day one.
+--
+-- Why the physical storage type is smallint (short) instead of int:
+--   AlterId is a strong ID backed by a short. Keeping the DB type identical to the
+--   runtime type removes the widening/narrowing helpers we used to carry (see AlterId
+--   XML docs) and makes GetValue<short?>("primary_front_alter") a direct match.
+--
+-- The legacy users.primary_front (int) column is intentionally NOT dropped by this
+-- migration. A future release can drop it once we're confident no external tool still
+-- reads it. Because we're never trying to re-use the "primary_front" name with a
+-- different type, deferring the DROP is a pure cleanliness concern, not a correctness
+-- one.
+--
+-- Idempotence: the ledger row (scope=<keyspace>, version=006_add_primary_front_alter…)
+-- short-circuits re-runs. A crash between the ALTER landing and the ledger row being
+-- written is absorbed by ExecuteStatements' "column already exists" handler.
+-- =====================
+
+ALTER TABLE {{KEYSPACE}}.users ADD primary_front_alter smallint;

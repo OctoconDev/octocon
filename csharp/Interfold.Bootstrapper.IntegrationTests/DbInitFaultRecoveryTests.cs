@@ -1,5 +1,6 @@
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
+using Interfold.Contracts.Configuration;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
@@ -56,7 +57,7 @@ public class DbInitFaultRecoveryTests(UbuntuDinDFixture dinD)
         var composeFile = $"{scratch.OutputDir}/docker-compose.yaml";
         var pgAdminProbe = await dinD.ExecAsync(
             ["sh", "-c",
-             $"docker compose -f {composeFile} exec -T msg-db psql -U db_init -d postgres -tAc " +
+             $"docker compose -f {composeFile} exec -T msg-db psql -U {PostgresRoles.Init} -d postgres -tAc " +
              "\"SELECT rolsuper FROM pg_roles WHERE rolname='interfold_admin'\""]);
         await Assert.That(pgAdminProbe.ExitCode).IsEqualTo(0L)
             .Because($"postgres should be running after a partial bootstrap: {pgAdminProbe.Stderr}");

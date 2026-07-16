@@ -1,69 +1,112 @@
+using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;
 
 /// <summary>
 /// Unified resolution for Scylla connection values.
-/// Contact points and port support IConfiguration overrides
-/// (OCTOCON_SCYLLA_CONTACT_POINTS, OCTOCON_SCYLLA_PORT) for integration tests where
-/// the host port differs from the secrets store value.
-/// Credentials (username, password, datacenter) come exclusively from ISecretsStore.
-/// Keyspace is the per-node region identity — it comes exclusively from
-/// <c>OCTOCON_SCYLLA_KEYSPACE</c> on the API container's env. A shared row would not
-/// make sense because each region cluster picks a different keyspace; the store
-/// fallback that used to exist was dropped along with the matching SeedKeys row.
+/// <list type="bullet">
+///   <item>Contact points and port honour <see cref="ScyllaOverrideOptions"/> (bound from
+///     <c>OCTOCON_SCYLLA_CONTACT_POINTS</c> and <c>OCTOCON_SCYLLA_PORT</c>) so integration
+///     tests can point the client at a host-published port that differs from the
+///     secrets-store cluster address. A <c>null</c> value on either override falls through
+///     to the store row.</item>
+///   <item>Credentials (username, password, datacenter) come exclusively from
+///     <see cref="ISecretsStore"/> — the store is the single source of truth in every
+///     non-test deployment.</item>
+///   <item>The keyspace is the per-node region identity and is sourced directly from
+///     <see cref="PersistenceConfiguration.ScyllaKeyspace"/>. There is no store fallback
+///     (the row was dropped along with the matching <c>SecretsStoreKeys</c> entry) —
+///     the value flows env → <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/>
+///     → this resolver → the cluster.</item>
+/// </list>
 /// </summary>
-public static class ScyllaConfigResolver
+public interface IScyllaConfigResolver
 {
-    public static async Task<string[]> GetContactPointsAsync(
-        IConfiguration configuration, ISecretsStore secretsStore, CancellationToken ct = default)
-    {
-        var configValue = configuration["OCTOCON_SCYLLA_CONTACT_POINTS"];
-        if (!string.IsNullOrWhiteSpace(configValue))
-            return configValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    /// <summary>Contact-point hosts, in order of preference. Override wins over the store row.</summary>
+    Task<string[]> GetContactPointsAsync(CancellationToken ct = default);
 
-        var raw = await secretsStore.GetAsync("scylla:contact_points", ct);
+    /// <summary>Local datacenter name for DC-aware routing. Defaults to <c>datacenter1</c>.</summary>
+    Task<string> GetDatacenterAsync(CancellationToken ct = default);
+
+    /// <summary>App-user Scylla username. <c>null</c> disables password authentication on the client.</summary>
+    Task<string?> GetUsernameAsync(CancellationToken ct = default);
+
+    /// <summary>App-user Scylla password. Empty string when the store row is unset.</summary>
+    Task<string> GetPasswordAsync(CancellationToken ct = default);
+
+    /// <summary>Regional keyspace wire value (e.g. <c>nam</c>, <c>eur</c>).</summary>
+    string GetKeyspace();
+
+    /// <summary>Scylla TCP port. Override wins over the store row; falls back to <c>9042</c>.</summary>
+    Task<int> GetPortAsync(CancellationToken ct = default);
+}
+
+/// <inheritdoc cref="IScyllaConfigResolver" />
+public sealed class ScyllaConfigResolver : IScyllaConfigResolver
+{
+    private readonly ISecretsStore _secretsStore;
+    private readonly ScyllaOverrideOptions _overrides;
+    private readonly PersistenceConfiguration _persistence;
+
+    public ScyllaConfigResolver(
+        ISecretsStore secretsStore,
+        IOptions<ScyllaOverrideOptions> overrides,
+        IOptions<PersistenceConfiguration> persistence)
+    {
+        _secretsStore = secretsStore;
+        _overrides = overrides.Value;
+        _persistence = persistence.Value;
+    }
+
+    public async Task<string[]> GetContactPointsAsync(CancellationToken ct = default)
+    {
+        if (_overrides.ContactPoints is { Count: > 0 } configOverride)
+        {
+            return configOverride.ToArray();
+        }
+
+        var raw = await _secretsStore.GetAsync(SecretsStoreKeys.ScyllaContactPoints, ct);
         return string.IsNullOrWhiteSpace(raw)
             ? ["127.0.0.1"]
             : raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
-    public static async Task<string> GetDatacenterAsync(
-        ISecretsStore secretsStore, CancellationToken ct = default)
+    public async Task<string> GetDatacenterAsync(CancellationToken ct = default)
     {
-        return await secretsStore.GetAsync("scylla:local_datacenter", ct)
+        return await _secretsStore.GetAsync(SecretsStoreKeys.ScyllaLocalDatacenter, ct)
             ?? "datacenter1";
     }
 
-    public static async Task<string?> GetUsernameAsync(
-        ISecretsStore secretsStore, CancellationToken ct = default)
+    public async Task<string?> GetUsernameAsync(CancellationToken ct = default)
     {
-        return await secretsStore.GetAsync("scylla:username", ct);
+        return await _secretsStore.GetAsync(SecretsStoreKeys.ScyllaUsername, ct);
     }
 
-    public static async Task<string> GetPasswordAsync(
-        ISecretsStore secretsStore, CancellationToken ct = default)
+    public async Task<string> GetPasswordAsync(CancellationToken ct = default)
     {
-        return await secretsStore.GetAsync("scylla:password", ct)
+        return await _secretsStore.GetAsync(SecretsStoreKeys.ScyllaPassword, ct)
             ?? string.Empty;
     }
 
-    public static Task<string> GetKeyspaceAsync(
-        IConfiguration configuration, CancellationToken ct = default)
+    public string GetKeyspace()
     {
-        _ = ct;
-        return Task.FromResult(configuration["OCTOCON_SCYLLA_KEYSPACE"] ?? "nam");
+        // OCTOCON_SCYLLA_KEYSPACE flows env -> ApplyPersistence -> PersistenceConfiguration
+        // -> IOptions<PersistenceConfiguration>. The wire value here is the same string
+        // the migration service and IRegionContext consumers use as a keyspace identifier.
+        return _persistence.ScyllaKeyspace.ToWire();
     }
 
-    public static async Task<int> GetPortAsync(
-        IConfiguration configuration, ISecretsStore secretsStore, CancellationToken ct = default)
+    public async Task<int> GetPortAsync(CancellationToken ct = default)
     {
-        var configValue = configuration["OCTOCON_SCYLLA_PORT"];
-        if (int.TryParse(configValue, out var configPort))
-            return configPort;
+        if (_overrides.Port is { } port)
+        {
+            return port;
+        }
 
-        var raw = await secretsStore.GetAsync("scylla:port", ct);
-        return int.TryParse(raw, out var port) ? port : 9042;
+        var raw = await _secretsStore.GetAsync(SecretsStoreKeys.ScyllaPort, ct);
+        return int.TryParse(raw, out var storePort) ? storePort : 9042;
     }
 }

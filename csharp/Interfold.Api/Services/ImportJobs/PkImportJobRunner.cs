@@ -19,7 +19,7 @@ namespace Interfold.Api.Services.ImportJobs;
 /// </summary>
 public sealed class PkImportJobRunner : IImportJobRunner
 {
-    public string Kind => ImportOperationKinds.PluralKit;
+    public ImportOperationKind Kind => ImportOperationKind.PluralKit;
 
     public Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
     {

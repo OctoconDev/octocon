@@ -1,4 +1,5 @@
-using Interfold.Infrastructure.Scylla.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.IntegrationTests.Services.Scylla;
 
@@ -10,17 +11,17 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
         var compact = Guid.NewGuid().ToString("N");
         var hyphenated = Guid.NewGuid().ToString("D");
 
-        var compactOk = ScyllaPollRepository.TryParseUuid(compact, out var compactParsed);
-        var hyphenatedOk = ScyllaPollRepository.TryParseUuid(hyphenated, out var hyphenatedParsed);
-        var invalidOk = ScyllaPollRepository.TryParseUuid("not-a-guid", out _);
+        var compactOk = PollId.TryParse(compact, provider: null, out var compactParsed);
+        var hyphenatedOk = PollId.TryParse(hyphenated, provider: null, out var hyphenatedParsed);
+        var invalidOk = PollId.TryParse("not-a-guid", provider: null, out _);
 
         using (Assert.Multiple())
         {
             await Assert.That(compactOk).IsTrue();
             await Assert.That(hyphenatedOk).IsTrue();
             await Assert.That(invalidOk).IsFalse();
-            await Assert.That(compactParsed.ToString("N")).IsEqualTo(compact);
-            await Assert.That(hyphenatedParsed.ToString("D")).IsEqualTo(hyphenated);
+            await Assert.That(compactParsed.Value.ToString("N")).IsEqualTo(compact);
+            await Assert.That(hyphenatedParsed.Value.ToString("D")).IsEqualTo(hyphenated);
         }
     }
 
@@ -29,16 +30,15 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
     {
         using (Assert.Multiple())
         {
-            await Assert.That(ScyllaPollRepository.ToPollCode("vote")).IsEqualTo((short)0);
-            await Assert.That(ScyllaPollRepository.ToPollCode("choice")).IsEqualTo((short)1);
-            await Assert.That(ScyllaPollRepository.ToPollCode("approval")).IsEqualTo((short)2);
-            await Assert.That(ScyllaPollRepository.ToPollCode("unknown-type")).IsEqualTo((short)0);
+            await Assert.That((short)PollType.Vote).IsEqualTo((short)0);
+            await Assert.That((short)PollType.Choice).IsEqualTo((short)1);
+            await Assert.That((short)PollType.Approval).IsEqualTo((short)2);
 
-            await Assert.That(ScyllaPollRepository.ToPollType(0)).IsEqualTo("vote");
-            await Assert.That(ScyllaPollRepository.ToPollType(1)).IsEqualTo("choice");
-            await Assert.That(ScyllaPollRepository.ToPollType(2)).IsEqualTo("approval");
-            await Assert.That(ScyllaPollRepository.ToPollType(short.MinValue)).IsEqualTo("vote");
-            await Assert.That(ScyllaPollRepository.ToPollType(short.MaxValue)).IsEqualTo("vote");
+            await Assert.That(((short)0).FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
+            await Assert.That(((short)1).FromCode(PollType.Vote)).IsEqualTo(PollType.Choice);
+            await Assert.That(((short)2).FromCode(PollType.Vote)).IsEqualTo(PollType.Approval);
+            await Assert.That(short.MinValue.FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
+            await Assert.That(short.MaxValue.FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
         }
     }
 
@@ -47,10 +47,10 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
     {
         using (Assert.Multiple())
         {
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(0)).IsEqualTo("friend");
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(1)).IsEqualTo("trusted_friend");
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(short.MinValue)).IsEqualTo("friend");
-            await Assert.That(ScyllaFriendshipRepository.ToDomainLevel(short.MaxValue)).IsEqualTo("friend");
+            await Assert.That(((short)0).FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(((short)1).FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.TrustedFriend);
+            await Assert.That(short.MinValue.FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(short.MaxValue.FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
         }
     }
 
@@ -63,13 +63,13 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
 
         using (Assert.Multiple())
         {
-            await Assert.That(ScyllaTagRepository.TryParseUuid(tag, out _)).IsTrue();
-            await Assert.That(ScyllaJournalRepository.TryParseUuid(journal, out _)).IsTrue();
-            await Assert.That(ScyllaSettingsFieldRepository.TryParseUuid(field, out _)).IsTrue();
+            await Assert.That(TagId.TryParse(tag, provider: null, out _)).IsTrue();
+            await Assert.That(EntryId.TryParse(journal, provider: null, out _)).IsTrue();
+            await Assert.That(FieldId.TryParse(field, provider: null, out _)).IsTrue();
 
-            await Assert.That(ScyllaTagRepository.TryParseUuid("bad", out _)).IsFalse();
-            await Assert.That(ScyllaJournalRepository.TryParseUuid("bad", out _)).IsFalse();
-            await Assert.That(ScyllaSettingsFieldRepository.TryParseUuid("bad", out _)).IsFalse();
+            await Assert.That(TagId.TryParse("bad", provider: null, out _)).IsFalse();
+            await Assert.That(EntryId.TryParse("bad", provider: null, out _)).IsFalse();
+            await Assert.That(FieldId.TryParse("bad", provider: null, out _)).IsFalse();
         }
     }
 }

@@ -1,3 +1,4 @@
+using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Phases;
 using TUnit.Core;
 
@@ -26,8 +27,7 @@ public sealed class SystemdUnitRenderingTests
 
         // The boot-time autostart is deliberately a direct `docker compose up -d` rather
         // than `interfold-bootstrap up` — the bootstrapper's up path waits up to 5 minutes
-        // on /health/ready, which would block the boot critical path. See the plan's
-        // "Boot service implementation" decision.
+        // on /health/ready, which would block the boot critical path.
         await Assert.That(rendered).Contains("ExecStart=/usr/bin/docker compose -f /srv/interfold/deploy/docker-compose.yaml up -d");
         await Assert.That(rendered).Contains("ExecStop=/usr/bin/docker compose -f /srv/interfold/deploy/docker-compose.yaml down");
         await Assert.That(rendered).Contains("WorkingDirectory=/srv/interfold/deploy");
@@ -162,9 +162,9 @@ public sealed class SystemdUnitRenderingTests
         Directory.CreateDirectory(tmp);
         try
         {
-            var logger = new Interfold.Bootstrapper.Cli.PhaseLogger(
-                new Interfold.Bootstrapper.Cli.BootstrapOptions(
-                    Command: Interfold.Bootstrapper.Cli.BootstrapCommand.InstallService,
+            var logger = new PhaseLogger(
+                new BootstrapOptions(
+                    Command: BootstrapCommand.InstallService,
                     ConfigPath: null, OutputDir: tmp,
                     SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
                     NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
@@ -196,9 +196,9 @@ public sealed class SystemdUnitRenderingTests
         Directory.CreateDirectory(tmp);
         try
         {
-            var logger = new Interfold.Bootstrapper.Cli.PhaseLogger(
-                new Interfold.Bootstrapper.Cli.BootstrapOptions(
-                    Command: Interfold.Bootstrapper.Cli.BootstrapCommand.InstallService,
+            var logger = new PhaseLogger(
+                new BootstrapOptions(
+                    Command: BootstrapCommand.InstallService,
                     ConfigPath: null, OutputDir: tmp,
                     SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
                     NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
@@ -232,9 +232,9 @@ public sealed class SystemdUnitRenderingTests
             var dropInPath = Path.Combine(dropInDir, SystemdInstallPhase.BackupOnSuccessDropInFile);
             await File.WriteAllTextAsync(dropInPath, "[Unit]\nOnSuccess=interfold-update.service\n");
 
-            var logger = new Interfold.Bootstrapper.Cli.PhaseLogger(
-                new Interfold.Bootstrapper.Cli.BootstrapOptions(
-                    Command: Interfold.Bootstrapper.Cli.BootstrapCommand.InstallService,
+            var logger = new PhaseLogger(
+                new BootstrapOptions(
+                    Command: BootstrapCommand.InstallService,
                     ConfigPath: null, OutputDir: tmp,
                     SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
                     NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));

@@ -1,5 +1,6 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -22,7 +23,7 @@ public static class PollSocketEventHandlers
         await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Polls.Deleted, new PollDeletedSocketPayload(evt.PollId));
     }
 
-    private static async Task HandleUpsertAsync(string systemId, string pollId, string eventName, SocketPushContext context, IPollRepository pollRepository)
+    private static async Task HandleUpsertAsync(SystemId systemId, PollId pollId, string eventName, SocketPushContext context, IPollRepository pollRepository)
     {
         if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
         {

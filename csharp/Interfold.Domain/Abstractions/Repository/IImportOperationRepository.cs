@@ -1,4 +1,5 @@
 using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Abstractions.Repository;
 
@@ -37,13 +38,13 @@ public interface IImportOperationRepository
     /// </para>
     /// </summary>
     /// <param name="systemId">Octocon system id (regional prefix preserved).</param>
-    /// <param name="kind">One of <see cref="ImportOperationKinds"/>.</param>
+    /// <param name="kind">The third-party integration to claim the slot for.</param>
     /// <param name="idempotencyKey">The raw idempotency-key string the controller observed for this dispatch attempt. Pinned to the row for audit only — the per-system mutex is the real dedupe.</param>
     /// <param name="cancellationToken">Standard cancellation token.</param>
     Task<ImportOperationClaim> TryClaimAsync(
-        string systemId,
-        string kind,
-        string idempotencyKey,
+        SystemId systemId,
+        ImportOperationKind kind,
+        IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -53,8 +54,8 @@ public interface IImportOperationRepository
     /// channel ever delivers the same item twice.
     /// </summary>
     Task MarkRunningAsync(
-        string systemId,
-        Guid operationId,
+        SystemId systemId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -64,24 +65,23 @@ public interface IImportOperationRepository
     /// next click can dispatch.
     /// </summary>
     Task MarkSucceededAsync(
-        string systemId,
-        Guid operationId,
-        string kind,
+        SystemId systemId,
+        ImportOperationId operationId,
+        ImportOperationKind kind,
         int alterCount,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Terminal-failure transition. Sets status to <see cref="ImportOperationStatus.Failed"/>,
-    /// stamps <c>finished_at</c>, records <paramref name="errorCode"/> +
-    /// <paramref name="errorMessage"/>, and releases the active slot. Use a short stable
-    /// <paramref name="errorCode"/> (e.g. "sp_auth_failed", "host_restart") so future code
-    /// can branch on it; the message is for humans reading the operator log.
+    /// stamps <c>finished_at</c>, records the <paramref name="errorCode"/> wire value +
+    /// <paramref name="errorMessage"/>, and releases the active slot. The stable code lets
+    /// future code branch on it; the message is for humans reading the operator log.
     /// </summary>
     Task MarkFailedAsync(
-        string systemId,
-        Guid operationId,
-        string kind,
-        string errorCode,
+        SystemId systemId,
+        ImportOperationId operationId,
+        ImportOperationKind kind,
+        ImportErrorCode errorCode,
         string? errorMessage,
         CancellationToken cancellationToken = default);
 
@@ -90,8 +90,8 @@ public interface IImportOperationRepository
     /// given system+id pair.
     /// </summary>
     Task<ImportOperationSnapshot?> GetByIdAsync(
-        string systemId,
-        Guid operationId,
+        SystemId systemId,
+        ImportOperationId operationId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -102,9 +102,9 @@ public interface IImportOperationRepository
     /// (Phase 1 callers should always treat <see cref="TryClaimAsync"/> as the source of
     /// truth — this method's result is racy.)
     /// </summary>
-    Task<Guid?> GetActiveOperationIdAsync(
-        string systemId,
-        string kind,
+    Task<ImportOperationId?> GetActiveOperationIdAsync(
+        SystemId systemId,
+        ImportOperationKind kind,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -135,4 +135,4 @@ public interface IImportOperationRepository
 /// </summary>
 /// <param name="OperationId">Either the freshly-minted operation id or the id of the in-flight one.</param>
 /// <param name="IsNew">True when the LWT successfully claimed the slot — the caller owns dispatching this work. False when the slot was already taken — the caller MUST NOT enqueue a second worker run.</param>
-public readonly record struct ImportOperationClaim(Guid OperationId, bool IsNew);
+public readonly record struct ImportOperationClaim(ImportOperationId OperationId, bool IsNew);

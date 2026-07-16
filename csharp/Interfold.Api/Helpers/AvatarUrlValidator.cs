@@ -1,3 +1,5 @@
+using Interfold.Contracts;
+
 namespace Interfold.Api.Helpers;
 
 /// <summary>
@@ -13,46 +15,43 @@ internal static class AvatarUrlValidator
     /// </summary>
     internal const int MaxLength = 2048;
 
-    internal const string ErrorInvalid = "avatar_url_invalid";
-    internal const string ErrorTooLong = "avatar_url_too_long";
-
     /// <summary>
     /// Validates and normalises <paramref name="raw"/>. Returns the trimmed URL on success.
     /// </summary>
-    internal static bool TryNormalize(string? raw, out string url, out string errorCode)
+    internal static bool TryNormalize(string? raw, out string url, out ErrorCode errorCode)
     {
         url = string.Empty;
-        errorCode = string.Empty;
+        errorCode = default;
 
         if (string.IsNullOrWhiteSpace(raw))
         {
-            errorCode = ErrorInvalid;
+            errorCode = ErrorCodes.AvatarUrlInvalid;
             return false;
         }
 
         var trimmed = raw.Trim();
         if (trimmed.Length > MaxLength)
         {
-            errorCode = ErrorTooLong;
+            errorCode = ErrorCodes.AvatarUrlTooLong;
             return false;
         }
 
         if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
         {
-            errorCode = ErrorInvalid;
+            errorCode = ErrorCodes.AvatarUrlInvalid;
             return false;
         }
 
         if (uri.Scheme is not ("http" or "https"))
         {
-            errorCode = ErrorInvalid;
+            errorCode = ErrorCodes.AvatarUrlInvalid;
             return false;
         }
 
         url = uri.ToString();
         if (url.Length > MaxLength)
         {
-            errorCode = ErrorTooLong;
+            errorCode = ErrorCodes.AvatarUrlTooLong;
             url = string.Empty;
             return false;
         }

@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
 
@@ -30,14 +31,14 @@ public sealed class StartFrontCommandHandler : ICommandHandler<StartFrontCommand
         CancellationToken cancellationToken = default
     )
     {
-        if (command.Payload.AlterId is < 1 or > 32_767)
+        if (command.Payload.AlterId.Value is < 1 or > 32_767)
         {
-            return RejectInvariant(command, "fronting:invalid_alter_id");
+            return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
         }
 
         if ((command.Payload.Comment?.Length ?? 0) > 50)
         {
-            return RejectInvariant(command, "fronting:invalid_comment");
+            return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
         }
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
@@ -54,7 +55,7 @@ public sealed class StartFrontCommandHandler : ICommandHandler<StartFrontCommand
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
-                return RejectDuplicate(command, "fronting:start");
+                return RejectDuplicate(command, EntityRefs.FrontingStart);
             }
 
             var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
@@ -72,7 +73,7 @@ public sealed class StartFrontCommandHandler : ICommandHandler<StartFrontCommand
 
         if (alreadyFronting)
         {
-            return RejectInvariant(command, "fronting:already_fronting");
+            return RejectInvariant(command, EntityRefs.FrontingAlreadyFronting);
         }
 
         var frontId = await _frontingRepository.StartAsync(
@@ -83,9 +84,9 @@ public sealed class StartFrontCommandHandler : ICommandHandler<StartFrontCommand
             cancellationToken
         );
 
-        if (string.IsNullOrWhiteSpace(frontId))
+        if (frontId is null)
         {
-            return RejectInvariant(command, "fronting:start_failed");
+            return RejectInvariant(command, EntityRefs.FrontingStartFailed);
         }
 
         var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, frontId, Replay: false);
@@ -104,34 +105,34 @@ public sealed class StartFrontCommandHandler : ICommandHandler<StartFrontCommand
         await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
 
         // Emit granular event for socket layer to handle fronting_started
-        await _eventBus.PublishAsync(new FrontingStartedEvent(command.PrincipalId, frontId), cancellationToken);
+        await _eventBus.PublishAsync(new FrontingStartedEvent(command.PrincipalId, frontId.Value), cancellationToken);
 
         return CommandExecutionResult<FrontCommandResult>.Success(result);
     }
 
     private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
         CommandEnvelope<StartFrontCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<FrontCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictDuplicate,
                 command.OperationId,
                 entityRef,
-                "no_retry"
+                ResolutionHint.NoRetry
             )
         );
 
     private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
         CommandEnvelope<StartFrontCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<FrontCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictInvariant,
                 command.OperationId,
                 entityRef,
-                "manual_merge_required"
+                ResolutionHint.ManualMergeRequired
             )
         );
 }

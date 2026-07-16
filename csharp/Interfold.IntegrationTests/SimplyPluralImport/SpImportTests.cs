@@ -5,6 +5,8 @@ using System.Web;
 using Interfold.Api.Services;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
@@ -28,7 +30,7 @@ namespace Interfold.IntegrationTests.SimplyPluralImport;
 /// </summary>
 public sealed class SpImportTests : BaseEndpointTest
 {
-    private static string Uid() => $"sys-{Guid.NewGuid():N}"[..16];
+    private static SystemId Uid() => new($"sys-{Guid.NewGuid():N}"[..16]);
     private static string MemberUuid() => Guid.NewGuid().ToString("N");
 
     // Synthetic timestamps (ms since Unix epoch). The whole point of this test file is to
@@ -57,7 +59,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, currentFrontersJson: liveFronters);
+        var stub = BuildSp(sysId.Value, alpha, currentFrontersJson: liveFronters);
 
         var (sp, frontingRepo, _, _, _, _) = await RunImportAsync(stub, systemId);
         await Assert.That(sp).IsNotNull();
@@ -105,7 +107,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, currentFrontersJson: liveFronters);
+        var stub = BuildSp(sysId.Value, alpha, currentFrontersJson: liveFronters);
 
         var (_, frontingRepo, _, _, _, _) = await RunImportAsync(stub, systemId);
 
@@ -148,7 +150,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, currentFrontersJson: liveFronters);
+        var stub = BuildSp(sysId.Value, alpha, currentFrontersJson: liveFronters);
 
         var (_, frontingRepo, _, _, _, logger) = await RunImportAsync(stub, systemId);
 
@@ -194,7 +196,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, frontHistoryJson: historyJson, currentFrontersJson: "[]");
+        var stub = BuildSp(sysId.Value, alpha, frontHistoryJson: historyJson, currentFrontersJson: "[]");
 
         var (_, frontingRepo, _, _, _, _) = await RunImportAsync(stub, systemId);
 
@@ -219,7 +221,7 @@ public sealed class SpImportTests : BaseEndpointTest
         var systemId = Uid();
         var alpha = MemberUuid();
 
-        var stub = BuildSp(sysId, alpha,
+        var stub = BuildSp(sysId.Value, alpha,
             frontHistoryJson: "[]",
             currentFrontersJson: "[]");
 
@@ -279,7 +281,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -316,7 +318,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -355,7 +357,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -403,19 +405,18 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
         await Assert.That(polls.Count).IsEqualTo(1);
 
-        var votes = polls[0].Data.GetProperty("votes");
-        await Assert.That(votes.GetArrayLength()).IsEqualTo(1);
+        var responses = polls[0].Data.GetProperty("responses");
+        await Assert.That(responses.GetArrayLength()).IsEqualTo(1);
 
-        var onlyVote = votes[0];
-        // The mapped vote's id is the numeric alter id stringified, never the SP uuid.
-        await Assert.That(onlyVote.GetProperty("id").GetString()).IsNotEqualTo(alpha);
-        await Assert.That(onlyVote.GetProperty("id").GetString()).IsNotEqualTo(unmappedVoter);
+        var onlyVote = responses[0];
+        // The mapped vote carries the numeric alter id, never the SP uuid.
+        await Assert.That(onlyVote.GetProperty("alter_id").ValueKind).IsEqualTo(JsonValueKind.Number);
         await Assert.That(onlyVote.GetProperty("vote").GetString()).IsEqualTo("yes");
 
         var warned = logger.Records.Any(r =>
@@ -457,15 +458,15 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
         await Assert.That(polls.Count).IsEqualTo(1);
 
-        var votes = polls[0].Data.GetProperty("votes");
-        await Assert.That(votes.GetArrayLength()).IsEqualTo(1);
-        await Assert.That(votes[0].GetProperty("vote").GetString()).IsEqualTo("abstain");
+        var responses = polls[0].Data.GetProperty("responses");
+        await Assert.That(responses.GetArrayLength()).IsEqualTo(1);
+        await Assert.That(responses[0].GetProperty("vote").GetString()).IsEqualTo("abstain");
     }
 
     [Test]
@@ -498,17 +499,14 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
         await Assert.That(polls.Count).IsEqualTo(1);
 
         var data = polls[0].Data;
-        if (data.TryGetProperty("votes", out var votes))
-        {
-            await Assert.That(votes.GetArrayLength()).IsEqualTo(0);
-        }
+        await Assert.That(data.GetProperty("responses").GetArrayLength()).IsEqualTo(0);
     }
 
     [Test]
@@ -541,7 +539,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -550,17 +548,19 @@ public sealed class SpImportTests : BaseEndpointTest
         var poll = polls[0];
         await Assert.That(poll.Title).IsEqualTo("synthetic abstain vote");
         await Assert.That(poll.Description).IsEqualTo("synthetic desc");
-        await Assert.That(poll.Type).IsEqualTo("vote");
+        await Assert.That(poll.Type).IsEqualTo(PollType.Vote);
         await Assert.That(poll.TimeEnd).IsNotNull();
         await Assert.That(poll.TimeEnd!.Value)
             .IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(Date_2021_06_10_End).UtcDateTime);
 
-        var votes = poll.Data.GetProperty("votes");
-        await Assert.That(votes.GetArrayLength()).IsEqualTo(1);
-        await Assert.That(votes[0].GetProperty("vote").GetString()).IsEqualTo("abstain");
-        await Assert.That(votes[0].GetProperty("comment").GetString()).IsEqualTo("synthetic");
-        // Id is the numeric alter id stringified, never the raw SP member uuid.
-        await Assert.That(votes[0].GetProperty("id").GetString()).IsNotEqualTo(alpha);
+        var responses = poll.Data.GetProperty("responses");
+        await Assert.That(responses.GetArrayLength()).IsEqualTo(1);
+        await Assert.That(responses[0].GetProperty("vote").GetString()).IsEqualTo("abstain");
+        await Assert.That(responses[0].GetProperty("comment").GetString()).IsEqualTo("synthetic");
+        // alter_id is the numeric alter id, never the raw SP member uuid.
+        await Assert.That(responses[0].GetProperty("alter_id").ValueKind).IsEqualTo(JsonValueKind.Number);
+        // SP's allowVeto flag carries over into the client's allow_veto member.
+        await Assert.That(poll.Data.GetProperty("allow_veto").GetBoolean()).IsTrue();
     }
 
     [Test]
@@ -597,7 +597,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, _) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -605,18 +605,20 @@ public sealed class SpImportTests : BaseEndpointTest
 
         var poll = polls[0];
         await Assert.That(poll.Title).IsEqualTo("synthetic choice");
-        await Assert.That(poll.Type).IsEqualTo("choice");
+        await Assert.That(poll.Type).IsEqualTo(PollType.Choice);
 
-        var options = poll.Data.GetProperty("options");
-        await Assert.That(options.GetArrayLength()).IsEqualTo(3);
-        await Assert.That(options[0].GetProperty("name").GetString()).IsEqualTo("One");
-        await Assert.That(options[1].GetProperty("name").GetString()).IsEqualTo("Two");
-        await Assert.That(options[2].GetProperty("name").GetString()).IsEqualTo("Three");
+        var choices = poll.Data.GetProperty("choices");
+        await Assert.That(choices.GetArrayLength()).IsEqualTo(3);
+        await Assert.That(choices[0].GetProperty("name").GetString()).IsEqualTo("One");
+        await Assert.That(choices[1].GetProperty("name").GetString()).IsEqualTo("Two");
+        await Assert.That(choices[2].GetProperty("name").GetString()).IsEqualTo("Three");
 
-        var votes = poll.Data.GetProperty("votes");
-        await Assert.That(votes.GetArrayLength()).IsEqualTo(1);
-        await Assert.That(votes[0].GetProperty("vote").GetString()).IsEqualTo("Two");
-        await Assert.That(votes[0].GetProperty("id").GetString()).IsNotEqualTo(alpha);
+        // The vote's option name translates to the minted choice id of the "Two" choice.
+        var responses = poll.Data.GetProperty("responses");
+        await Assert.That(responses.GetArrayLength()).IsEqualTo(1);
+        await Assert.That(responses[0].GetProperty("choice_id").GetString())
+            .IsEqualTo(choices[1].GetProperty("id").GetString());
+        await Assert.That(responses[0].GetProperty("alter_id").ValueKind).IsEqualTo(JsonValueKind.Number);
     }
 
     [Test]
@@ -647,7 +649,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -701,7 +703,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -754,7 +756,7 @@ public sealed class SpImportTests : BaseEndpointTest
         });
 
         var importStarted = DateTime.UtcNow;
-        var stub = BuildSp(sysId, alpha, pollsJson: pollsJson);
+        var stub = BuildSp(sysId.Value, alpha, pollsJson: pollsJson);
         var (_, _, pollRepo, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var polls = await pollRepo.ListAsync(systemId);
@@ -799,7 +801,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, customFieldsJson: customFieldsJson);
+        var stub = BuildSp(sysId.Value, alpha, customFieldsJson: customFieldsJson);
         var (_, _, _, fieldRepo, _, _) = await RunImportAsync(stub, systemId);
 
         var fields = await fieldRepo.ListAsync(systemId);
@@ -851,7 +853,7 @@ public sealed class SpImportTests : BaseEndpointTest
             ]
             """;
 
-        var stub = BuildSp(sysId, alpha, customFieldsJson: customFieldsJson);
+        var stub = BuildSp(sysId.Value, alpha, customFieldsJson: customFieldsJson);
         var (_, _, _, fieldRepo, _, _) = await RunImportAsync(stub, systemId);
 
         var fields = await fieldRepo.ListAsync(systemId);
@@ -862,7 +864,7 @@ public sealed class SpImportTests : BaseEndpointTest
         // SP's own code defaults missing supportMarkdown to true (SimplyPluralApi/src/api/v2/user.ts:95,
         // generateReport.ts:117), so a null on the wire should produce the markdown variant ("text"),
         // not the plaintext variant.
-        await Assert.That(fields[0].Type).IsEqualTo("text");
+        await Assert.That(fields[0].Type).IsEqualTo(FieldType.Text);
         await Assert.That(fields[0].InsertedAt).IsEqualTo(expectedInsertedAt);
     }
 
@@ -895,7 +897,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, customFieldsJson: customFieldsJson);
+        var stub = BuildSp(sysId.Value, alpha, customFieldsJson: customFieldsJson);
         var (_, _, _, fieldRepo, _, logger) = await RunImportAsync(stub, systemId);
 
         var fields = await fieldRepo.ListAsync(systemId);
@@ -940,7 +942,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, groupsJson: groupsJson);
+        var stub = BuildSp(sysId.Value, alpha, groupsJson: groupsJson);
         var (_, _, _, _, tagRepo, _) = await RunImportAsync(stub, systemId);
 
         var tags = await tagRepo.ListAsync(systemId);
@@ -987,7 +989,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha, groupsJson: groupsJson);
+        var stub = BuildSp(sysId.Value, alpha, groupsJson: groupsJson);
         var (_, _, _, _, tagRepo, logger) = await RunImportAsync(stub, systemId);
 
         var tags = await tagRepo.ListAsync(systemId);
@@ -1029,7 +1031,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha: spMemberIdHistorical, membersJson: membersJson);
+        var stub = BuildSp(sysId.Value, alpha: spMemberIdHistorical, membersJson: membersJson);
         var (_, _, _, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var warned = logger.Records.Any(r =>
@@ -1074,7 +1076,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        var stub = BuildSp(sysId, alpha: spMemberIdGarbage, membersJson: membersJson);
+        var stub = BuildSp(sysId.Value, alpha: spMemberIdGarbage, membersJson: membersJson);
         var (_, _, _, _, _, logger) = await RunImportAsync(stub, systemId);
 
         var warned = logger.Records.Any(r =>
@@ -1135,7 +1137,7 @@ public sealed class SpImportTests : BaseEndpointTest
 
     private static async Task<(SpImportResult Result, IFrontingRepository FrontingRepo, IPollRepository PollRepo, ISettingsFieldRepository FieldRepo, ITagRepository TagRepo, CapturingLogger Logger)> RunImportAsync(
         TestServices.StubSpHandler stub,
-        string systemId)
+        SystemId systemId)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationManager());
@@ -1147,14 +1149,14 @@ public sealed class SpImportTests : BaseEndpointTest
         InMemoryServiceCollectionExtensions.Register();
         services.AddInterfoldPersistence(PersistenceMode.InMemory, cfg =>
         {
-            cfg.ScyllaKeyspace = "nam";
+            cfg.ScyllaKeyspace = ScyllaKeyspace.Nam;
         });
         services.AddInterfoldDomainHandlers();
 
         services.AddOptions<AuthenticationConfiguration>();
         services.AddSingleton<IAvatarStorage, NullAvatarStorage>();
 
-        services.AddHttpClient("SimplyPlural")
+        services.AddHttpClient(HttpClientNames.SimplyPlural)
             .ConfigurePrimaryHttpMessageHandler(() => stub);
 
         services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
@@ -1167,7 +1169,7 @@ public sealed class SpImportTests : BaseEndpointTest
 
         // encryptionKey is null → ImportAsync skips ValidateEncryptionKeyAsync; notes are skipped too.
         // spToken is a synthetic placeholder — StubSpHandler doesn't check it.
-        var result = await importService.ImportAsync(systemId, "synthetic-token", encryptionKey: null);
+        var result = await importService.ImportAsync(systemId, new ImportToken("synthetic-token"), encryptionKey: null);
 
         var frontingRepo = scope.ServiceProvider.GetRequiredService<IFrontingRepository>();
         var pollRepo = scope.ServiceProvider.GetRequiredService<IPollRepository>();
@@ -1178,13 +1180,13 @@ public sealed class SpImportTests : BaseEndpointTest
 
     private sealed class NullAvatarStorage : IAvatarStorage
     {
-        public Task<string> SaveSystemAvatarAsync(string systemId, Stream stream, CancellationToken cancellationToken = default)
-            => Task.FromResult(string.Empty);
+        public Task<AvatarUrl> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AvatarUrl(string.Empty));
 
-        public Task<string> SaveAlterAvatarAsync(string systemId, int alterId, Stream stream, CancellationToken cancellationToken = default)
-            => Task.FromResult(string.Empty);
+        public Task<AvatarUrl> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AvatarUrl(string.Empty));
 
-        public Task<bool> DeleteByUrlAsync(string? avatarUrl, CancellationToken cancellationToken = default)
+        public Task<bool> DeleteByUrlAsync(AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
     }
 

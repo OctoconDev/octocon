@@ -1,12 +1,16 @@
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
+using Interfold.Contracts.Configuration;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Secrets;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
+using Interfold.Contracts;
 
 namespace Interfold.Infrastructure.Coordination;
 
@@ -26,7 +30,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     // FCM v1 multicast cap. https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages/send
     private const int FcmMulticastMax = 500;
 
-    private readonly ISecretsStore _secretsStore;
+    private readonly IOptions<FcmConfiguration> _options;
     private readonly INotificationTokenRepository _tokens;
     private readonly IAccountRepository _accounts;
     private readonly IAlterRepository _alters;
@@ -37,13 +41,13 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     private FirebaseApp? _app;
 
     public FirebaseFCMService(
-        ISecretsStore secretsStore,
+        IOptions<FcmConfiguration> options,
         INotificationTokenRepository tokens,
         IAccountRepository accounts,
         IAlterRepository alters,
         ILogger<FirebaseFCMService> logger)
     {
-        _secretsStore = secretsStore;
+        _options = options;
         _tokens = tokens;
         _accounts = accounts;
         _alters = alters;
@@ -52,11 +56,11 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     }
 
     public async Task NotifyFrontingChangedAsync(
-        string systemId,
-        IReadOnlyList<int> currentAlterIds,
+        SystemId systemId,
+        IReadOnlyList<AlterId> currentAlterIds,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(systemId))
+        if (string.IsNullOrWhiteSpace(systemId.Value))
             return;
 
         var friendGroups = await _tokens.ListTokensForFriendsOfAsync(systemId, cancellationToken).ConfigureAwait(false);
@@ -71,21 +75,23 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             return;
 
         var profile = await _accounts.GetPublicProfileAsync(systemId, cancellationToken).ConfigureAwait(false);
-        var frontingDisplayName = !string.IsNullOrWhiteSpace(profile?.Username) ? profile!.Username! : "A friend";
+        var frontingDisplayName = profile?.Username is { } username && !string.IsNullOrWhiteSpace(username.Value)
+            ? username.Value
+            : "A friend";
 
         // Relative path so each client resolves against its own origin. The SW's
         // notificationclick handler and mobile handlers both hard-code this shape.
-        var deepLink = $"/system/{Uri.EscapeDataString(systemId)}";
+        var deepLink = $"/system/{Uri.EscapeDataString(systemId.Value)}";
         var frontEnded = currentAlterIds.Count == 0;
-        var currentAlterSet = frontEnded ? null : new HashSet<int>(currentAlterIds);
+        var currentAlterSet = frontEnded ? null : new HashSet<AlterId>(currentAlterIds);
 
         foreach (var friendGroup in friendGroups)
         {
-            IReadOnlyList<int> visibleIds;
+            IReadOnlyList<AlterId> visibleIds;
             string body;
             if (frontEnded)
             {
-                visibleIds = Array.Empty<int>();
+                visibleIds = Array.Empty<AlterId>();
                 body = "No one is fronting";
             }
             else
@@ -116,17 +122,17 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             var alterCsv = string.Join(",", visibleIds);
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["type"] = "fronting_changed",
-                ["system_id"] = systemId,
-                ["alter_ids"] = alterCsv,
-                ["deep_link"] = deepLink,
+                [FcmPayloadKeys.Type] = FcmNotificationTypes.FrontingChanged,
+                [FcmPayloadKeys.SystemId] = systemId.Value,
+                [FcmPayloadKeys.AlterIds] = alterCsv,
+                [FcmPayloadKeys.DeepLink] = deepLink,
             };
 
             foreach (var chunk in friendGroup.Tokens.Chunk(FcmMulticastMax))
             {
                 var message = new MulticastMessage
                 {
-                    Tokens = chunk,
+                    Tokens = chunk.Select(t => t.Value).ToArray(),
                     Notification = new Notification
                     {
                         Title = $"Front update: {frontingDisplayName}",
@@ -166,7 +172,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
     // Removes tokens the SDK flags as permanently invalid (Unregistered / InvalidArgument).
     // Everything else is logged and left in place so the next flush can retry.
     private async Task PruneInvalidTokensAsync(
-        IReadOnlyList<string> tokens,
+        IReadOnlyList<PushToken> tokens,
         BatchResponse response,
         CancellationToken cancellationToken)
     {
@@ -189,20 +195,20 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
                     await _tokens.RemoveAsync(token, cancellationToken).ConfigureAwait(false);
                     _logger.LogInformation(
                         "[fcm] Pruned invalid token ({Code}). token_prefix={TokenPrefix}",
-                        fmEx.MessagingErrorCode, TokenPrefix(token));
+                        fmEx.MessagingErrorCode, TokenPrefix(token.Value));
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger.LogWarning(ex,
                         "[fcm] Failed to prune invalid token. token_prefix={TokenPrefix}",
-                        TokenPrefix(token));
+                        TokenPrefix(token.Value));
                 }
             }
             else
             {
                 _logger.LogWarning(single.Exception,
                     "[fcm] Per-token delivery failure. token_prefix={TokenPrefix} code={Code}",
-                    TokenPrefix(token),
+                    TokenPrefix(token.Value),
                     (single.Exception as FirebaseMessagingException)?.MessagingErrorCode);
             }
         }
@@ -225,13 +231,17 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         {
             if (_messaging is not null) return _messaging;
 
-            var serviceAccountJson = await _secretsStore.GetAsync("fcm:service_account_json", ct).ConfigureAwait(false);
+            var serviceAccountJson = _options.Value.ServiceAccountJson;
             if (string.IsNullOrWhiteSpace(serviceAccountJson))
             {
-                // Row was deleted after the DI factory picked us over NullFCMService.
+                // Row was absent from the snapshot the DI factory consulted when it picked
+                // us over NullFCMService. Should be unreachable in practice (the snapshot
+                // is populated once at startup and doesn't change mid-process) — kept as a
+                // defensive belt-and-braces guard.
                 _logger.LogError(
-                    "[fcm] fcm:service_account_json disappeared between DI-graph build and first send. " +
-                    "Restart the API after re-seeding the row, or drop it and let the factory pick NullFCMService.");
+                    "[fcm] {Key} disappeared between DI-graph build and first send. " +
+                    "Restart the API after re-seeding the row, or drop it and let the factory pick NullFCMService.",
+                    SecretsStoreKeys.FcmServiceAccountJson);
                 return null;
             }
 

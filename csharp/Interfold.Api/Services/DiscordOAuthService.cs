@@ -1,6 +1,9 @@
-using System.Text.Json;
+using System.Net.Http.Json;
+using Interfold.Api.Services.OAuth;
 using Interfold.Contracts.Configuration;
 using Microsoft.Extensions.Options;
+using Interfold.Contracts.Ids;
+using Interfold.Api.Auth;
 
 namespace Interfold.Api.Services;
 
@@ -25,7 +28,7 @@ public sealed class DiscordOAuthService
     /// Exchange authorization code for the Discord user ID via Discord's OAuth2 flow.
     /// Returns null if configuration is incomplete or exchange fails.
     /// </summary>
-    public async Task<string?> ExchangeCodeForDiscordIdAsync(
+    public async Task<DiscordId?> ExchangeCodeForDiscordIdAsync(
         string code,
         string redirectUri,
         CancellationToken cancellationToken = default)
@@ -44,13 +47,13 @@ public sealed class DiscordOAuthService
             // Discord requires application/x-www-form-urlencoded with HTTP Basic auth.
             var tokenRequest = new Dictionary<string, string>
             {
-                { "grant_type", "authorization_code" },
-                { "code", code },
-                { "redirect_uri", redirectUri }
+                { OAuthQueryKeys.GrantType, OAuthQueryKeys.AuthorizationCodeGrant },
+                { OAuthQueryKeys.Code, code },
+                { OAuthQueryKeys.RedirectUri, redirectUri }
             };
 
             using var content = new FormUrlEncodedContent(tokenRequest);
-            var request = new HttpRequestMessage(HttpMethod.Post, TokenEndpoint) { Content = content };
+            using var request = new HttpRequestMessage(HttpMethod.Post, TokenEndpoint) { Content = content };
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
                 "Basic",
                 Convert.ToBase64String(
@@ -64,24 +67,16 @@ public sealed class DiscordOAuthService
                 return null;
             }
 
-            var tokenJson = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var tokenDoc = JsonDocument.Parse(tokenJson);
-
-            if (!tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenProp))
-            {
-                return null;
-            }
-
-            var accessToken = accessTokenProp.GetString();
-            if (string.IsNullOrWhiteSpace(accessToken))
+            var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>(cancellationToken);
+            if (string.IsNullOrWhiteSpace(tokenPayload?.AccessToken))
             {
                 return null;
             }
 
             // Step 2: Fetch the user's Discord ID from /users/@me.
-            var userInfoRequest = new HttpRequestMessage(HttpMethod.Get, UserInfoEndpoint);
+            using var userInfoRequest = new HttpRequestMessage(HttpMethod.Get, UserInfoEndpoint);
             userInfoRequest.Headers.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokenPayload.AccessToken);
 
             using var userInfoResponse = await _httpClient.SendAsync(userInfoRequest, cancellationToken);
 
@@ -90,15 +85,8 @@ public sealed class DiscordOAuthService
                 return null;
             }
 
-            var userInfoJson = await userInfoResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var userInfoDoc = JsonDocument.Parse(userInfoJson);
-
-            if (userInfoDoc.RootElement.TryGetProperty("id", out var idProp))
-            {
-                return idProp.GetString();
-            }
-
-            return null;
+            var user = await userInfoResponse.Content.ReadFromJsonAsync<DiscordUserResponse>(cancellationToken);
+            return string.IsNullOrWhiteSpace(user?.Id) ? null : new DiscordId(user.Id);
         }
         catch
         {

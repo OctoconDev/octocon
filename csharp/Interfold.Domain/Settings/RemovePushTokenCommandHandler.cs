@@ -4,6 +4,8 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
@@ -24,8 +26,8 @@ public sealed class RemovePushTokenCommandHandler : ICommandHandler<RemovePushTo
         CommandEnvelope<RemovePushTokenCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token))
-            return RejectInvariant(command, "settings:push_token_invalid");
+        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
+            return RejectInvariant(command, EntityRefs.SettingsPushTokenInvalid);
 
         var payloadJson = CommandSerialization.Serialize(command.Payload);
         var payloadHash = CommandSerialization.Hash(payloadJson);
@@ -39,7 +41,7 @@ public sealed class RemovePushTokenCommandHandler : ICommandHandler<RemovePushTo
         if (previous is not null)
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, "settings:push_token:remove");
+                return RejectDuplicate(command, EntityRefs.SettingsPushTokenRemove);
 
             var replay = CommandSerialization.Deserialize<SettingsCommandResult>(previous.OutcomePayload);
             if (replay is not null)
@@ -47,9 +49,9 @@ public sealed class RemovePushTokenCommandHandler : ICommandHandler<RemovePushTo
         }
 
         // Removal is treated as idempotent for retry safety.
-        await _repository.RemoveAsync(command.Payload.Token.Trim(), cancellationToken);
+        await _repository.RemoveAsync(new(command.Payload.Token.Value.Trim()), cancellationToken);
 
-        var result = new SettingsCommandResult(command.PrincipalId, "push_token_removed", Replay: false);
+        var result = new SettingsCommandResult(command.PrincipalId, SettingsAction.PushTokenRemoved, Replay: false);
         var resultJson = CommandSerialization.Serialize(result);
 
         await _idempotencyStore.SaveAsync(
@@ -66,13 +68,13 @@ public sealed class RemovePushTokenCommandHandler : ICommandHandler<RemovePushTo
 
     private static CommandExecutionResult<SettingsCommandResult> RejectDuplicate(
         CommandEnvelope<RemovePushTokenCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<SettingsCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, "no_retry"));
+            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
 
     private static CommandExecutionResult<SettingsCommandResult> RejectInvariant(
         CommandEnvelope<RemovePushTokenCommand> command,
-        string entityRef) =>
+        EntityRef entityRef) =>
         CommandExecutionResult<SettingsCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, "manual_merge_required"));
+            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

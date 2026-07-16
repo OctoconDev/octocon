@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Interfold.Contracts.Enums;
 
 namespace Interfold.Contracts;
 
@@ -33,15 +34,27 @@ public sealed class PhxFrame<TPayload>
 public sealed class PhxJoinPayload
 {
     [JsonPropertyName("token")]
-    public string Token { get; init; } = string.Empty;
+    public Ids.SocketToken Token { get; init; } = new(string.Empty);
 
     [JsonPropertyName("protocolVersion")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ProtocolVersion { get; init; }
 
+    // Join-side platform is deliberately tolerant: unknown wire spellings (e.g. a
+    // future "wasm" client, or a typo from an older release the server has to
+    // interop with) must round-trip to null WITHOUT throwing a JsonException on
+    // this property, otherwise a wholesale Deserialize<PhxJoinPayload> failure
+    // upstream would take the token and protocolVersion siblings down with it and
+    // turn a valid join into a bogus Unauthorized reply. The ClientPlatform
+    // docstring pins this contract ("unknown values are handled by callers via
+    // EnumWire<T>.TryParse so the legacy invalid-platform responses are
+    // preserved"); this converter is the enforcement point for the socket-join
+    // boundary specifically — every other JSON caller of ClientPlatform keeps
+    // the default strict JsonStringEnumConverter<ClientPlatform>.
     [JsonPropertyName("platform")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Platform { get; init; }
+    [JsonConverter(typeof(TolerantWireEnumJsonConverter<ClientPlatform>))]
+    public ClientPlatform? Platform { get; init; }
 
     [JsonPropertyName("isReconnect")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

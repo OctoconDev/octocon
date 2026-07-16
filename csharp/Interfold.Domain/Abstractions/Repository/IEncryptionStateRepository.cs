@@ -1,10 +1,11 @@
 using Interfold.Contracts.Models;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Abstractions.Repository;
 
 public interface IEncryptionStateRepository
 {
-    Task<EncryptionState?> GetAsync(string systemId, CancellationToken cancellationToken = default);
+    Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default);
 
-    Task<bool> UpsertAsync(string systemId, bool initialized, string? keyChecksum, string? salt, CancellationToken cancellationToken = default);
+    Task<bool> UpsertAsync(SystemId systemId, bool initialized, KeyChecksum? keyChecksum, EncryptionSalt? salt, CancellationToken cancellationToken = default);
 }

@@ -1,3 +1,5 @@
+using Interfold.Contracts.Ids;
+
 namespace Interfold.Contracts.Operations;
 
 public enum ConflictCode
@@ -8,7 +10,7 @@ public enum ConflictCode
 
 public sealed record ConflictResult(
     ConflictCode Code,
-    string OperationId,
-    string EntityRef,
-    string ResolutionHint
+    OperationId OperationId,
+    EntityRef EntityRef,
+    ResolutionHint ResolutionHint
 );

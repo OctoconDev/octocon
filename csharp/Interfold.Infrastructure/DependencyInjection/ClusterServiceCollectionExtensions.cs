@@ -1,9 +1,9 @@
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Secrets;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Infrastructure.Coordination;
@@ -44,28 +44,27 @@ public static partial class ServiceCollectionExtensions
         //   1. Auxiliary / sidecar nodes never send — always the no-op.
         //   2. Primary nodes promote to FirebaseFCMService ONLY when the
         //      fcm:service_account_json row is seeded. An empty / missing row means the
-        //      deployment hasn't wired Firebase and we keep behaving exactly as we did
-        //      before this refactor (Debug-level no-op logging).
+        //      deployment hasn't wired Firebase and we fall back to the Debug-level
+        //      no-op notifier.
         //
-        // Blocking GetAwaiter().GetResult() on ISecretsStore.GetAsync is acceptable here
-        // because IFCMService only resolves lazily off FrontNotifierBackgroundService
-        // (primary-only, off the request path) AFTER SecretsBootstrapService has already
-        // patched the store. ISecretsStore.GetAsync is a single indexed Postgres row
-        // read; the blocking call happens exactly once per process at DI-resolve time.
+        // FcmConfiguration.ServiceAccountJson is populated by FcmSecretsPostConfigure from
+        // the ISecretsSnapshot that SecretsPreBuildLoader primes pre-Build — by the time this
+        // factory runs (lazy, off FrontNotifierBackgroundService, primary-only, off the
+        // request path) the options pipeline has already resolved. Reading
+        // IOptions<FcmConfiguration>.Value is a plain in-memory property read, so no blocking
+        // secrets-store call is needed here anymore.
         services.AddSingleton<IFCMService>(sp =>
         {
             if (role != NodeGroup.Primary)
                 return sp.GetRequiredService<NullFCMService>();
 
-            var secrets = sp.GetRequiredService<ISecretsStore>();
-            var serviceAccountJson = secrets
-                .GetAsync("fcm:service_account_json", CancellationToken.None)
-                .GetAwaiter().GetResult();
+            var serviceAccountJson = sp.GetRequiredService<IOptions<FcmConfiguration>>().Value.ServiceAccountJson;
 
             if (string.IsNullOrWhiteSpace(serviceAccountJson))
             {
                 sp.GetRequiredService<ILogger<FirebaseFCMService>>().LogInformation(
-                    "[fcm] internal.secrets:fcm:service_account_json not seeded — using NullFCMService (push disabled).");
+                    "[fcm] internal.secrets:{Key} not seeded — using NullFCMService (push disabled).",
+                    SecretsStoreKeys.FcmServiceAccountJson);
                 return sp.GetRequiredService<NullFCMService>();
             }
 
@@ -86,16 +85,5 @@ public static partial class ServiceCollectionExtensions
         }
 
         return services;
-    }
-
-    /// <summary>
-    /// Resolves the node role from environment variables and registers cluster coordination services.
-    /// Reads FLY_PROCESS_GROUP, then OCTOCON_NODE_GROUP, then defaults to "auxiliary".
-    /// </summary>
-    public static IServiceCollection AddInterfoldCluster(this IServiceCollection services, IConfiguration config)
-    {
-        var opts = new ClusterConfiguration();
-        ConfigurationServiceCollectionExtensions.ApplyCluster(opts, config);
-        return services.AddInterfoldCluster(NodeGroupResolver.Resolve(opts.NodeGroup));
     }
 }

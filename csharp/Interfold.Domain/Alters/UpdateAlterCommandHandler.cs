@@ -5,6 +5,7 @@ using Interfold.Contracts.Models.Commands;
 using Interfold.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Alters;
 
@@ -30,14 +31,14 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
         CancellationToken cancellationToken = default
     )
     {
-        if (command.Payload.AlterId is < 1 or > 32_767)
+        if (command.Payload.AlterId.Value is < 1 or > 32_767)
         {
-            return RejectInvariant(command, "alter:id");
+            return RejectInvariant(command, EntityRefs.AlterId);
         }
 
         if (!HasAnyMutableField(command.Payload))
         {
-            return RejectInvariant(command, "alter:update:no_fields");
+            return RejectInvariant(command, EntityRefs.AlterUpdateNoFields);
         }
 
         // avatar_url and avatar_source must move together. We accept both-set or both-null
@@ -45,7 +46,7 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
         // never silently fall back to a guessed source on the repo side.
         if ((command.Payload.AvatarUrl is not null) != (command.Payload.AvatarSource is not null))
         {
-            return RejectInvariant(command, "alter:avatar_source_required");
+            return RejectInvariant(command, EntityRefs.AlterAvatarSourceRequired);
         }
 
         //We have to ignore UpdatedAt in the payload when calculating the hash, since it is generated upon the endpoint being called.
@@ -63,7 +64,7 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
         {
             if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
             {
-                return RejectDuplicate(command, "alter:update");
+                return RejectDuplicate(command, EntityRefs.AlterUpdate);
             }
 
             var replay = CommandSerialization.Deserialize<AlterCommandResult>(previous.OutcomePayload);
@@ -76,7 +77,7 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
         var exists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
         if (!exists)
         {
-            return RejectInvariant(command, "alter:not_found");
+            return RejectInvariant(command, EntityRefs.AlterNotFound);
         }
 
         if (!string.IsNullOrWhiteSpace(command.Payload.Alias))
@@ -90,14 +91,14 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
 
             if (aliasTaken)
             {
-                return RejectInvariant(command, "alter:alias_taken");
+                return RejectInvariant(command, EntityRefs.AlterAliasTaken);
             }
         }
 
         var updated = await _alterRepository.UpdateAsync(command.PrincipalId, command.Payload, cancellationToken);
         if (!updated)
         {
-            return RejectInvariant(command, "alter:update_failed");
+            return RejectInvariant(command, EntityRefs.AlterUpdateFailed);
         }
 
         var result = new AlterCommandResult(command.PrincipalId, command.Payload.AlterId, Replay: false);
@@ -137,27 +138,27 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
 
     private static CommandExecutionResult<AlterCommandResult> RejectDuplicate(
         CommandEnvelope<UpdateAlterCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<AlterCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictDuplicate,
                 command.OperationId,
                 entityRef,
-                "no_retry"
+                ResolutionHint.NoRetry
             )
         );
 
     private static CommandExecutionResult<AlterCommandResult> RejectInvariant(
         CommandEnvelope<UpdateAlterCommand> command,
-        string entityRef
+        EntityRef entityRef
     ) =>
         CommandExecutionResult<AlterCommandResult>.Rejected(
             new ConflictResult(
                 ConflictCode.ConflictInvariant,
                 command.OperationId,
                 entityRef,
-                "manual_merge_required"
+                ResolutionHint.ManualMergeRequired
             )
         );
 }
