@@ -14,6 +14,7 @@ using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Read;
+using Interfold.Api.Services;
 
 namespace Interfold.Api.Controllers.Base;
 
@@ -21,6 +22,9 @@ namespace Interfold.Api.Controllers.Base;
 [Authorize]
 public abstract class InterfoldControllerBase : ControllerBase
 {
+    [FromServices]
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
     /// <summary>
     /// The authenticated principal for the current request as a
     /// <see cref="ScopedSystemId"/>. The middleware guarantees the value is present and
@@ -58,14 +62,71 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     /// <summary>
-    /// Source-aware avatar qualification: prepends the server origin only when the avatar
-    /// is locally hosted (<see cref="AvatarSource.Local"/>). External URLs pass through
-    /// verbatim; a null / blank input returns unchanged. Non-avatar callers that need
-    /// origin qualification without the <see cref="AvatarSource"/> discriminator can call
+    /// Returns a 400 <see cref="ErrorResponse"/> naming <paramref name="code"/> when
+    /// <paramref name="target"/> refers to the current principal; otherwise
+    /// <see langword="null"/>. Wraps
+    /// <see cref="ScopedSystemId.RepresentsSameUserAs(SystemId)"/> so raw and
+    /// same-region-scoped shapes both self-reject — a bare byte compare would miss the
+    /// raw-route case and let a request slip through with the generic downstream error
+    /// instead of the per-op <c>Cannot*Self</c> code.
+    /// </summary>
+    /// <remarks>
+    /// Callers use the null-conditional pattern so the guard reads as a fast return:
+    /// <code>
+    /// if (RejectIfSelf(id, "You cannot friend yourself.", ErrorCodes.CannotSendSelf) is { } reject)
+    ///     return reject;
+    /// </code>
+    /// Only usable when the self-reject shape is a 400 <c>BadRequest</c>. Endpoints that
+    /// reject self-access with a 403 (<c>PublicSystemsController</c>) or that fold the
+    /// self-check into a shared parameterised helper (<c>FriendsController.SetTrustInternal</c>)
+    /// keep hand-rolling the check.
+    /// </remarks>
+    protected ErrorResponse? RejectIfSelf(SystemId target, string message, ErrorCode code)
+        => PrincipalId.RepresentsSameUserAs(target)
+            ? new ErrorResponse(message, code, HttpStatusCode.BadRequest)
+            : null;
+
+    /// <summary>
+    /// <see cref="FriendLookup"/> overload for endpoints whose route binds a lookup
+    /// (id-or-username) instead of a bare <see cref="SystemId"/>. <c>Kind.Id</c>
+    /// delegates to the <see cref="SystemId"/> primitive; <c>Kind.Username</c> always
+    /// returns <see langword="false"/> because deciding "is username X me?" requires a
+    /// registry hop — the downstream command handler's post-resolution guard takes over
+    /// for that case.
+    /// </summary>
+    protected ErrorResponse? RejectIfSelf(FriendLookup target, string message, ErrorCode code)
+        => PrincipalId.RepresentsSameUserAs(target)
+            ? new ErrorResponse(message, code, HttpStatusCode.BadRequest)
+            : null;
+
+    /// <summary>
+    /// Source-aware avatar qualification for any <see cref="IAvatarBearing"/> read model:
+    /// prepends the server origin only when the avatar is locally hosted
+    /// (<see cref="AvatarSource.Local"/>). External URLs pass through verbatim; a null
+    /// bearing / blank input returns unchanged. Non-avatar callers that need origin
+    /// qualification without the <see cref="AvatarSource"/> discriminator can call
     /// <c>AvatarUrlQualifier.Qualify(string?, string, HostString)</c> directly.
     /// </summary>
-    protected AvatarUrl? QualifyAvatar(AvatarUrl? url, AvatarSource? source)
-        => AvatarUrlQualifier.QualifyAvatar(url, source, Request.Scheme, Request.Host);
+    protected AvatarUrl? QualifyAvatar(IAvatarBearing? bearing)
+        => AvatarUrlQualifier.QualifyAvatar(bearing, Request.Scheme, Request.Host);
+
+    /// <summary>
+    /// Convenience: qualifies both the friend's avatar and every fronting alter's avatar
+    /// against the current request's origin. Callers use this instead of hand-rolling the
+    /// <c>friendship with { Friend = ..., Fronting = ... }</c> record-update expression at
+    /// every friendship-shaped endpoint.
+    /// </summary>
+    protected FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship)
+        => AvatarUrlQualifier.QualifyFriendship(friendship, Request.Scheme, Request.Host);
+
+    /// <summary>
+    /// Convenience: qualifies the requester/requestee profile's avatar against the
+    /// current request's origin. Callers use this instead of the
+    /// <c>x with { System = x.System with { AvatarUrl = QualifyAvatar(...) } }</c>
+    /// lambda inside <c>Select</c>.
+    /// </summary>
+    protected FriendRequestReadModel QualifyFriendRequest(FriendRequestReadModel request)
+        => AvatarUrlQualifier.QualifyFriendRequest(request, Request.Scheme, Request.Host);
 
     /// <summary>
     /// Reads a multipart/form-data request body and returns the first file part as an
@@ -147,6 +208,116 @@ public abstract class InterfoldControllerBase : ControllerBase
         return new AvatarUploadPayload(null, emptyFilePart);
     }
 
+    protected async Task<Response> HandleAvatarUploadAsync(
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
+        Func<ScopedSystemId, Stream, CancellationToken, Task<AvatarUrl>> saveToStorageAsync,
+        Func<AvatarUrl, CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+    {
+        var principal = PrincipalId;
+        var upload = await ResolveMultipartUploadAsync(ct);
+        var avatarStream = upload.Stream;
+        if (avatarStream is null)
+        {
+            if (upload.EmptyFilePart)
+                return new ErrorResponse("Avatar file is empty.", ErrorCodes.AvatarFileEmpty, HttpStatusCode.BadRequest);
+
+            return new ErrorResponse("No avatar file provided.", ErrorCodes.AvatarFileRequired, HttpStatusCode.BadRequest);
+        }
+
+        AvatarUrl avatarUrl;
+        try
+        {
+            await using (avatarStream)
+            {
+                avatarUrl = await saveToStorageAsync(principal, avatarStream, ct);
+            }
+        }
+        catch
+        {
+            return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError);
+        }
+
+        // Post-save tail (read-current → update-metadata → best-effort cleanup of old
+        // Local bytes) is identical to the URL / delete flows — delegate through the
+        // shared helper via the same closure trick HandleAvatarUrlUploadAsync uses so a
+        // future change to the cleanup rules (e.g. also purging External URLs, retry
+        // policy on the delete probe) only has to be made in one spot.
+        return await RunAvatarMetadataChangeAsync(
+            getExistingAvatarAsync,
+            c => updateMetadataAsync(avatarUrl, c),
+            avatarStorage,
+            ct);
+    }
+
+    protected async Task<Response> HandleAvatarUrlUploadAsync(
+        string? requestUrl,
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
+        Func<AvatarUrl, CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(requestUrl))
+            return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, HttpStatusCode.BadRequest);
+
+        if (!AvatarUrlValidator.TryNormalize(requestUrl, out var url, out var err))
+            return new ErrorResponse("Invalid avatar URL.", err, HttpStatusCode.BadRequest);
+
+        var normalisedUrl = new AvatarUrl(url);
+        return await RunAvatarMetadataChangeAsync(
+            getExistingAvatarAsync,
+            c => updateMetadataAsync(normalisedUrl, c),
+            avatarStorage,
+            ct);
+    }
+
+    protected Task<Response> HandleAvatarDeleteAsync(
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+        => RunAvatarMetadataChangeAsync(getExistingAvatarAsync, updateMetadataAsync, avatarStorage, ct);
+
+    /// <summary>
+    /// Shared post-save / no-save tail for every avatar mutation
+    /// (<see cref="HandleAvatarUploadAsync"/> after the multipart bytes have already
+    /// landed in storage, <see cref="HandleAvatarUrlUploadAsync"/> for the External-URL
+    /// path, <see cref="HandleAvatarDeleteAsync"/> for the clear-metadata path): read
+    /// the current avatar (best-effort; failures here don't abort the mutation), run
+    /// the metadata update, and if the mutation succeeded AND the previous avatar was
+    /// locally hosted, best-effort delete the old bytes from storage. Errors from
+    /// either the "read current" probe or the "delete old" cleanup are intentionally
+    /// swallowed — a stale bytes-file isn't worth failing an otherwise-successful
+    /// metadata write over.
+    /// </summary>
+    private async Task<Response> RunAvatarMetadataChangeAsync(
+        Func<CancellationToken, Task<IAvatarBearing>> getExistingAvatarAsync,
+        Func<CancellationToken, Task<Response>> updateMetadataAsync,
+        IAvatarStorage avatarStorage,
+        CancellationToken ct)
+    {
+        AvatarUrl? currentAvatarUrl = null;
+        AvatarSource? currentAvatarSource = null;
+        try
+        {
+            var existingAvatar = await getExistingAvatarAsync(ct);
+            currentAvatarUrl = existingAvatar.AvatarUrl;
+            currentAvatarSource = existingAvatar.AvatarSource;
+        }
+        catch { }
+
+        var result = await updateMetadataAsync(ct);
+        if (!result.IsSuccess) return result;
+
+        if (currentAvatarSource == AvatarSource.Local && currentAvatarUrl is not null)
+        {
+            try { await avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct); } catch { }
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Executes a command handler with:
     /// <list type="bullet">
@@ -205,6 +376,69 @@ public abstract class InterfoldControllerBase : ControllerBase
     }
 
     /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 204 No Content response on success,
+    /// or maps conflicts to error responses.
+    /// </summary>
+    protected async Task<Response> DispatchNoContentAsync<TPayload, TResult>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return CommandNoContent(result);
+    }
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 201 Created response by
+    /// fetching the created entity asynchronously on success, or maps conflicts to error
+    /// responses. Pass <paramref name="locationSelector"/> to emit a <c>Location</c>
+    /// header pointing at the created resource; omit it for endpoints that don't expose
+    /// a canonical URL for the row.
+    /// </summary>
+    /// <remarks>
+    /// The sync (<c>Func&lt;TResult, TData&gt;</c>) overload this method used to sit
+    /// alongside was dropped because no controller called it — the create paths all
+    /// need an async repository round-trip to hydrate the response body. Callers whose
+    /// response IS the command result directly should use <see cref="CommandCreated{T,TData}"/>
+    /// with their own <c>HandleAsync</c> call (see <c>FrontingController.StartFront</c>).
+    /// </remarks>
+    protected async Task<Response<TData>> DispatchCreatedAsync<TPayload, TResult, TData>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, Task<TData?>> dataSelector,
+        CancellationToken ct,
+        Func<TResult, string>? locationSelector = null)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return await CommandCreatedAsync(result, dataSelector, locationSelector);
+    }
+
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 202 Accepted response on success,
+    /// or maps conflicts to error responses.
+    /// </summary>
+    protected async Task<Response<TData>> DispatchAcceptedAsync<TPayload, TResult, TData>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, TData> dataSelector,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        return CommandAccepted(result, dataSelector);
+    }
+
+
+    /// <summary>
     /// Maps a <see cref="CommandExecutionResult{T}"/> to a 204 No Content <see cref="Response{NoContent}"/>
     /// on success, or an <see cref="ErrorResponse"/> on failure.
     /// </summary>
@@ -218,14 +452,44 @@ public abstract class InterfoldControllerBase : ControllerBase
 
     /// <summary>
     /// Maps a <see cref="CommandExecutionResult{T}"/> to a 201 Created <see cref="Response{TData}"/>
-    /// carrying the mapped <paramref name="dataSelector"/> result, or an <see cref="ErrorResponse"/> on failure.
+    /// carrying the mapped <paramref name="dataSelector"/> result, or an <see cref="ErrorResponse"/>
+    /// on failure. The Replay flag is read straight off the result via
+    /// <see cref="ICommandResult.Replay"/> — callers no longer thread a selector.
     /// </summary>
-    protected Response<TData> CommandCreated<T, TData>(CommandExecutionResult<T> result, Func<T, TData> dataSelector, Func<T?, bool?>? replaySelector = null)
+    protected Response<TData> CommandCreated<T, TData>(CommandExecutionResult<T> result, Func<T, TData> dataSelector)
+        where T : ICommandResult
     {
         if (result.Accepted)
-            return new SuccessResponse<TData>(dataSelector(result.Result!), HttpStatusCode.Created, replaySelector?.Invoke(result.Result));
+            return new SuccessResponse<TData>(dataSelector(result.Result!), HttpStatusCode.Created, result.Result!.Replay);
 
         return ConflictToError(result.Conflict!);
+    }
+
+    /// <summary>
+    /// Maps a <see cref="CommandExecutionResult{T}"/> to a 201 Created <see cref="Response{TData}"/>
+    /// by asynchronously fetching the created entity via <paramref name="dataSelector"/>. Returns an
+    /// <see cref="ErrorResponse"/> on conflict or if the entity fetch returns null.
+    /// Optionally sets the Location header if <paramref name="locationSelector"/> is provided.
+    /// The Replay flag is read straight off the result via
+    /// <see cref="ICommandResult.Replay"/> — callers no longer thread a selector.
+    /// </summary>
+    protected async Task<Response<TData>> CommandCreatedAsync<T, TData>(
+        CommandExecutionResult<T> result,
+        Func<T, Task<TData?>> dataSelector,
+        Func<T, string>? locationSelector = null)
+        where T : ICommandResult
+    {
+        if (!result.Accepted)
+            return ConflictToError(result.Conflict!);
+
+        var data = await dataSelector(result.Result!);
+        if (data is null)
+            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError);
+
+        if (locationSelector != null)
+            Response.Headers.Location = locationSelector(result.Result!);
+
+        return new SuccessResponse<TData>(data, HttpStatusCode.Created, result.Result!.Replay);
     }
 
     /// <summary>
@@ -258,4 +522,85 @@ public abstract class InterfoldControllerBase : ControllerBase
             _ => new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, HttpStatusCode.InternalServerError, conflict.EntityRef.Value)
         };
     }
+
+    /// <summary>
+    /// Synthetic principal id stamped on envelopes built from an <c>[AllowAnonymous]</c>
+    /// endpoint (currently the OAuth auth / auth-link callbacks). The command handler on
+    /// the other side resolves the real system id off the payload itself — an anonymous
+    /// endpoint must never read <see cref="CommandEnvelope{T}.PrincipalId"/> for
+    /// authorisation. See <see cref="AuthController"/> / <see cref="AuthLinkController"/>
+    /// callbacks.
+    /// </summary>
+    private static readonly ScopedSystemId AnonymousPrincipalId = ScopedSystemId.ParseScoped("nam:auth");
+
+    /// <summary>
+    /// Non-throwing <see cref="PrincipalId"/> — returns the middleware-populated
+    /// principal when present, or <see langword="null"/> for endpoints that reach
+    /// dispatch without an authenticated caller (only <c>[AllowAnonymous]</c> routes
+    /// legitimately land here). Wrapped by <see cref="BuildEnvelope{TPayload}"/> so
+    /// callers get a synthetic <see cref="AnonymousPrincipalId"/> stamp instead of the
+    /// <c>PrincipalId is unavailable</c> throw the strict accessor produces.
+    /// </summary>
+    private ScopedSystemId? TryGetPrincipalId()
+        => HttpContext.Items.TryGetValue(InterfoldPrincipalMiddleware.PrincipalIdItemKey, out var value)
+            && value is ScopedSystemId principal
+            ? principal
+            : null;
+
+    /// <summary>
+    /// Builds a <see cref="CommandEnvelope{TPayload}"/> for the current request. On
+    /// authenticated endpoints the envelope carries the middleware-populated principal;
+    /// on <c>[AllowAnonymous]</c> routes it falls back to <see cref="AnonymousPrincipalId"/>
+    /// so the callback controllers no longer have to hand-construct envelopes purely to
+    /// dodge <see cref="PrincipalId"/>'s throw. The synthetic principal is safe because
+    /// the handlers behind anonymous endpoints resolve the real system id off the
+    /// payload (link token, OAuth identity) rather than trusting the envelope.
+    /// </summary>
+    protected CommandEnvelope<TPayload> BuildEnvelope<TPayload>(OperationId operationId, TPayload payload)
+        => new(operationId, Guid.NewGuid(),
+               PrincipalId: TryGetPrincipalId() ?? AnonymousPrincipalId,
+               IdempotencyKey: GetIdempotencyKey(),
+               OccurredAt: TimeProvider.GetUtcNow(), Payload: payload);
+
+    /// <summary>
+    /// Builds a command envelope, handles it, and maps it to a 200 OK response by
+    /// projecting the command result into a wire-shaped response body via
+    /// <paramref name="wireSelector"/>. Callers use this when the command's on-the-wire
+    /// response body is a wrapper record around a single computed field
+    /// (see <c>SettingsController.SetupEncryption</c> / <c>RecoverEncryption</c>) — the
+    /// alternative was a hand-rolled per-endpoint dispatcher that inlined the accepted /
+    /// conflict split every time.
+    /// </summary>
+    protected async Task<Response<TWire>> DispatchOkAsync<TPayload, TResult, TWire>(
+        ICommandHandler<TPayload, TResult> handler,
+        OperationId operationId,
+        TPayload payload,
+        Func<TResult, TWire> wireSelector,
+        CancellationToken ct)
+        where TResult : ICommandResult
+    {
+        var envelope = BuildEnvelope(operationId, payload);
+        var result = await handler.HandleAsync(envelope, ct);
+        if (result.Accepted)
+            return new SuccessResponse<TWire>(wireSelector(result.Result!));
+
+        return ConflictToError(result.Conflict!);
+    }
+
+    /// <summary>
+    /// Show-endpoint helper: returns a 404 <see cref="ErrorResponse"/> naming
+    /// <paramref name="message"/> / <paramref name="code"/> when <paramref name="value"/>
+    /// is <see langword="null"/>; otherwise wraps the value in a 200 <see cref="SuccessResponse{T}"/>.
+    /// <para>
+    /// Consolidates the "load + null-check + 404 vs 200" ternary that every read-model
+    /// Show endpoint hand-rolled. Sites that mutate the loaded entity before returning
+    /// (avatar URL qualification etc.) apply the mutation under an
+    /// <c>if (v is not null)</c> guard and then call this helper with the (possibly
+    /// mutated) value.
+    /// </para>
+    /// </summary>
+    protected Response<T> OkOrNotFound<T>(T? value, string message, ErrorCode code)
+        => value is null
+            ? new ErrorResponse(message, code, HttpStatusCode.NotFound)
+            : new SuccessResponse<T>(value);
 }

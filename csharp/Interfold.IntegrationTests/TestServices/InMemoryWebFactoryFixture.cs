@@ -1,3 +1,4 @@
+using Interfold.Contracts;
 using TUnit.Core.Interfaces;
 
 namespace Interfold.IntegrationTests.TestServices;
@@ -22,5 +23,5 @@ public sealed class InMemoryWebFactoryFixture : IWebFactoryFixture, IAsyncInitia
     // the private-factory shape must stay byte-identical to the session-shared one so tests
     // that opt into isolation exercise the same host wiring as the rest of the suite.
     public InterfoldWebApplicationFactory CreatePrivateFactory()
-        => new("inmemory");
+        => new(PersistenceMode.InMemory);
 }

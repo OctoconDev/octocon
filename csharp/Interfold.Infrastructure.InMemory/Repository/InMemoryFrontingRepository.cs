@@ -28,25 +28,27 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
     }
 
     private readonly IRegionContext _regionContext;
-    private readonly IFriendshipRepository? _friendships;
+    private readonly IFriendshipRepository _friendships;
+    private readonly IAlterRepository _alters;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, FrontState>> _activeBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, List<FrontHistoryState>> _historyBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, AlterId?> _primaryBySystem = new();
     private readonly object _sync = new();
 
-    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships)
+    public InMemoryFrontingRepository(IRegionContext regionContext, IFriendshipRepository friendships, IAlterRepository alters)
     {
         _regionContext = regionContext;
         _friendships = friendships;
+        _alters = alters;
     }
 
     public Task<bool> IsFrontingAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
-            var active = _activeBySystem.TryGetValue(systemKey, out var set) && set.ContainsKey(alterId);
+            var active = TryGetActiveSet(systemKey, out var set) && set.ContainsKey(alterId);
             return Task.FromResult(active);
         }
     }
@@ -59,7 +61,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
@@ -94,11 +96,11 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> EndAsync(SystemId systemId, AlterId alterId, DateTimeOffset endedAt, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
+            if (!TryGetActiveSet(systemKey, out var set))
             {
                 return Task.FromResult(false);
             }
@@ -109,7 +111,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
                 _primaryBySystem[systemKey] = null;
             }
 
-            if (removed && removedFront is not null && _historyBySystem.TryGetValue(systemKey, out var history))
+            if (removed && removedFront is not null && TryGetHistory(systemKey, out var history))
             {
                 var historical = history.LastOrDefault(
                     x => x.FrontId == removedFront.FrontId &&
@@ -126,13 +128,13 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> SetPrimaryAsync(SystemId systemId, AlterId? alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
             if (alterId is { } value)
             {
-                if (!_activeBySystem.TryGetValue(systemKey, out var set) || !set.ContainsKey(value))
+                if (!TryGetActiveSet(systemKey, out var set) || !set.ContainsKey(value))
                 {
                     return Task.FromResult(false);
                 }
@@ -143,27 +145,36 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
-    public Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<FrontActiveReadModel>> ListActiveAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        IReadOnlyCollection<FrontState> activeFronts;
+        AlterId? primaryId;
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
-                return Task.FromResult<IReadOnlyList<FrontActiveReadModel>>(Array.Empty<FrontActiveReadModel>());
+            if (!TryGetActiveSet(systemKey, out var set))
+                return Array.Empty<FrontActiveReadModel>();
 
-            _primaryBySystem.TryGetValue(systemKey, out var primary);
-
-            var results = set.Values
-                .Select(x => new FrontActiveReadModel(
-                    new BareAlter(x.AlterId, $"Alter {x.AlterId}", null, null, null, null, null, null!),
-                    new FrontHistoryReadModel(x.FrontId, x.AlterId, x.Comment, x.StartedAt, null, systemId),
-                    primary == x.AlterId))
-                .OrderByDescending(x => x.Front.TimeStart)
-                .ToArray();
-
-            return Task.FromResult<IReadOnlyList<FrontActiveReadModel>>(results);
+            activeFronts = set.Values.ToArray();
+            _primaryBySystem.TryGetValue(systemKey, out primaryId);
         }
+
+        var results = new List<FrontActiveReadModel>(activeFronts.Count);
+        foreach (var x in activeFronts.OrderByDescending(f => f.StartedAt))
+        {
+            var alterModel = await _alters.GetAsync(systemId, x.AlterId, cancellationToken);
+            var bareAlter = alterModel is not null
+                ? new BareAlter(x.AlterId, alterModel.Name, alterModel.AvatarUrl, alterModel.AvatarSource, alterModel.Color, alterModel.Pronouns, alterModel.Description, alterModel.Fields ?? Array.Empty<AlterPublicFieldReadModel>())
+                : BareAlter.CreatePlaceholder(x.AlterId);
+
+            results.Add(new FrontActiveReadModel(
+                bareAlter,
+                new FrontHistoryReadModel(x.FrontId, x.AlterId, x.Comment, x.StartedAt, null, systemId),
+                primaryId == x.AlterId));
+        }
+
+        return results;
     }
 
     public async Task<IReadOnlyList<FrontActiveReadModel>> ListActiveGuardedAsync(
@@ -171,13 +182,22 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         SystemId? viewerSystemId,
         CancellationToken cancellationToken = default)
     {
-        var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
+        var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
         if (!VisibilityLevel.Public.CanBeViewedBy(friendshipLevel))
         {
             return Array.Empty<FrontActiveReadModel>();
         }
 
-        return await ListActiveAsync(systemId, cancellationToken);
+        var all = await ListActiveAsync(systemId, cancellationToken);
+        if (all.Count == 0)
+        {
+            return all;
+        }
+
+        var guardedAlters = await _alters.ListGuardedAsync(systemId, viewerSystemId, cancellationToken);
+        var visibleIds = guardedAlters.Select(a => a.Id).ToHashSet();
+
+        return all.Where(front => visibleIds.Contains(front.Alter.Id)).ToArray();
     }
 
     public Task<IReadOnlyList<FrontHistoryReadModel>> ListHistoryBetweenAsync(
@@ -186,11 +206,11 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         DateTimeOffset endInclusive,
         CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
-            if (!_historyBySystem.TryGetValue(systemKey, out var history))
+            if (!TryGetHistory(systemKey, out var history))
             {
                 return Task.FromResult<IReadOnlyList<FrontHistoryReadModel>>(Array.Empty<FrontHistoryReadModel>());
             }
@@ -207,11 +227,11 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
+            if (!TryGetActiveSet(systemKey, out var set))
                 return Task.FromResult<FrontActiveReadModel?>(null);
 
             _primaryBySystem.TryGetValue(systemKey, out var primary);
@@ -221,7 +241,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
                 return Task.FromResult<FrontActiveReadModel?>(null);
 
             return Task.FromResult<FrontActiveReadModel?>(new FrontActiveReadModel(
-                new BareAlter(found.AlterId, $"Alter {found.AlterId}", null, null, null, null, null, null!),
+                BareAlter.CreatePlaceholder(found.AlterId),
                 new FrontHistoryReadModel(found.FrontId, found.AlterId, found.Comment, found.StartedAt, null, systemId),
                 primary == found.AlterId));
         }
@@ -229,11 +249,11 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<FrontHistoryReadModel?> GetHistoryEntryByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
-            if (!_historyBySystem.TryGetValue(systemKey, out var history))
+            if (!TryGetHistory(systemKey, out var history))
                 return Task.FromResult<FrontHistoryReadModel?>(null);
 
             var entry = history.FirstOrDefault(x => x.FrontId == frontId);
@@ -256,11 +276,11 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> DeleteFrontByIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
-            if (!_historyBySystem.TryGetValue(systemKey, out var history))
+            if (!TryGetHistory(systemKey, out var history))
                 return Task.FromResult(false);
 
             var entry = history.FirstOrDefault(x => x.FrontId == frontId);
@@ -269,7 +289,9 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
             history.Remove(entry);
 
-            if (_activeBySystem.TryGetValue(systemKey, out var active) && active.ContainsKey(entry.AlterId))
+            if (TryGetActiveSet(systemKey, out var active)
+                && active.TryGetValue(entry.AlterId, out var frontState)
+                && frontState.FrontId == entry.FrontId)
             {
                 active.TryRemove(entry.AlterId, out _);
 
@@ -283,11 +305,11 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
     public Task<bool> UpdateCommentByFrontIdAsync(SystemId systemId, FrontId frontId, string comment, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 
         lock (_sync)
         {
-            if (!_activeBySystem.TryGetValue(systemKey, out var set))
+            if (!TryGetActiveSet(systemKey, out var set))
                 return Task.FromResult(false);
 
             var found = set.Values.FirstOrDefault(x => x.FrontId == frontId);
@@ -296,7 +318,7 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
 
             found.Comment = comment;
 
-            if (_historyBySystem.TryGetValue(systemKey, out var history))
+            if (TryGetHistory(systemKey, out var history))
             {
                 var historical = history.LastOrDefault(
                     x => x.FrontId == frontId && x.EndedAt is null);
@@ -310,10 +332,13 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private bool TryGetActiveSet(ScopedSystemId systemKey, out ConcurrentDictionary<AlterId, FrontState> set)
+        => _activeBySystem.TryGetValue(systemKey, out set!);
 
-    // Delegates to the shared static that also serves the Alter and Tag repos —
-    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
-    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
-        => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
+    private bool TryGetHistory(ScopedSystemId systemKey, out List<FrontHistoryState> history)
+        => _historyBySystem.TryGetValue(systemKey, out history!);
+
 }
+
+
+

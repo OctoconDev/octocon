@@ -84,6 +84,7 @@ public static async Task HandleUserSocketAsync(HttpContext context)
     var pollRepository = context.RequestServices.GetRequiredService<IPollRepository>();
     var journalRepository = context.RequestServices.GetRequiredService<IJournalRepository>();
     var encryptionStateRepository = context.RequestServices.GetRequiredService<IEncryptionStateRepository>();
+    var timeProvider = context.RequestServices.GetRequiredService<TimeProvider>();
     var requestOrigin = $"{context.Request.Scheme}://{context.Request.Host}";
 
     // The per-socket event pump is started on the first successful phx_join (see below).
@@ -242,7 +243,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
                         sendGate,
                         pushCts.Token,
                         requestOrigin: requestOrigin,
-                        logger: logger);
+                        logger: logger,
+                        timeProvider: timeProvider);
 
                     socketPushTask = SocketEventPumpRunner.RunAllAsync(
                         eventBus,
@@ -794,108 +796,7 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
     TokenValidationParameters validationParameters,
     AuthenticationConfiguration config)
 {
-    if (string.IsNullOrWhiteSpace(token))
-    {
-        throw new SecurityTokenInvalidSignatureException("Token is empty.");
-    }
-
-    var parts = token.Split('.');
-    if (parts.Length != 3)
-    {
-        throw new SecurityTokenInvalidSignatureException($"Token has {parts.Length} segments, expected 3.");
-    }
-
-    string headerJson;
-    try
-    {
-        headerJson = Encoding.UTF8.GetString(parts[0].Base64UrlDecode());
-    }
-    catch (Exception ex)
-    {
-        throw new SecurityTokenInvalidSignatureException($"Failed to decode header: {ex.Message}");
-    }
-
-    var header = JsonSerializer.Deserialize<JwsHeader>(headerJson);
-    if (header is null || string.IsNullOrWhiteSpace(header.Alg))
-    {
-        throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");
-    }
-
-    var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
-    byte[] signatureBytes;
-    try
-    {
-        signatureBytes = parts[2].Base64UrlDecode();
-    }
-    catch (Exception ex)
-    {
-        throw new SecurityTokenInvalidSignatureException($"Failed to decode signature: {ex.Message}");
-    }
-
-    // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(header.Alg, JwsHeader.Es256, StringComparison.Ordinal))
-    {
-        throw new SecurityTokenInvalidSignatureException($"Algorithm '{header.Alg}' is not supported. Only ES256 is accepted.");
-    }
-
-    var pems = config.JwtEs256VerificationKeyPems ?? [];
-    if (pems.Length == 0)
-    {
-        throw new SecurityTokenInvalidSignatureException("No ES256 verification keys are configured.");
-    }
-
-    int attemptCount = 0;
-    foreach (var rawPem in pems)
-    {
-        attemptCount++;
-        using var ecdsa = ECDsa.Create();
-        try
-        {
-            var normalizedPem = NormalizePem(rawPem);
-            ecdsa.ImportFromPem(normalizedPem.AsSpan());
-        }
-        catch (CryptographicException)
-        {
-            // Key import failed, try next key
-            continue;
-        }
-
-        try
-        {
-            if (ecdsa.VerifyData(
-                signingInput,
-                signatureBytes,
-                HashAlgorithmName.SHA256,
-                DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
-            {
-                return new JwtSecurityToken(token);
-            }
-        }
-        catch (CryptographicException)
-        {
-            // Verification failed with this key, try next
-            continue;
-        }
-    }
-
-    throw new SecurityTokenInvalidSignatureException(
-        $"Invalid JWT signature: tested {attemptCount} verification key(s) but none matched.");
-}
-
-static string NormalizePem(string pem)
-{
-    if (string.IsNullOrWhiteSpace(pem))
-        return pem;
-
-    // Normalize various line ending formats to actual newlines
-    var normalized = pem
-        .Replace(@"\r\n", "\n", StringComparison.Ordinal)  // Escaped Windows (\r\n became \\r\\n)
-        .Replace("\\r", "\n", StringComparison.Ordinal)     // Escaped carriage return
-        .Replace("\\n", "\n", StringComparison.Ordinal)     // Escaped newline
-        .Replace("\r\n", "\n", StringComparison.Ordinal)    // Windows line endings
-        .Replace("\r", "\n", StringComparison.Ordinal);     // Old Mac line endings
-
-    return normalized;
+    return Interfold.Api.Auth.JwtEs256Validator.ValidateSignature(token, config.JwtEs256VerificationKeyPems ?? [], useJsonWebToken: false);
 }
 
  static async Task SendPhoenixReplyAsync<TResponse>(

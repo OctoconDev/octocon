@@ -37,11 +37,8 @@ public readonly record struct AvatarUrl
     public static AvatarUrl? FromNullable(string? value) => value is null ? null : new AvatarUrl(value);
 }
 
-internal sealed class AvatarUrlJsonConverter : JsonConverter<AvatarUrl>
+internal sealed class AvatarUrlJsonConverter : StringBackedJsonConverter<AvatarUrl>
 {
-    public override AvatarUrl Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, AvatarUrl value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override AvatarUrl Create(string value) => new(value);
+    protected override string GetValue(AvatarUrl value) => value.Value;
 }

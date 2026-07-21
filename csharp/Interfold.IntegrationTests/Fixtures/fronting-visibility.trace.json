@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "description": "Fronting visibility: active fronts should respect alter visibility",
+  "steps": [
+    {
+      "name": "create public alter",
+      "method": "POST",
+      "path": "/api/systems/me/alters",
+      "principalId": "replay-sys-front-vis",
+      "idempotencyKey": "replay-front-vis-alter1",
+      "body": {
+        "name": "PublicAlter"
+      },
+      "expectedStatus": 201,
+      "captureAs": {
+        "publicAlterId": "id"
+      }
+    },
+    {
+      "name": "create private alter",
+      "method": "POST",
+      "path": "/api/systems/me/alters",
+      "principalId": "replay-sys-front-vis",
+      "idempotencyKey": "replay-front-vis-alter2",
+      "body": {
+        "name": "PrivateAlter"
+      },
+      "expectedStatus": 201,
+      "captureAs": {
+        "privateAlterId": "id"
+      }
+    },
+    {
+      "name": "set public alter to public",
+      "method": "PATCH",
+      "path": "/api/systems/me/alters/{publicAlterId}",
+      "principalId": "replay-sys-front-vis",
+      "idempotencyKey": "replay-front-vis-alter1-patch",
+      "body": {
+        "security_level": "public"
+      },
+      "expectedStatus": 204
+    },
+    {
+      "name": "start front public",
+      "method": "POST",
+      "path": "/api/systems/me/front/start",
+      "principalId": "replay-sys-front-vis",
+      "idempotencyKey": "replay-front-vis-start1",
+      "body": {
+        "id": "{publicAlterId}"
+      },
+      "expectedStatus": 201
+    },
+    {
+      "name": "start front private",
+      "method": "POST",
+      "path": "/api/systems/me/front/start",
+      "principalId": "replay-sys-front-vis",
+      "idempotencyKey": "replay-front-vis-start2",
+      "body": {
+        "id": "{privateAlterId}"
+      },
+      "expectedStatus": 201
+    },
+    {
+      "name": "get active fronts as stranger",
+      "method": "GET",
+      "path": "/api/systems/replay-sys-front-vis/fronting",
+      "principalId": "replay-sys-front-stranger",
+      "expectedStatus": 200,
+      "expectedJsonContains": "PublicAlter",
+      "expectedJsonNotContains": "PrivateAlter"
+    }
+  ]
+}

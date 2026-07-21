@@ -17,16 +17,11 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class CertificateGenerationTests
 {
-    private static BootstrapOptions OptionsFor(string outputDir) => new(
-        Command: BootstrapCommand.Bootstrap,
-        ConfigPath: null,
-        OutputDir: outputDir,
-        SkipPrereqs: true,
-        RotateSecrets: false,
-        RotateCerts: false,
-        NonInteractive: true,
-        FaultInject: null,
-        PrintPhaseStatus: false);
+    private static BootstrapOptions OptionsFor(string outputDir) => TestSupport.MakeOptions(
+        command: BootstrapCommand.Bootstrap,
+        outputDir: outputDir,
+        skipPrereqs: true,
+        nonInteractive: true);
 
     // Default to trustStoreInstall=false so unit tests stay hermetic. With the previous default
     // of `true`, CertificatePhase.InstallToTrustStoreAsync would File.Copy the generated root CA
@@ -54,147 +49,132 @@ public sealed class CertificateGenerationTests
         return (config, SecretsPhase.Generate());
     }
 
-    private static string MakeScratchDir()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "interfold-certs-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
 
     private static X509Certificate2 LoadCert(string path) => X509CertificateLoader.LoadCertificateFromFile(path);
+
+    /// <summary>
+    /// Runs <see cref="CertificatePhase.RunAsync"/> against a fresh scratch dir and returns a
+    /// disposable bundle carrying the scratch path, the phase inputs, and convenience accessors
+    /// (<see cref="CertPhaseArtifacts.CertPath"/>) for the on-disk artefacts. Every arg-shape a
+    /// caller might vary is exposed as a named parameter so tests read as intent rather than as
+    /// scaffolding. The two tests that need the raw PEMs (LeafOutsideConstraintsFailsValidation)
+    /// or that capture a pre-run timestamp still route through here — they just read the PEM
+    /// via CertPath or capture the timestamp immediately before calling this method.
+    /// </summary>
+    private static async Task<CertPhaseArtifacts> RunPhaseAsync(
+        string? rootCaName = null,
+        int? certYears = null,
+        IList<string>? hosts = null,
+        bool trustStoreInstall = false)
+    {
+        var scratch = TestSupport.NewScratchDir("interfold-certs");
+        var (config, secrets) = MakeInputs(rootCaName, certYears, hosts, trustStoreInstall);
+        var options = OptionsFor(scratch.Path);
+        var logger = new PhaseLogger(options);
+        await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        return new CertPhaseArtifacts(scratch, config, secrets, options);
+    }
+
+    /// <summary>
+    /// Disposable bundle produced by <see cref="RunPhaseAsync"/>: owns the scratch directory,
+    /// exposes the phase inputs, and provides <see cref="CertPath"/> conveniences to avoid
+    /// rebuilding <c>Path.Combine(scratch.Path, "certs", ...)</c> at every call site.
+    /// </summary>
+    private sealed record CertPhaseArtifacts(
+        TestSupport.ScratchDir Scratch,
+        BootstrapConfig Config,
+        GeneratedSecrets Secrets,
+        BootstrapOptions Options) : IDisposable
+    {
+        public string CertsDir => Path.Combine(Scratch.Path, "certs");
+        public string CertPath(string file) => Path.Combine(CertsDir, file);
+        public void Dispose() => Scratch.Dispose();
+    }
 
     [Test]
     public async Task CustomRootCaNameAppearsInCertSubject()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(rootCaName: "Acme Trust Root");
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(rootCaName: "Acme Trust Root");
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            await Assert.That(root.Subject).Contains("CN=Acme Trust Root");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        await Assert.That(root.Subject).Contains("CN=Acme Trust Root");
     }
 
     [Test]
     public async Task CustomCertYearsControlsNotAfter()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            const int years = 12;
-            var (config, secrets) = MakeInputs(certYears: years);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        const int years = 12;
+        var before = DateTimeOffset.UtcNow;
+        using var artifacts = await RunPhaseAsync(certYears: years);
+        var after = DateTimeOffset.UtcNow;
 
-            var before = DateTimeOffset.UtcNow;
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-            var after = DateTimeOffset.UtcNow;
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var notAfter = root.NotAfter.ToUniversalTime();
 
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var notAfter = root.NotAfter.ToUniversalTime();
-
-            // notAfter is approximately (notBefore + years). notBefore is constructed as
-            // (UtcNow - 5min) at phase invocation time, so notAfter ~= before + years - small
-            // window. Allow a 2-minute slop on either side to keep the test stable on slow CI.
-            var expectedMin = before.AddYears(years).AddMinutes(-10);
-            var expectedMax = after.AddYears(years);
-            await Assert.That(notAfter).IsGreaterThanOrEqualTo(expectedMin.UtcDateTime);
-            await Assert.That(notAfter).IsLessThanOrEqualTo(expectedMax.UtcDateTime);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        // notAfter is approximately (notBefore + years). notBefore is constructed as
+        // (UtcNow - 5min) at phase invocation time, so notAfter ~= before + years - small
+        // window. Allow a 2-minute slop on either side to keep the test stable on slow CI.
+        var expectedMin = before.AddYears(years).AddMinutes(-10);
+        var expectedMax = after.AddYears(years);
+        await Assert.That(notAfter).IsGreaterThanOrEqualTo(expectedMin.UtcDateTime);
+        await Assert.That(notAfter).IsLessThanOrEqualTo(expectedMax.UtcDateTime);
     }
 
     [Test]
     public async Task LeafIsSignedByRoot()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs();
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync();
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
 
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            using var leaf = LoadCert(Path.Combine(outputDir, "certs", "leaf.crt"));
+        // Build a chain anchored on the generated root and verify it.
+        using var chain = new X509Chain();
+        chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        chain.ChainPolicy.CustomTrustStore.Add(root);
+        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        // The leaf is self-signed by our private root CA; the OS trust store has no opinion on it.
+        chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
 
-            // Build a chain anchored on the generated root and verify it.
-            using var chain = new X509Chain();
-            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-            chain.ChainPolicy.CustomTrustStore.Add(root);
-            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-            // The leaf is self-signed by our private root CA; the OS trust store has no opinion on it.
-            chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
+        var built = chain.Build(leaf);
+        // Surface the status flags in the failure message if the build fails — useful for diagnosing
+        // cert-extension regressions (e.g. someone removes the AKI extension).
+        var statuses = chain.ChainStatus.Length == 0
+            ? "<none>"
+            : string.Join(", ", chain.ChainStatus.Select(s => $"{s.Status}: {s.StatusInformation.Trim()}"));
+        await Assert.That(built).IsTrue().Because($"leaf->root chain build failed: {statuses}");
 
-            var built = chain.Build(leaf);
-            // Surface the status flags in the failure message if the build fails — useful for diagnosing
-            // cert-extension regressions (e.g. someone removes the AKI extension).
-            var statuses = chain.ChainStatus.Length == 0
-                ? "<none>"
-                : string.Join(", ", chain.ChainStatus.Select(s => $"{s.Status}: {s.StatusInformation.Trim()}"));
-            await Assert.That(built).IsTrue().Because($"leaf->root chain build failed: {statuses}");
-
-            // Strand 2: leaf SAN is inside the root's permittedSubtrees by construction, so
-            // none of the NameConstraints status flags should fire. Asserting their absence
-            // is the cheap canary for regressions in BuildNameConstraintsExtension (wrong
-            // OID, missing IMPLICIT tag, off-by-one in length prefixes, etc.) — those would
-            // typically surface as InvalidNameConstraints / HasNotSupportedNameConstraint
-            // even on a within-permitted leaf.
-            var ncFlagFired = chain.ChainStatus.Any(s =>
-                s.Status == X509ChainStatusFlags.HasNotPermittedNameConstraint
-                || s.Status == X509ChainStatusFlags.HasExcludedNameConstraint
-                || s.Status == X509ChainStatusFlags.InvalidNameConstraints
-                || s.Status == X509ChainStatusFlags.HasNotSupportedNameConstraint);
-            await Assert.That(ncFlagFired).IsFalse()
-                .Because($"leaf is within permittedSubtrees; no NameConstraints flag should fire. statuses: {statuses}");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        // Strand 2: leaf SAN is inside the root's permittedSubtrees by construction, so
+        // none of the NameConstraints status flags should fire. Asserting their absence
+        // is the cheap canary for regressions in BuildNameConstraintsExtension (wrong
+        // OID, missing IMPLICIT tag, off-by-one in length prefixes, etc.) — those would
+        // typically surface as InvalidNameConstraints / HasNotSupportedNameConstraint
+        // even on a within-permitted leaf.
+        var ncFlagFired = chain.ChainStatus.Any(s =>
+            s.Status == X509ChainStatusFlags.HasNotPermittedNameConstraint
+            || s.Status == X509ChainStatusFlags.HasExcludedNameConstraint
+            || s.Status == X509ChainStatusFlags.InvalidNameConstraints
+            || s.Status == X509ChainStatusFlags.HasNotSupportedNameConstraint);
+        await Assert.That(ncFlagFired).IsFalse()
+            .Because($"leaf is within permittedSubtrees; no NameConstraints flag should fire. statuses: {statuses}");
     }
 
     [Test]
     public async Task MultipleHostsBecomeMultipleSans()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(hosts:
-                ["api.example.com", "admin.example.com", "www.example.com"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts:
+            ["api.example.com", "admin.example.com", "www.example.com"]);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
+        // SAN extension OID: 2.5.29.17.
+        var san = leaf.Extensions.FirstOrDefault(e => e.Oid?.Value == "2.5.29.17");
+        await Assert.That(san).IsNotNull();
 
-            using var leaf = LoadCert(Path.Combine(outputDir, "certs", "leaf.crt"));
-            // SAN extension OID: 2.5.29.17.
-            var san = leaf.Extensions.FirstOrDefault(e => e.Oid?.Value == "2.5.29.17");
-            await Assert.That(san).IsNotNull();
-
-            // Format() returns a human-readable representation that includes each DNS name.
-            var sanText = san!.Format(multiLine: true);
-            await Assert.That(sanText).Contains("api.example.com");
-            await Assert.That(sanText).Contains("admin.example.com");
-            await Assert.That(sanText).Contains("www.example.com");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        // Format() returns a human-readable representation that includes each DNS name.
+        var sanText = san!.Format(multiLine: true);
+        await Assert.That(sanText).Contains("api.example.com");
+        await Assert.That(sanText).Contains("admin.example.com");
+        await Assert.That(sanText).Contains("www.example.com");
     }
 
     [Test]
@@ -204,26 +184,13 @@ public sealed class CertificateGenerationTests
         // (root/leaf .crt, leaf.key, leaf.pfx) — it just skips the system trust-store install
         // step. This unit test covers the branch; the integration tests verify that no anchors
         // appear under /usr/local/share/ca-certificates on Linux.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(trustStoreInstall: false);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(trustStoreInstall: false);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-            // The artifacts must still exist — only the trust-store install is gated on the flag.
-            var certsDir = Path.Combine(outputDir, "certs");
-            await Assert.That(File.Exists(Path.Combine(certsDir, "rootCA.crt"))).IsTrue();
-            await Assert.That(File.Exists(Path.Combine(certsDir, "leaf.crt"))).IsTrue();
-            await Assert.That(File.Exists(Path.Combine(certsDir, "leaf.key"))).IsTrue();
-            await Assert.That(File.Exists(Path.Combine(certsDir, "leaf.pfx"))).IsTrue();
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        // The artifacts must still exist — only the trust-store install is gated on the flag.
+        await Assert.That(File.Exists(artifacts.CertPath("rootCA.crt"))).IsTrue();
+        await Assert.That(File.Exists(artifacts.CertPath("leaf.crt"))).IsTrue();
+        await Assert.That(File.Exists(artifacts.CertPath("leaf.key"))).IsTrue();
+        await Assert.That(File.Exists(artifacts.CertPath("leaf.pfx"))).IsTrue();
     }
 
     [Test]
@@ -238,78 +205,42 @@ public sealed class CertificateGenerationTests
             return;
         }
 
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs();
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync();
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        var rootKeyPath = artifacts.CertPath("rootCA.key");
+        await Assert.That(File.Exists(rootKeyPath)).IsTrue();
 
-            var rootKeyPath = Path.Combine(outputDir, "certs", "rootCA.key");
-            await Assert.That(File.Exists(rootKeyPath)).IsTrue();
-
-            var actualMode = File.GetUnixFileMode(rootKeyPath);
-            const UnixFileMode expectedMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            await Assert.That(actualMode).IsEqualTo(expectedMode)
-                .Because($"rootCA.key must be 0600 (User R+W only); got {actualMode}");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        var actualMode = File.GetUnixFileMode(rootKeyPath);
+        const UnixFileMode expectedMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        await Assert.That(actualMode).IsEqualTo(expectedMode)
+            .Because($"rootCA.key must be 0600 (User R+W only); got {actualMode}");
     }
 
     [Test]
     public async Task RootHasCriticalNameConstraints()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(hosts: ["api.example.com"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com"]);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var nc = root.Extensions.FirstOrDefault(e => e.Oid?.Value == "2.5.29.30");
-            await Assert.That(nc).IsNotNull()
-                .Because("Name Constraints extension (OID 2.5.29.30) must be present on the root CA");
-            await Assert.That(nc!.Critical).IsTrue()
-                .Because("Name Constraints MUST be critical per RFC 5280 §4.2.1.10");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var nc = root.Extensions.FirstOrDefault(e => e.Oid?.Value == "2.5.29.30");
+        await Assert.That(nc).IsNotNull()
+            .Because("Name Constraints extension (OID 2.5.29.30) must be present on the root CA");
+        await Assert.That(nc!.Critical).IsTrue()
+            .Because("Name Constraints MUST be critical per RFC 5280 §4.2.1.10");
     }
 
     [Test]
     public async Task PermittedSubtreesMatchHosts()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var hosts = new List<string> { "api.example.com", "admin.example.com", "www.example.com" };
-            var (config, secrets) = MakeInputs(hosts: hosts);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        var hosts = new List<string> { "api.example.com", "admin.example.com", "www.example.com" };
+        using var artifacts = await RunPhaseAsync(hosts: hosts);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
 
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
-
-            var parsed = ParseDnsPermittedSubtrees(nc.RawData);
-            await Assert.That(parsed).IsEquivalentTo(hosts)
-                .Because($"permittedSubtrees must contain exactly the configured hosts; got [{string.Join(", ", parsed)}]");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        var parsed = ParseDnsPermittedSubtrees(nc.RawData);
+        await Assert.That(parsed).IsEquivalentTo(hosts)
+            .Because($"permittedSubtrees must contain exactly the configured hosts; got [{string.Join(", ", parsed)}]");
     }
 
     [Test]
@@ -319,26 +250,14 @@ public sealed class CertificateGenerationTests
         // suffix, and the literal `*` character is not legal in an IA5String constraint value.
         // BuildNameConstraintsExtension must therefore collapse `*.example.com` to
         // `example.com` in the permittedSubtrees set.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(hosts: ["*.example.com"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["*.example.com"]);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
+        var parsed = ParseDnsPermittedSubtrees(nc.RawData);
 
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
-            var parsed = ParseDnsPermittedSubtrees(nc.RawData);
-
-            await Assert.That(parsed.Count).IsEqualTo(1);
-            await Assert.That(parsed[0]).IsEqualTo("example.com");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        await Assert.That(parsed.Count).IsEqualTo(1);
+        await Assert.That(parsed[0]).IsEqualTo("example.com");
     }
 
     [Test]
@@ -348,69 +267,57 @@ public sealed class CertificateGenerationTests
         // confirm that chain.Build rejects it with the expected NameConstraints status flag.
         // This is the load-bearing assertion that a leaked CA private key cannot mint a
         // trusted cert for arbitrary hosts.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(hosts: ["api.example.com"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com"]);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        var rootCertPem = await File.ReadAllTextAsync(artifacts.CertPath("rootCA.crt"));
+        var rootKeyPem = await File.ReadAllTextAsync(artifacts.CertPath("rootCA.key"));
+        using var root = X509Certificate2.CreateFromPem(rootCertPem, rootKeyPem);
 
-            var rootCertPem = await File.ReadAllTextAsync(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var rootKeyPem = await File.ReadAllTextAsync(Path.Combine(outputDir, "certs", "rootCA.key"));
-            using var root = X509Certificate2.CreateFromPem(rootCertPem, rootKeyPem);
+        using var leafKey = RSA.Create(2048);
+        var leafReq = new CertificateRequest(
+            new X500DistinguishedName("CN=evil.attacker.com"),
+            leafKey,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        var sanBuilder = new SubjectAlternativeNameBuilder();
+        sanBuilder.AddDnsName("evil.attacker.com");
+        leafReq.CertificateExtensions.Add(sanBuilder.Build());
+        leafReq.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(false, false, 0, true));
+        leafReq.CertificateExtensions.Add(new X509KeyUsageExtension(
+            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
+        leafReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+            new OidCollection { new("1.3.6.1.5.5.7.3.1") }, false));
 
-            using var leafKey = RSA.Create(2048);
-            var leafReq = new CertificateRequest(
-                new X500DistinguishedName("CN=evil.attacker.com"),
-                leafKey,
-                HashAlgorithmName.SHA256,
-                RSASignaturePadding.Pkcs1);
-            var sanBuilder = new SubjectAlternativeNameBuilder();
-            sanBuilder.AddDnsName("evil.attacker.com");
-            leafReq.CertificateExtensions.Add(sanBuilder.Build());
-            leafReq.CertificateExtensions.Add(
-                new X509BasicConstraintsExtension(false, false, 0, true));
-            leafReq.CertificateExtensions.Add(new X509KeyUsageExtension(
-                X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
-            leafReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-                new OidCollection { new("1.3.6.1.5.5.7.3.1") }, false));
+        var serial = RandomNumberGenerator.GetBytes(16);
+        serial[0] &= 0x7F;
 
-            var serial = RandomNumberGenerator.GetBytes(16);
-            serial[0] &= 0x7F;
+        // Clamp the leaf strictly inside the root's lifetime so a NotTimeValid status can't
+        // mask the NameConstraints violation we're actually testing for.
+        var notBefore = new DateTimeOffset(root.NotBefore.ToUniversalTime(), TimeSpan.Zero).AddMinutes(1);
+        var notAfter = new DateTimeOffset(root.NotAfter.ToUniversalTime(), TimeSpan.Zero).AddSeconds(-1);
+        using var badLeaf = leafReq.Create(root, notBefore, notAfter, serial);
 
-            // Clamp the leaf strictly inside the root's lifetime so a NotTimeValid status can't
-            // mask the NameConstraints violation we're actually testing for.
-            var notBefore = new DateTimeOffset(root.NotBefore.ToUniversalTime(), TimeSpan.Zero).AddMinutes(1);
-            var notAfter = new DateTimeOffset(root.NotAfter.ToUniversalTime(), TimeSpan.Zero).AddSeconds(-1);
-            using var badLeaf = leafReq.Create(root, notBefore, notAfter, serial);
+        using var chain = new X509Chain();
+        chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        chain.ChainPolicy.CustomTrustStore.Add(root);
+        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
 
-            using var chain = new X509Chain();
-            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-            chain.ChainPolicy.CustomTrustStore.Add(root);
-            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        var built = chain.Build(badLeaf);
+        var statuses = chain.ChainStatus.Length == 0
+            ? "<none>"
+            : string.Join(", ", chain.ChainStatus.Select(s => s.Status.ToString()));
 
-            var built = chain.Build(badLeaf);
-            var statuses = chain.ChainStatus.Length == 0
-                ? "<none>"
-                : string.Join(", ", chain.ChainStatus.Select(s => s.Status.ToString()));
+        await Assert.That(built).IsFalse()
+            .Because($"chain build must reject a leaf whose SAN is outside the CA's Name Constraints; statuses: {statuses}");
 
-            await Assert.That(built).IsFalse()
-                .Because($"chain build must reject a leaf whose SAN is outside the CA's Name Constraints; statuses: {statuses}");
-
-            var ncViolation = chain.ChainStatus.Any(s =>
-                s.Status == X509ChainStatusFlags.HasNotPermittedNameConstraint
-                || s.Status == X509ChainStatusFlags.HasExcludedNameConstraint
-                || s.Status == X509ChainStatusFlags.InvalidNameConstraints
-                || s.Status == X509ChainStatusFlags.HasNotSupportedNameConstraint);
-            await Assert.That(ncViolation).IsTrue()
-                .Because($"chain failed but not for a Name Constraints reason; got: {statuses}");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        var ncViolation = chain.ChainStatus.Any(s =>
+            s.Status == X509ChainStatusFlags.HasNotPermittedNameConstraint
+            || s.Status == X509ChainStatusFlags.HasExcludedNameConstraint
+            || s.Status == X509ChainStatusFlags.InvalidNameConstraints
+            || s.Status == X509ChainStatusFlags.HasNotSupportedNameConstraint);
+        await Assert.That(ncViolation).IsTrue()
+            .Because($"chain failed but not for a Name Constraints reason; got: {statuses}");
     }
 
     [Test]
@@ -435,36 +342,24 @@ public sealed class CertificateGenerationTests
         // rootCA.crt after the certs phase runs, hold the canonical colon-hex SHA-256 of the
         // root cert's DER bytes, and match what `FormatSha256Fingerprint(SHA256.HashData(...))`
         // would compute live. PrintTrustInfo / TrustController both depend on this format.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs();
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync();
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        var fingerprintPath = artifacts.CertPath("rootCA.sha256.txt");
+        await Assert.That(File.Exists(fingerprintPath)).IsTrue()
+            .Because("rootCA.sha256.txt must be written alongside rootCA.crt");
 
-            var fingerprintPath = Path.Combine(outputDir, "certs", "rootCA.sha256.txt");
-            await Assert.That(File.Exists(fingerprintPath)).IsTrue()
-                .Because("rootCA.sha256.txt must be written alongside rootCA.crt");
+        var fingerprint = (await File.ReadAllTextAsync(fingerprintPath)).Trim();
 
-            var fingerprint = (await File.ReadAllTextAsync(fingerprintPath)).Trim();
+        // 32 hex pairs + 31 colon separators = 95 characters.
+        await Assert.That(fingerprint.Length).IsEqualTo(95)
+            .Because($"colon-hex SHA-256 must be 95 chars; got '{fingerprint}' (len={fingerprint.Length})");
+        await Assert.That(Regex.IsMatch(fingerprint, "^([0-9A-F]{2}:){31}[0-9A-F]{2}$")).IsTrue()
+            .Because($"fingerprint must match the uppercase colon-hex pattern; got: '{fingerprint}'");
 
-            // 32 hex pairs + 31 colon separators = 95 characters.
-            await Assert.That(fingerprint.Length).IsEqualTo(95)
-                .Because($"colon-hex SHA-256 must be 95 chars; got '{fingerprint}' (len={fingerprint.Length})");
-            await Assert.That(Regex.IsMatch(fingerprint, "^([0-9A-F]{2}:){31}[0-9A-F]{2}$")).IsTrue()
-                .Because($"fingerprint must match the uppercase colon-hex pattern; got: '{fingerprint}'");
-
-            using var cert = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var expected = CertificatePhase.FormatSha256Fingerprint(SHA256.HashData(cert.RawData));
-            await Assert.That(fingerprint).IsEqualTo(expected)
-                .Because("the file contents must equal the live hash of the published root CA cert");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var cert = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var expected = CertificatePhase.FormatSha256Fingerprint(SHA256.HashData(cert.RawData));
+        await Assert.That(fingerprint).IsEqualTo(expected)
+            .Because("the file contents must equal the live hash of the published root CA cert");
     }
 
     [Test]
@@ -473,49 +368,25 @@ public sealed class CertificateGenerationTests
         // An IPv4 host on deployment.hosts must end up as an iPAddress GeneralName on the leaf's
         // SAN extension. Clients hitting `https://192.168.1.42/` need that entry to validate the
         // cert against the bare IP authority.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(hosts: ["192.168.1.42"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["192.168.1.42"]);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-            using var leaf = LoadCert(Path.Combine(outputDir, "certs", "leaf.crt"));
-            var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
-            var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
-            await Assert.That(ips).Contains("192.168.1.42")
-                .Because($"leaf SAN must contain an iPAddress entry for the configured IPv4 host; got [{string.Join(", ", ips)}]");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
+        var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
+        var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
+        await Assert.That(ips).Contains("192.168.1.42")
+            .Because($"leaf SAN must contain an iPAddress entry for the configured IPv4 host; got [{string.Join(", ", ips)}]");
     }
 
     [Test]
     public async Task LeafSanIncludesIPv6AsIpAddress()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(hosts: ["fe80::1234"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["fe80::1234"]);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-            using var leaf = LoadCert(Path.Combine(outputDir, "certs", "leaf.crt"));
-            var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
-            var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
-            await Assert.That(ips).Contains("fe80::1234")
-                .Because($"leaf SAN must contain an iPAddress entry for the configured IPv6 host; got [{string.Join(", ", ips)}]");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
+        var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
+        var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
+        await Assert.That(ips).Contains("fe80::1234")
+            .Because($"leaf SAN must contain an iPAddress entry for the configured IPv6 host; got [{string.Join(", ", ips)}]");
     }
 
     [Test]
@@ -524,31 +395,19 @@ public sealed class CertificateGenerationTests
         // CIDR entries widen the root CA's Name Constraints scope but MUST NOT appear on the
         // leaf SAN — a leaf cert can only serve a specific host. The leaf gets the DNS name; the
         // CIDR only shows up in the root's permittedSubtrees (tested separately below).
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var (config, secrets) = MakeInputs(hosts: ["api.example.com", "10.0.0.0/8"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com", "10.0.0.0/8"]);
 
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
+        using var leaf = LoadCert(artifacts.CertPath("leaf.crt"));
+        var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
+        var dnsNames = sanExt.EnumerateDnsNames().ToList();
+        var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
 
-            using var leaf = LoadCert(Path.Combine(outputDir, "certs", "leaf.crt"));
-            var sanExt = leaf.Extensions.OfType<X509SubjectAlternativeNameExtension>().First();
-            var dnsNames = sanExt.EnumerateDnsNames().ToList();
-            var ips = sanExt.EnumerateIPAddresses().Select(ip => ip.ToString()).ToList();
-
-            await Assert.That(dnsNames).Contains("api.example.com");
-            // The CIDR must NOT appear in either category.
-            await Assert.That(ips.Count).IsEqualTo(0)
-                .Because($"leaf SAN must not contain any iPAddress entry for a CIDR host; got [{string.Join(", ", ips)}]");
-            await Assert.That(dnsNames.Any(d => d.Contains('/'))).IsFalse()
-                .Because($"leaf SAN must not contain any DNS entry containing '/' (CIDR shape); got [{string.Join(", ", dnsNames)}]");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        await Assert.That(dnsNames).Contains("api.example.com");
+        // The CIDR must NOT appear in either category.
+        await Assert.That(ips.Count).IsEqualTo(0)
+            .Because($"leaf SAN must not contain any iPAddress entry for a CIDR host; got [{string.Join(", ", ips)}]");
+        await Assert.That(dnsNames.Any(d => d.Contains('/'))).IsFalse()
+            .Because($"leaf SAN must not contain any DNS entry containing '/' (CIDR shape); got [{string.Join(", ", dnsNames)}]");
     }
 
     [Test]
@@ -558,31 +417,19 @@ public sealed class CertificateGenerationTests
         // every client check it as `address || mask`. A drift here would silently broaden or
         // narrow the operator's blast-radius cap. Pin the canonical /24 form (192.168.1.0/24)
         // against the expected 8 bytes: 4 addr (C0 A8 01 00) + 4 mask (FF FF FF 00).
-        var outputDir = MakeScratchDir();
-        try
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com", "192.168.1.0/24"]);
+
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
+        var ipSubtrees = ParseIpPermittedSubtrees(nc.RawData);
+
+        await Assert.That(ipSubtrees.Count).IsEqualTo(1)
+            .Because($"expected exactly one iPAddress permittedSubtree; got {ipSubtrees.Count}");
+        await Assert.That(ipSubtrees[0]).IsEquivalentTo(new byte[]
         {
-            var (config, secrets) = MakeInputs(hosts: ["api.example.com", "192.168.1.0/24"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
-            var ipSubtrees = ParseIpPermittedSubtrees(nc.RawData);
-
-            await Assert.That(ipSubtrees.Count).IsEqualTo(1)
-                .Because($"expected exactly one iPAddress permittedSubtree; got {ipSubtrees.Count}");
-            await Assert.That(ipSubtrees[0]).IsEquivalentTo(new byte[]
-            {
-                0xC0, 0xA8, 0x01, 0x00,
-                0xFF, 0xFF, 0xFF, 0x00,
-            });
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+            0xC0, 0xA8, 0x01, 0x00,
+            0xFF, 0xFF, 0xFF, 0x00,
+        });
     }
 
     [Test]
@@ -591,37 +438,25 @@ public sealed class CertificateGenerationTests
         // A bare IPv6 literal becomes a single-host iPAddress subtree with the all-ones /128
         // mask (16 addr bytes + 16 mask bytes). Spot-check the boundary bytes for the canonical
         // form rather than asserting the full 32 bytes verbatim.
-        var outputDir = MakeScratchDir();
-        try
+        using var artifacts = await RunPhaseAsync(hosts: ["api.example.com", "fe80::1"]);
+
+        using var root = LoadCert(artifacts.CertPath("rootCA.crt"));
+        var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
+        var ipSubtrees = ParseIpPermittedSubtrees(nc.RawData);
+
+        await Assert.That(ipSubtrees.Count).IsEqualTo(1);
+        var bytes = ipSubtrees[0];
+        await Assert.That(bytes.Length).IsEqualTo(32)
+            .Because($"IPv6 iPAddress subtree must be 16 (addr) + 16 (mask) = 32 bytes; got {bytes.Length}");
+        // fe80::1 = fe 80 00...00 01 — boundary bytes are deterministic.
+        await Assert.That(bytes[0]).IsEqualTo((byte)0xFE);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0x80);
+        await Assert.That(bytes[15]).IsEqualTo((byte)0x01);
+        // All 16 mask bytes are 0xFF for a /128 single host.
+        for (var i = 16; i < 32; i++)
         {
-            var (config, secrets) = MakeInputs(hosts: ["api.example.com", "fe80::1"]);
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-
-            await CertificatePhase.RunAsync(options, config, secrets, logger, CancellationToken.None);
-
-            using var root = LoadCert(Path.Combine(outputDir, "certs", "rootCA.crt"));
-            var nc = root.Extensions.First(e => e.Oid?.Value == "2.5.29.30");
-            var ipSubtrees = ParseIpPermittedSubtrees(nc.RawData);
-
-            await Assert.That(ipSubtrees.Count).IsEqualTo(1);
-            var bytes = ipSubtrees[0];
-            await Assert.That(bytes.Length).IsEqualTo(32)
-                .Because($"IPv6 iPAddress subtree must be 16 (addr) + 16 (mask) = 32 bytes; got {bytes.Length}");
-            // fe80::1 = fe 80 00...00 01 — boundary bytes are deterministic.
-            await Assert.That(bytes[0]).IsEqualTo((byte)0xFE);
-            await Assert.That(bytes[1]).IsEqualTo((byte)0x80);
-            await Assert.That(bytes[15]).IsEqualTo((byte)0x01);
-            // All 16 mask bytes are 0xFF for a /128 single host.
-            for (var i = 16; i < 32; i++)
-            {
-                await Assert.That(bytes[i]).IsEqualTo((byte)0xFF)
-                    .Because($"mask byte at index {i} must be 0xFF for a /128 subtree");
-            }
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
+            await Assert.That(bytes[i]).IsEqualTo((byte)0xFF)
+                .Because($"mask byte at index {i} must be 0xFF for a /128 subtree");
         }
     }
 

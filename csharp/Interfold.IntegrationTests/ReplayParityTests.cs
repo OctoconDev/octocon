@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Mvc.Testing;
 using System.Text;
 using System.Text.Json;
 using Interfold.IntegrationTests.Models;
@@ -25,10 +24,12 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
         yield return "alter-lifecycle.trace.json";
         yield return "tag-lifecycle.trace.json";
         yield return "fronting-lifecycle.trace.json";
+        yield return "fronting-delete-parity.trace.json";
         yield return "poll-lifecycle.trace.json";
         yield return "settings-lifecycle.trace.json";
         yield return "journal-lifecycle.trace.json";
         yield return "friendship-lifecycle.trace.json";
+        yield return "fronting-visibility.trace.json";
     }
     
     [Test]
@@ -53,10 +54,7 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
             await Assert.That(trace.Steps.Count > 0).IsTrue();
         }
 
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(factory);
 
         // Build a per-fixture identity namespace so the same trace fixture can run
         // independently across the InMemory / Scylla / Cassandra factory variants.
@@ -150,10 +148,32 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
             .Because($"[{fixtureFileName}] Step '{step.Name}' ({step.Method.ToUpperInvariant()} {path}) expected {step.ExpectedStatus}, got {(int)response.StatusCode}. Request body: {requestBody}. Response body: {body}");
 
         // Assert replay flag when declared (only when the response has a body).
+        // Traces drive arbitrary endpoints so we still parse the raw envelope here rather
+        // than deserialise to any single typed contract — the trace format is
+        // wire-shape-first by design.
         if (step.ExpectedReplay.HasValue && !string.IsNullOrEmpty(body))
         {
-            var actualReplay = ReadBoolField(body, "replay");
+            using var replayDoc = JsonDocument.Parse(body);
+            var actualReplay =
+                replayDoc.RootElement.ValueKind == JsonValueKind.Object
+                && replayDoc.RootElement.TryGetProperty("replay", out var replayProp)
+                && (replayProp.ValueKind == JsonValueKind.True
+                    || replayProp.ValueKind == JsonValueKind.False)
+                && replayProp.GetBoolean();
+
             await Assert.That(actualReplay == step.ExpectedReplay.Value).IsTrue();
+        }
+
+        if (!string.IsNullOrEmpty(step.ExpectedJsonContains))
+        {
+            await Assert.That(body).Contains(step.ExpectedJsonContains)
+                .Because($"[{fixtureFileName}] Step '{step.Name}': expected body to contain '{step.ExpectedJsonContains}'");
+        }
+
+        if (!string.IsNullOrEmpty(step.ExpectedJsonNotContains))
+        {
+            await Assert.That(body).DoesNotContain(step.ExpectedJsonNotContains)
+                .Because($"[{fixtureFileName}] Step '{step.Name}': expected body to NOT contain '{step.ExpectedJsonNotContains}'");
         }
 
         // Capture fields for subsequent steps.

@@ -20,36 +20,18 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     // Trust-store-install tests use a variant that enables /usr/local/share/ca-certificates/
     // writes. That path is shared inside the DinD container across all parallel tests, so the
     // tests that exercise it must also opt in to the NotInParallel guard below.
-    private static string TrustInstallConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.trust-install.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        // Tear the per-test compose stack down so the test's dedicated host-port window inside
-        // the DinD is released for re-allocation across reruns within the same session. Tests
-        // that never called CreateScratchAsync are no-ops here.
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task ProducesValidComposeOnFreshBox()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(ProducesValidComposeOnFreshBox), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(ProducesValidComposeOnFreshBox),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--print-phase-status"]);
-
-        await Assert.That(result.ExitCode).IsEqualTo(0)
-            .Because($"bootstrap publish failed: {result.Stderr}");
+        var (scratch, _) = await dinD.PublishAsync(nameof(ProducesValidComposeOnFreshBox), TestConfigPaths.DefaultConfig, "--print-phase-status");
 
         var composeBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/docker-compose.yaml");
         var compose = Encoding.UTF8.GetString(composeBytes);
@@ -86,13 +68,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task StackComesUpHealthy()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(StackComesUpHealthy), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(StackComesUpHealthy),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--skip-prereqs"]);
-
-        await Assert.That(result.ExitCode).IsEqualTo(0)
-            .Because($"full bootstrap failed: {result.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(StackComesUpHealthy), TestConfigPaths.DefaultConfig);
 
         var ps = await dinD.ExecAsync(
             ["docker", "compose", "-f", $"{scratch.OutputDir}/docker-compose.yaml", "ps", "--format", "json"]);
@@ -104,16 +80,16 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task IsIdempotentOnRerun()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(IsIdempotentOnRerun), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(IsIdempotentOnRerun), TestConfigPaths.DefaultConfig);
 
-        await dinD.RunBootstrapperAsync($"{nameof(IsIdempotentOnRerun)}-first",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--print-phase-status"]);
+        await dinD.RunOnScratchAsync(scratch, $"{nameof(IsIdempotentOnRerun)}-first", "publish",
+            "--print-phase-status");
 
         var firstHash = await ShaOfComposeAsync(scratch);
-        var firstSecrets = await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json");
+        var firstSecrets = await dinD.CopyOutAsync(scratch.SecretsJsonPath);
 
-        var second = await dinD.RunBootstrapperAsync($"{nameof(IsIdempotentOnRerun)}-second",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--print-phase-status"]);
+        var second = await dinD.RunOnScratchAsync(scratch, $"{nameof(IsIdempotentOnRerun)}-second", "publish",
+            "--print-phase-status");
 
         await Assert.That(second.ExitCode).IsEqualTo(0).Because($"second run failed: {second.Stderr}");
         await Assert.That(second.Stderr).Contains("phase=secrets status=skipped")
@@ -125,7 +101,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
         await Assert.That(secondHash).IsEqualTo(firstHash)
             .Because("compose output should be byte-identical across two non-rotating runs");
 
-        var secondSecrets = await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json");
+        var secondSecrets = await dinD.CopyOutAsync(scratch.SecretsJsonPath);
         await Assert.That(Convert.ToHexString(secondSecrets)).IsEqualTo(Convert.ToHexString(firstSecrets))
             .Because("secrets file must be untouched between bootstraps");
     }
@@ -133,9 +109,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task GeneratedLeafCertHasCorrectSans()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(GeneratedLeafCertHasCorrectSans), TestConfigJsonPath);
-        await dinD.RunBootstrapperAsync(nameof(GeneratedLeafCertHasCorrectSans),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
+        var (scratch, _) = await dinD.PublishAsync(nameof(GeneratedLeafCertHasCorrectSans), TestConfigPaths.DefaultConfig);
 
         var leafBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt");
         var rootBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/rootCA.crt");
@@ -156,11 +130,9 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task SecretsFileHasRestrictedPermissions()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(SecretsFileHasRestrictedPermissions), TestConfigJsonPath);
-        await dinD.RunBootstrapperAsync(nameof(SecretsFileHasRestrictedPermissions),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
+        var (scratch, _) = await dinD.PublishAsync(nameof(SecretsFileHasRestrictedPermissions), TestConfigPaths.DefaultConfig);
 
-        var stat = await dinD.ExecAsync(["stat", "-c", "%a %U", $"{scratch.OutputDir}/secrets/secrets.json"]);
+        var stat = await dinD.ExecAsync(["stat", "-c", "%a %U", scratch.SecretsJsonPath]);
         await Assert.That(stat.ExitCode).IsEqualTo(0L);
         await Assert.That(stat.Stdout.Trim()).StartsWith("600 ")
             .Because("secrets file must be mode 0600");
@@ -175,22 +147,10 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task RotateSecretsRegeneratesPasswordsAndPreservesCerts()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts), TestConfigJsonPath);
-        await dinD.RunBootstrapperAsync($"{nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts)}-init",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
+        var pair = await RunRotateAsync(nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts), "rotate-secrets");
 
-        var preSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
-        var preLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
-
-        var rotate = await dinD.RunBootstrapperAsync(nameof(RotateSecretsRegeneratesPasswordsAndPreservesCerts),
-            ["rotate-secrets", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"rotate-secrets failed: {rotate.Stderr}");
-
-        var postSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
-        var postLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
-
-        await Assert.That(postSecrets).IsNotEqualTo(preSecrets).Because("secrets must rotate");
-        await Assert.That(postLeafSha).IsEqualTo(preLeafSha).Because("certs must remain unchanged on rotate-secrets");
+        await Assert.That(pair.PostSecrets).IsNotEqualTo(pair.PreSecrets).Because("secrets must rotate");
+        await Assert.That(pair.PostLeafSha).IsEqualTo(pair.PreLeafSha).Because("certs must remain unchanged on rotate-secrets");
     }
 
     // Rotate-certs also runs db-init (defensive against an empty DB volume) -> launch, so like
@@ -199,43 +159,57 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task RotateCertsRegeneratesCertsAndPreservesSecrets()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RotateCertsRegeneratesCertsAndPreservesSecrets), TestConfigJsonPath);
-        await dinD.RunBootstrapperAsync($"{nameof(RotateCertsRegeneratesCertsAndPreservesSecrets)}-init",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
+        var pair = await RunRotateAsync(nameof(RotateCertsRegeneratesCertsAndPreservesSecrets), "rotate-certs");
 
-        var preSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
+        await Assert.That(pair.PostSecrets).IsEqualTo(pair.PreSecrets).Because("secrets must remain unchanged on rotate-certs");
+        await Assert.That(pair.PostLeafSha).IsNotEqualTo(pair.PreLeafSha).Because("leaf cert must change on rotate-certs");
+    }
+
+    /// <summary>
+    /// Common wiring for the two rotate scenarios: publish a scratch deployment, snapshot the
+    /// on-disk secrets JSON + leaf-cert SHA, run the supplied rotate command, and snapshot both
+    /// again. Callers pick the polarity of the assertions — which pair must change vs which must
+    /// be byte-identical — so a future rotate command can plug in with just an extra call site
+    /// without cloning the fixture-driving preamble.
+    /// </summary>
+    private async Task<RotatePair> RunRotateAsync(string testName, string rotateCommand)
+    {
+        var scratch = await dinD.CreateScratchAsync(testName, TestConfigPaths.DefaultConfig);
+        await dinD.RunOnScratchAsync(scratch, $"{testName}-init", "publish");
+
+        var preSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var preLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
-        var rotate = await dinD.RunBootstrapperAsync(nameof(RotateCertsRegeneratesCertsAndPreservesSecrets),
-            ["rotate-certs", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"rotate-certs failed: {rotate.Stderr}");
+        var rotate = await dinD.RunOnScratchAsync(scratch, testName, rotateCommand);
+        await Assert.That(rotate.ExitCode).IsEqualTo(0).Because($"{rotateCommand} failed: {rotate.Stderr}");
 
-        var postSecrets = Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"));
+        var postSecrets = await dinD.ReadSecretsJsonAsync(scratch);
         var postLeafSha = ShaOf(await dinD.CopyOutAsync($"{scratch.OutputDir}/certs/leaf.crt"));
 
-        await Assert.That(postSecrets).IsEqualTo(preSecrets).Because("secrets must remain unchanged on rotate-certs");
-        await Assert.That(postLeafSha).IsNotEqualTo(preLeafSha).Because("leaf cert must change on rotate-certs");
+        return new RotatePair(preSecrets, postSecrets, preLeafSha, postLeafSha);
     }
+
+    private sealed record RotatePair(string PreSecrets, string PostSecrets, string PreLeafSha, string PostLeafSha);
 
     [Test]
     public async Task RecoversFromInterruptedPublish()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RecoversFromInterruptedPublish), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(RecoversFromInterruptedPublish), TestConfigPaths.DefaultConfig);
 
         // First invocation halts immediately after the secrets phase via the hidden --fault-inject hook.
-        var halted = await dinD.RunBootstrapperAsync($"{nameof(RecoversFromInterruptedPublish)}-halt",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--fault-inject=after-secrets"]);
+        var halted = await dinD.RunOnScratchAsync(scratch, $"{nameof(RecoversFromInterruptedPublish)}-halt", "publish",
+            "--fault-inject=after-secrets");
         await Assert.That(halted.ExitCode).IsEqualTo(0)
             .Because($"fault-inject halt should exit cleanly: {halted.Stderr}");
 
         // The secrets file should already exist - confirm it.
-        var secretsExist = await dinD.ExecAsync(["test", "-f", $"{scratch.OutputDir}/secrets/secrets.json"]);
+        var secretsExist = await dinD.ExecAsync(["test", "-f", scratch.SecretsJsonPath]);
         await Assert.That(secretsExist.ExitCode).IsEqualTo(0L)
             .Because("partial run should have persisted the secrets file");
 
         // Re-run from scratch - phases that already ran should skip cleanly.
-        var resumed = await dinD.RunBootstrapperAsync($"{nameof(RecoversFromInterruptedPublish)}-resume",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--print-phase-status"]);
+        var resumed = await dinD.RunOnScratchAsync(scratch, $"{nameof(RecoversFromInterruptedPublish)}-resume", "publish",
+            "--print-phase-status");
         await Assert.That(resumed.ExitCode).IsEqualTo(0)
             .Because($"resumed run should complete cleanly: {resumed.Stderr}");
         await Assert.That(resumed.Stderr).Contains("phase=secrets status=skipped");
@@ -252,11 +226,7 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
     [NotInParallel("ubuntu-trust-install")]
     public async Task RootCaInstalledInDebianTrustStore()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RootCaInstalledInDebianTrustStore), TrustInstallConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(RootCaInstalledInDebianTrustStore),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(RootCaInstalledInDebianTrustStore), TestConfigPaths.TrustInstallConfig);
 
         // update-ca-certificates places extracted PEMs under /etc/ssl/certs/ symlinked from the anchor.
         var ls = await dinD.ExecAsync(
@@ -273,3 +243,6 @@ public class UbuntuBootstrapTests(UbuntuDinDFixture dinD)
 
     private static string ShaOf(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 }
+
+
+

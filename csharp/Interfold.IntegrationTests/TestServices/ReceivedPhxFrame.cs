@@ -251,6 +251,41 @@ public sealed record ReceivedPhxFrame(
         return (reply, push);
     }
 
+    /// <summary>
+    /// Receive frames and collect the two specified events.
+    /// Returns both as a tuple. Either may be null if not received within maxAttempts.
+    /// </summary>
+    public static async Task<(ReceivedPhxFrame? A, ReceivedPhxFrame? B)> ReceiveTwoOfAsync(
+        WebSocket ws, string eventA, string eventB,
+        TimeSpan perAttemptTimeout, int maxAttempts, CancellationToken ct)
+    {
+        ReceivedPhxFrame? a = null;
+        ReceivedPhxFrame? b = null;
+
+        for (var i = 0; i < maxAttempts && (a is null || b is null); i++)
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(perAttemptTimeout);
+
+            ReceivedPhxFrame frame;
+            try
+            {
+                frame = await ReceiveAsync(ws, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (string.Equals(frame.Event, eventA, StringComparison.Ordinal))
+                a = frame;
+            else if (string.Equals(frame.Event, eventB, StringComparison.Ordinal))
+                b = frame;
+        }
+
+        return (a, b);
+    }
+
     private static async Task<string> ReceiveTextAsync(WebSocket ws, CancellationToken token, int timeoutSeconds = 30)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);

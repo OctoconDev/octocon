@@ -10,9 +10,8 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountCommand, SettingsCommandResult>
+public sealed class DeleteAccountCommandHandler : IdempotentCommandHandler<DeleteAccountCommand, SettingsCommandResult>
 {
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
     private readonly IAccountRepository _accountRepository;
     private readonly IAlterRepository _alterRepository;
@@ -34,8 +33,8 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
         IJournalRepository journalRepository,
         IFrontingRepository frontingRepository,
         IFriendshipRepository friendshipRepository)
+        : base(idempotencyStore)
     {
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
         _accountRepository = accountRepository;
         _alterRepository = alterRepository;
@@ -47,79 +46,84 @@ public sealed class DeleteAccountCommandHandler : ICommandHandler<DeleteAccountC
         _friendshipRepository = friendshipRepository;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<DeleteAccountCommand> command, CancellationToken cancellationToken = default)
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsAccountDelete;
+
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<DeleteAccountCommand> command,
+        CancellationToken cancellationToken)
     {
+        // Shared between the mutation and publish lambdas — the friendship repo returns the
+        // set of counterparties whose Friendship rows we tore down, and each one needs a
+        // FriendshipRemovedEvent on the cluster bus so their sockets refresh their
+        // friend-list. IdempotentCommandHandler skips ExecuteCoreAsync on replay, so this
+        // list is only ever populated once per idempotency key — same guard the previous
+        // ExecuteAndPublishAsync gave us via `Result.Replay: false`.
         var unfriendedIds = new List<SystemId>();
-        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.AccountDeleted, EntityRefs.SettingsAccountDelete, _idempotencyStore, async ct =>
-        {
-            var systemId = command.PrincipalId;
 
-            // Delete Alters
-            var alters = await _alterRepository.ListAsync(systemId, ct);
-            foreach (var alter in alters)
+        return SettingsIdempotentCommandFlow.ExecuteMutationAsync(
+            command,
+            async ct =>
             {
-                await _alterRepository.DeleteAsync(systemId, alter.Id, ct);
-                //TODO: Delete alter image if it exists
-            }
+                var systemId = command.PrincipalId;
 
-            // Delete Tags
-            var tags = await _tagRepository.ListAsync(systemId, ct);
-            foreach (var tag in tags)
+                var alters = await _alterRepository.ListAsync(systemId, ct);
+                foreach (var alter in alters)
+                {
+                    await _alterRepository.DeleteAsync(systemId, alter.Id, ct);
+                    //TODO: Delete alter image if it exists
+                }
+
+                var tags = await _tagRepository.ListAsync(systemId, ct);
+                foreach (var tag in tags)
+                {
+                    await _tagRepository.DeleteAsync(systemId, tag.Id, ct);
+                }
+
+                var polls = await _pollRepository.ListAsync(systemId, ct);
+                foreach (var poll in polls)
+                {
+                    await _pollRepository.DeleteAsync(systemId, poll.Id, ct);
+                }
+
+                var fields = await _fieldRepository.ListAsync(systemId, ct);
+                foreach (var field in fields)
+                {
+                    await _fieldRepository.DeleteAsync(systemId, field.Id, ct);
+                }
+
+                var globalEntries = await _journalRepository.ListGlobalAsync(systemId, ct);
+                foreach (var entry in globalEntries)
+                {
+                    await _journalRepository.DeleteGlobalAsync(systemId, entry.Id, ct);
+                }
+
+                // Fronting records are tied to alters so no need to delete them here
+
+                var deletedIds = await _friendshipRepository.DeleteAllForSystemAsync(systemId, ct);
+                unfriendedIds.AddRange(deletedIds);
+
+                return await _accountRepository.DeleteAsync(systemId, ct);
+
+                //TODO: Delete account image if it exists
+            },
+            EntityRefs.SettingsActionFailed(SettingsAction.AccountDeleted),
+            SettingsAction.AccountDeleted,
+            async ct =>
             {
-                await _tagRepository.DeleteAsync(systemId, tag.Id, ct);
-            }
+                await _eventBus.PublishAsync(new SettingsAccountDeletedSignalEvent(command.PrincipalId), ct);
 
-            // Delete Polls
-            var polls = await _pollRepository.ListAsync(systemId, ct);
-            foreach (var poll in polls)
-            {
-                await _pollRepository.DeleteAsync(systemId, poll.Id, ct);
-            }
-
-            // Delete Settings Fields
-            var fields = await _fieldRepository.ListAsync(systemId, ct);
-            foreach (var field in fields)
-            {
-                await _fieldRepository.DeleteAsync(systemId, field.Id, ct);
-            }
-
-            // Delete Journal Entries (Global)
-            var globalEntries = await _journalRepository.ListGlobalAsync(systemId, ct);
-            foreach (var entry in globalEntries)
-            {
-                await _journalRepository.DeleteGlobalAsync(systemId, entry.Id, ct);
-            }
-
-            // Fronting records are tied to alters so no need to delete them here
-            
-            // Delete Friendships and Friend Requests
-            var deletedIds = await _friendshipRepository.DeleteAllForSystemAsync(systemId, ct);
-            unfriendedIds.AddRange(deletedIds);
-
-
-            // Delete Account
-            return await _accountRepository.DeleteAsync(systemId, ct);
-
-            //TODO: Delete account image if it exists
-        }, cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsAccountDeletedSignalEvent(command.PrincipalId), cancellationToken);
-
-            foreach (var friendId in unfriendedIds)
-            {
-                // The friendship repos return bare (region-stripped) ids in their DeleteAll
-                // results — compose with the principal's region so the socket router filter
-                // sees a scoped TargetSystemId. Cross-region friendships would want the
-                // friend's own region here; a same-region compose is the current behaviour.
-                var friendTarget = ScopedSystemId.Compose(
-                    command.PrincipalId.Region,
-                    friendId);
-                await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendTarget, command.PrincipalId), cancellationToken);
-            }
-        }
-
-        return result;
+                foreach (var friendId in unfriendedIds)
+                {
+                    // The friendship repos return bare (region-stripped) ids in their DeleteAll
+                    // results — compose with the principal's region so the socket router filter
+                    // sees a scoped TargetSystemId. Cross-region friendships would want the
+                    // friend's own region here; a same-region compose is the current behaviour.
+                    var friendTarget = ScopedSystemId.Compose(
+                        command.PrincipalId.Region,
+                        friendId);
+                    await _eventBus.PublishAsync(new FriendshipRemovedEvent(friendTarget, command.PrincipalId), ct);
+                }
+            },
+            cancellationToken);
     }
 }

@@ -34,11 +34,8 @@ public readonly record struct EntityRef
     public override string ToString() => Value;
 }
 
-internal sealed class EntityRefJsonConverter : JsonConverter<EntityRef>
+internal sealed class EntityRefJsonConverter : StringBackedJsonConverter<EntityRef>
 {
-    public override EntityRef Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, EntityRef value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override EntityRef Create(string value) => new(value);
+    protected override string GetValue(EntityRef value) => value.Value;
 }

@@ -16,46 +16,31 @@ public sealed class MultiNodeScyllaTests(MultiNodeScyllaFixture fixture)
     [Test]
     public async Task MultiNodeScylla_AllNodesReachUpNormalState()
     {
-        var cluster = Cluster.Builder()
-            .AddContactPoint("127.0.0.1")
-            .WithPort(fixture.ScyllaPort)
-            .WithLoadBalancingPolicy(new DCAwareRoundRobinPolicy("nam"))
-            .WithCredentials("test_app_user", "test_secure_pw_123!Safe")
-            .WithQueryTimeout(30000)
-            .Build();
+        await using var sts = await ScyllaTestSession.OpenAsAppAsync("127.0.0.1", fixture.ScyllaPort);
+        var session = sts.Session;
 
-        var session = await cluster.ConnectAsync();
+        var visibleDcs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        try
+        var localRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.local"));
+        foreach (var row in localRows)
         {
-            var visibleDcs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            var localRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.local"));
-            foreach (var row in localRows)
-            {
-                var dc = row.GetValue<string>("data_center");
-                if (!string.IsNullOrWhiteSpace(dc))
-                    visibleDcs.Add(dc.ToLowerInvariant());
-            }
-
-            var peerRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.peers"));
-            foreach (var row in peerRows)
-            {
-                var dc = row.GetValue<string>("data_center");
-                if (!string.IsNullOrWhiteSpace(dc))
-                    visibleDcs.Add(dc.ToLowerInvariant());
-            }
-
-            foreach (var region in ExpectedRegions)
-            {
-                await Assert.That(visibleDcs.Contains(region)).IsTrue()
-                    .Because($"Expected DC '{region}' to be visible in cluster");
-            }
+            var dc = row.GetValue<string>("data_center");
+            if (!string.IsNullOrWhiteSpace(dc))
+                visibleDcs.Add(dc.ToLowerInvariant());
         }
-        finally
+
+        var peerRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.peers"));
+        foreach (var row in peerRows)
         {
-            session.Dispose();
-            await cluster.ShutdownAsync();
+            var dc = row.GetValue<string>("data_center");
+            if (!string.IsNullOrWhiteSpace(dc))
+                visibleDcs.Add(dc.ToLowerInvariant());
+        }
+
+        foreach (var region in ExpectedRegions)
+        {
+            await Assert.That(visibleDcs.Contains(region)).IsTrue()
+                .Because($"Expected DC '{region}' to be visible in cluster");
         }
     }
 
@@ -63,41 +48,26 @@ public sealed class MultiNodeScyllaTests(MultiNodeScyllaFixture fixture)
     [DependsOn(nameof(MultiNodeScylla_AllNodesReachUpNormalState))]
     public async Task MultiNodeScylla_CrossDcCqlQuerySucceeds()
     {
-        var namCluster = Cluster.Builder()
-            .AddContactPoint("127.0.0.1")
-            .WithPort(fixture.ScyllaPort)
-            .WithLoadBalancingPolicy(new DCAwareRoundRobinPolicy("nam"))
-            .WithCredentials("test_app_user", "test_secure_pw_123!Safe")
-            .WithQueryTimeout(30000)
-            .Build();
+        await using var sts = await ScyllaTestSession.OpenAsAppAsync("127.0.0.1", fixture.ScyllaPort);
+        var namSession = sts.Session;
 
-        var namSession = await namCluster.ConnectAsync();
+        // Column names match the live schema in
+        // csharp/Interfold.Infrastructure.Scylla/Migrations/002_create_interfold_schema.templated.cql
+        // (PRIMARY KEY (user_id) on the `global.user_registry` table); the previous
+        // `id` literal would now fail with "Unknown identifier id".
+        var testUserId = TestIds.NewSystemId("test", maxLen: 20);
 
-        try
-        {
-            // Column names match the live schema in
-            // csharp/Interfold.Infrastructure.Scylla/Migrations/002_create_interfold_schema.templated.cql
-            // (PRIMARY KEY (user_id) on the `global.user_registry` table); the previous
-            // `id` literal would now fail with "Unknown identifier id".
-            var testUserId = $"test-{Guid.NewGuid():N}"[..20];
+        await namSession.ExecuteAsync(new SimpleStatement(
+            "INSERT INTO global.user_registry (user_id, region) VALUES (?, ?)", testUserId, "nam"));
 
-            await namSession.ExecuteAsync(new SimpleStatement(
-                "INSERT INTO global.user_registry (user_id, region) VALUES (?, ?)", testUserId, "nam"));
+        var result = await namSession.ExecuteAsync(new SimpleStatement(
+            "SELECT region FROM global.user_registry WHERE user_id = ?", testUserId));
 
-            var result = await namSession.ExecuteAsync(new SimpleStatement(
-                "SELECT region FROM global.user_registry WHERE user_id = ?", testUserId));
+        var row = result.FirstOrDefault();
+        await Assert.That(row).IsNotNull();
+        await Assert.That(row!.GetValue<string>("region")).IsEqualTo("nam");
 
-            var row = result.FirstOrDefault();
-            await Assert.That(row).IsNotNull();
-            await Assert.That(row!.GetValue<string>("region")).IsEqualTo("nam");
-
-            await namSession.ExecuteAsync(new SimpleStatement(
-                "DELETE FROM global.user_registry WHERE user_id = ?", testUserId));
-        }
-        finally
-        {
-            namSession.Dispose();
-            await namCluster.ShutdownAsync();
-        }
+        await namSession.ExecuteAsync(new SimpleStatement(
+            "DELETE FROM global.user_registry WHERE user_id = ?", testUserId));
     }
 }

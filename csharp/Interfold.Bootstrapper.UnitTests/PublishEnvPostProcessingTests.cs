@@ -771,4 +771,44 @@ public sealed class PublishEnvPostProcessingTests
             if (File.Exists(tmp)) File.Delete(tmp);
         }
     }
+
+    [Test]
+    public async Task EnumerateSharedAspireParametersConfigKeyMatchesEnvKeyKebabToUpperSnake()
+    {
+        // Every entry in EnumerateSharedAspireParameters must maintain the Aspire pairing:
+        // the .env-side EnvKey is the upper-snake-cased form of the kebab-cased parameter name
+        // Aspire's compose publisher writes out. This test locks the pairing at unit-test speed
+        // so a hand-authored EnvKey typo (e.g. "SCYLLA-KEYSPACE" or "postgres_user") in the
+        // enumerator can't slip past into a shipped bootstrapper where it would silently blank
+        // the corresponding OCTOCON_* env var in the API container. The existing
+        // BuildEnvReplacementsProducesAllRequiredParameterKeys test above pins the wire keys
+        // themselves; this test pins the derivation rule so future additions stay honest.
+        var (config, secrets) = MakeInputs();
+
+        var seenConfigKeys = new HashSet<string>(StringComparer.Ordinal);
+        var seenEnvKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (configKey, envKey, _) in PublishPhase.EnumerateSharedAspireParameters(config, secrets))
+        {
+            await Assert.That(seenConfigKeys.Add(configKey)).IsTrue()
+                .Because($"config-key '{configKey}' appears twice in EnumerateSharedAspireParameters");
+            await Assert.That(seenEnvKeys.Add(envKey)).IsTrue()
+                .Because($"env-key '{envKey}' appears twice in EnumerateSharedAspireParameters");
+
+            // AppHostParameterKeys.ToParameterName strips the "Parameters:" prefix; it throws
+            // for anything else, so this call also asserts that every ConfigKey lives in the
+            // Parameters:* namespace (a graph-only Ports:* leaking into the shared enumerator
+            // would fail here with an ArgumentException).
+            var bareName = AppHostParameterKeys.ToParameterName(configKey);
+            var expectedEnvKey = bareName.Replace('-', '_').ToUpperInvariant();
+            await Assert.That(envKey).IsEqualTo(expectedEnvKey)
+                .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
+        }
+
+        // Belt-and-braces count check — the current spec is 24 shared parameters. Any change to
+        // this count must be a deliberate edit to both this assertion AND the enumerator, which
+        // is exactly the drift-in-sync signal this whole extraction exists to enforce.
+        await Assert.That(seenConfigKeys.Count).IsEqualTo(24)
+            .Because("shared-parameter count is spec-frozen at 24; update BOTH the enumerator AND this assertion together");
+    }
 }

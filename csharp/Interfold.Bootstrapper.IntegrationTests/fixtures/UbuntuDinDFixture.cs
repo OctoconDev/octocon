@@ -8,3 +8,4 @@ public sealed class UbuntuDinDFixture : DinDFixtureBase
 {
     protected override string DockerfileName => "Dockerfile.ubuntu-dind";
 }
+

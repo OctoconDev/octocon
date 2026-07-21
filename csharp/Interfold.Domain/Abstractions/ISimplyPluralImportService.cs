@@ -1,14 +1,24 @@
 using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Domain.Abstractions.ImportJobs;
 
 namespace Interfold.Domain.Abstractions;
 
 /// <summary>
 /// Performs a full data import from Simply Plural for a given system.
+///
+/// <para>
+/// Returns an <see cref="ImportJobOutcome"/> directly — <see cref="SpImportJobRunner"/> is a
+/// pass-through wrapper around this method, so the terminal-state contract is enforced here.
+/// Implementations MUST NOT throw on graceful failures (auth failed, encryption not
+/// initialised, upstream 4xx); those must land as <c>Success = false</c> with a populated
+/// <see cref="ImportJobOutcome.ErrorCode"/> and <see cref="ImportJobOutcome.ErrorMessage"/>.
+/// Throws are reserved for transport / programming errors and are classified by the worker
+/// as <c>ImportErrorCode.Exception</c>.
+/// </para>
 /// </summary>
 public interface ISimplyPluralImportService
 {
-    Task<SpImportResult> ImportAsync(
+    Task<ImportJobOutcome> ImportAsync(
         SystemId systemId,
         ImportToken spToken,
         RecoveryCode? encryptionKey,
@@ -16,10 +26,3 @@ public interface ISimplyPluralImportService
 
     bool? WaitForAvatars { get; set; }
 }
-
-/// <summary>
-/// Import outcome. <see cref="ErrorCode"/> is the stable machine code the worker persists
-/// to <c>import_operations.error_code</c>; <see cref="ErrorMessage"/> is the human-readable
-/// detail for operator logs. Both null on success.
-/// </summary>
-public sealed record SpImportResult(bool Success, int AlterCount, ImportErrorCode? ErrorCode = null, string? ErrorMessage = null);

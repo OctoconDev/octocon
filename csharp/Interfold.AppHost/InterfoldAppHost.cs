@@ -1,9 +1,7 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Docker.Resources.ComposeNodes;
-using Aspire.Hosting.Docker.Resources.ServiceNodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using System.Net.Sockets;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 // Aspire.Hosting.ApplicationModel also defines a PersistenceMode enum, so alias
@@ -172,32 +170,14 @@ public static class InterfoldAppHost
         if (includeApi)
         {
             builder.Services.AddHealthChecks()
-                .AddCheck(MsgDbHealthCheckName, () =>
-                {
-                    try
-                    {
-                        using var tcp = new TcpClient();
-                        tcp.Connect("localhost", postgresPort);
-                        return HealthCheckResult.Healthy();
-                    }
-                    catch { return HealthCheckResult.Unhealthy(); }
-                })
+                .AddCheck(MsgDbHealthCheckName, HostPortTcpProbe.CreateCheck(postgresPort))
                 // `scylla-health` is the host-port TCP probe used by the Cassandra-only path
                 // (Cassandra owns Ports:scylla when include-scylla=false). Scylla nodes get
                 // their own per-node {name}-cql checks below — those are more accurate
                 // (they probe inside the container, so they work for non-first multi-DC
                 // nodes that don't have host ports) and supersede this one for the Scylla
                 // path. We keep this registration for the Cassandra-only path only.
-                .AddCheck(ScyllaHealthCheckName, () =>
-                {
-                    try
-                    {
-                        using var tcp = new TcpClient();
-                        tcp.Connect("localhost", scyllaPort);
-                        return HealthCheckResult.Healthy();
-                    }
-                    catch { return HealthCheckResult.Unhealthy(); }
-                });
+                .AddCheck(ScyllaHealthCheckName, HostPortTcpProbe.CreateCheck(scyllaPort));
         }
 
         // --- Per-node Scylla CQL readiness gate (always-on, regardless of include-api) ---
@@ -477,22 +457,14 @@ public static class InterfoldAppHost
                 .PublishAsDockerComposeService((_, service) =>
                 {
                     service.Networks = [ComposeNetworks.Postgres];
-                    service.Healthcheck = new Healthcheck
-                    {
-                        Test = ["CMD-SHELL", $"pg_isready -U ${ContainerEnvNames.PostgresUser} -d postgres"],
-                        Interval = "10s",
-                        Timeout = "5s",
-                        Retries = 10,
-                        StartPeriod = "15s"
-                    };
+                    service.Healthcheck = ComposeHealthcheck.CmdShell(
+                        $"pg_isready -U ${ContainerEnvNames.PostgresUser} -d postgres",
+                        interval: "10s", timeout: "5s", retries: 10, startPeriod: "15s");
                 });
             if (includeApi)
                 msgDb.WithHealthCheck(MsgDbHealthCheckName);
             if (persistentContainers)
-            {
-                msgDb.WithVolume(ComposeVolumes.PostgresData, ContainerMountPaths.PostgresData);
-                msgDb.WithLifetime(ContainerLifetime.Persistent);
-            }
+                msgDb.AsPersistent(ComposeVolumes.PostgresData, ContainerMountPaths.PostgresData);
         }
 
         // --- ScyllaDB / Cassandra (independent toggles, can both be on at once) ---
@@ -561,22 +533,15 @@ public static class InterfoldAppHost
                         // what we want for healthcheck commands. `$$VAR` escapes to a literal
                         // `$VAR` that the container's `/bin/sh -c` will expand against the
                         // container's own env (where CQLSH_USER / CQLSH_PASSWORD are set).
-                        service.Healthcheck = new Healthcheck
-                        {
-                            Test = ["CMD-SHELL",
-                                $"cqlsh -u \"$${ContainerEnvNames.CqlshUser}\" -p \"$${ContainerEnvNames.CqlshPassword}\" -e 'DESCRIBE CLUSTER' >/dev/null 2>&1"],
-                            Interval = "15s",
-                            Timeout = "10s",
-                            Retries = 20,
-                            StartPeriod = "30s"
-                        };
+                        service.Healthcheck = ComposeHealthcheck.CmdShell(
+                            $"cqlsh -u \"$${ContainerEnvNames.CqlshUser}\" -p \"$${ContainerEnvNames.CqlshPassword}\" -e 'DESCRIBE CLUSTER' >/dev/null 2>&1",
+                            interval: "15s", timeout: "10s", retries: 20, startPeriod: "30s");
                     });
 
                 if (persistentContainers)
-                {
-                    node.WithVolume(isMultiScyllaNode ? ComposeVolumes.ScyllaRegionData(regionWire) : ComposeVolumes.ScyllaData, ContainerMountPaths.ScyllaData);
-                    node.WithLifetime(ContainerLifetime.Persistent);
-                }
+                    node.AsPersistent(
+                        isMultiScyllaNode ? ComposeVolumes.ScyllaRegionData(regionWire) : ComposeVolumes.ScyllaData,
+                        ContainerMountPaths.ScyllaData);
 
                 // Attach the per-node CQL readiness gate registered earlier. Carrying a
                 // HealthCheckAnnotation flips the semantics of WaitFor(previousNode) below
@@ -636,14 +601,9 @@ public static class InterfoldAppHost
                 .PublishAsDockerComposeService((_, service) =>
                 {
                     service.Networks = [ComposeNetworks.Scylla];
-                    service.Healthcheck = new Healthcheck
-                    {
-                        Test = ["CMD-SHELL", $"cqlsh -u \"$${ContainerEnvNames.CqlshUser}\" -p \"$${ContainerEnvNames.CqlshPassword}\" -e 'describe cluster' || nodetool status | grep -q '^UN'"],
-                        Interval = "15s",
-                        Timeout = "10s",
-                        Retries = 20,
-                        StartPeriod = "30s"
-                    };
+                    service.Healthcheck = ComposeHealthcheck.CmdShell(
+                        $"cqlsh -u \"$${ContainerEnvNames.CqlshUser}\" -p \"$${ContainerEnvNames.CqlshPassword}\" -e 'describe cluster' || nodetool status | grep -q '^UN'",
+                        interval: "15s", timeout: "10s", retries: 20, startPeriod: "30s");
                 });
 
             if (includeApi && !includeScylla)
@@ -654,10 +614,7 @@ public static class InterfoldAppHost
                 cassandra.WithHealthCheck(ScyllaHealthCheckName);
             }
             if (persistentContainers)
-            {
-                cassandra.WithVolume(ComposeVolumes.CassandraData, ContainerMountPaths.CassandraData);
-                cassandra.WithLifetime(ContainerLifetime.Persistent);
-            }
+                cassandra.AsPersistent(ComposeVolumes.CassandraData, ContainerMountPaths.CassandraData);
 
             cqlEndpointOwners.Add(cassandra);
         }
@@ -810,35 +767,7 @@ public static class InterfoldAppHost
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
-                    .PublishAsDockerComposeService((_, service) =>
-                    {
-                        service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
-                        service.Healthcheck = new Healthcheck
-                        {
-                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"],
-                            Interval = "15s",
-                            Timeout = "5s",
-                            Retries = 10,
-                            StartPeriod = "20s"
-                        };
-                        // The admin/seed work runs in the bootstrapper (DatabaseInitPhase) before
-                        // launch, so by the time docker compose up reaches the API the secrets
-                        // table is already populated. We still gate on msg-db being healthy via
-                        // depends_on so a freshly cleaned compose stack doesn't race to start the
-                        // API before postgres opens its listening socket.
-                        if (service.DependsOn.TryGetValue(ComposeServices.Postgres, out var msgDbDep))
-                            msgDbDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        // Gate API startup on scylla being CQL-ready, not merely on its container
-                        // having entered the running state. Without this, the bootstrapper's
-                        // `up` command (which doesn't run db-init and therefore doesn't pre-warm
-                        // scylla itself) can race the API into scylla before the cluster has
-                        // finished gossip-bootstrap, producing "connection refused on 9042" and
-                        // a crash on the very first ScyllaMigrationService.StartingAsync call.
-                        if (service.DependsOn.TryGetValue(ComposeServices.ScyllaSingle, out var scyllaDep))
-                            scyllaDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        if (service.DependsOn.TryGetValue(ComposeServices.Cassandra, out var cassandraDep))
-                            cassandraDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                    });
+                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
                 ConfigureApiCommon(apiContainer);
                 ConfigureApiSelfHostEnv(apiContainer);
                 foreach (var owner in cqlEndpointOwners)
@@ -852,24 +781,7 @@ public static class InterfoldAppHost
                     .WithHttpHealthCheck(HealthEndpoints.Ready, endpointName: HttpEndpointName)
                     .WithExternalHttpEndpoints()
                     .WaitFor(msgDbResource)
-                    .PublishAsDockerComposeService((_, service) =>
-                    {
-                        service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
-                        service.Healthcheck = new Healthcheck
-                        {
-                            Test = ["CMD", "curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"],
-                            Interval = "15s",
-                            Timeout = "5s",
-                            Retries = 10,
-                            StartPeriod = "20s"
-                        };
-                        if (service.DependsOn.TryGetValue(ComposeServices.Postgres, out var msgDbDep))
-                            msgDbDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        if (service.DependsOn.TryGetValue(ComposeServices.ScyllaSingle, out var scyllaDep))
-                            scyllaDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                        if (service.DependsOn.TryGetValue(ComposeServices.Cassandra, out var cassandraDep))
-                            cassandraDep.Condition = ComposeDependencyCondition.ServiceHealthy;
-                    });
+                    .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
                 ConfigureApiCommon(apiProject);
                 foreach (var owner in cqlEndpointOwners)
                     apiProject.WaitFor(owner);
@@ -933,17 +845,12 @@ public static class InterfoldAppHost
                     .PublishAsDockerComposeService((_, service) =>
                     {
                         service.Networks = [ComposeNetworks.Api];
-                        service.                    Healthcheck = new Healthcheck
-                        {
-                            // `-k` because the leaf is signed by the bootstrapper's private root
-                            // CA which the container doesn't trust by default; the probe just
-                            // verifies nginx is serving over TLS.
-                            Test = ["CMD", "curl", "-kf", "https://localhost:443/"],
-                            Interval = "15s",
-                            Timeout = "5s",
-                            Retries = 5,
-                            StartPeriod = "10s"
-                        };
+                        // `-k` because the leaf is signed by the bootstrapper's private root
+                        // CA which the container doesn't trust by default; the probe just
+                        // verifies nginx is serving over TLS.
+                        service.Healthcheck = ComposeHealthcheck.Cmd(
+                            interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
+                            command: ["curl", "-kf", "https://localhost:443/"]);
                     });
             }
             else
@@ -963,18 +870,45 @@ public static class InterfoldAppHost
                     .PublishAsDockerComposeService((_, service) =>
                     {
                         service.Networks = [ComposeNetworks.Api];
-                        service.                    Healthcheck = new Healthcheck
-                        {
-                            Test = ["CMD", "curl", "-f", "http://localhost:8080/"],
-                            Interval = "15s",
-                            Timeout = "5s",
-                            Retries = 5,
-                            StartPeriod = "10s"
-                        };
+                        service.Healthcheck = ComposeHealthcheck.Cmd(
+                            interval: "15s", timeout: "5s", retries: 5, startPeriod: "10s",
+                            command: ["curl", "-f", "http://localhost:8080/"]);
                     });
             }
             _ = web;
         }
     }
 
+    private static void PromoteDependenciesToHealthy(Service service, params string[] dependencyNames)
+    {
+        foreach (var dep in dependencyNames)
+        {
+            if (service.DependsOn.TryGetValue(dep, out var composeDep))
+                composeDep.Condition = ComposeDependencyCondition.ServiceHealthy;
+        }
+    }
+
+    private static Action<Aspire.Hosting.Docker.DockerComposeServiceResource, Aspire.Hosting.Docker.Resources.ComposeNodes.Service> ApiComposeServicePublisher(int apiContainerHttpPort)
+    {
+        return (_, service) =>
+        {
+            service.Networks = [ComposeNetworks.Scylla, ComposeNetworks.Postgres, ComposeNetworks.Api];
+            service.Healthcheck = ComposeHealthcheck.Cmd(
+                interval: "15s", timeout: "5s", retries: 10, startPeriod: "20s",
+                command: ["curl", "-f", $"http://localhost:{apiContainerHttpPort}{HealthEndpoints.Ready}"]);
+            // The admin/seed work runs in the bootstrapper (DatabaseInitPhase) before
+            // launch, so by the time docker compose up reaches the API the secrets
+            // table is already populated. We still gate on msg-db being healthy via
+            // depends_on so a freshly cleaned compose stack doesn't race to start the
+            // API before postgres opens its listening socket.
+            
+            // Gate API startup on scylla being CQL-ready, not merely on its container
+            // having entered the running state. Without this, the bootstrapper's
+            // `up` command (which doesn't run db-init and therefore doesn't pre-warm
+            // scylla itself) can race the API into scylla before the cluster has
+            // finished gossip-bootstrap, producing "connection refused on 9042" and
+            // a crash on the very first ScyllaMigrationService.StartingAsync call.
+            PromoteDependenciesToHealthy(service, ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.Cassandra);
+        };
+    }
 }

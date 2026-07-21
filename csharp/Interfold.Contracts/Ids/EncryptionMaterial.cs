@@ -29,13 +29,10 @@ public readonly record struct EncryptionKeyMaterial
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class EncryptionKeyMaterialJsonConverter : JsonConverter<EncryptionKeyMaterial>
+internal sealed class EncryptionKeyMaterialJsonConverter : StringBackedJsonConverter<EncryptionKeyMaterial>
 {
-    public override EncryptionKeyMaterial Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, EncryptionKeyMaterial value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override EncryptionKeyMaterial Create(string value) => new(value);
+    protected override string GetValue(EncryptionKeyMaterial value) => value.Value;
 }
 
 /// <summary>

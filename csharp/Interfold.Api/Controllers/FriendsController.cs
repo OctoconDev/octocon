@@ -36,60 +36,36 @@ public sealed class FriendsController : InterfoldControllerBase
         return new SuccessResponse<IReadOnlyList<FriendshipReadModel>>(qualified);
     }
 
+
     [HttpGet("{id}")]
     public async Task<Response<FriendshipReadModel>> Show(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
-        // RepresentsSameUserAs is the semantic self-check; a bare `principal == id`
-        // byte compare would miss the raw route shape and let /api/friends/{rawId} slip
-        // past this guard.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
+        // Semantic self-check — a bare byte compare would miss the raw route shape and
+        // let /api/friends/{rawId} slip past this guard.
+        if (RejectIfSelf(
+                id,
                 "I'm pretty sure you don't count as your own friend. (Cannot view friendship status for self.)",
-                ErrorCodes.CannotViewOwnFriendship,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+                ErrorCodes.CannotViewOwnFriendship) is { } reject)
+            return reject;
 
-        var friendship = await _repository.GetFriendshipAsync(principal, id, ct);
-        return friendship is null
-            ? new ErrorResponse("You are not friends with that system.", ErrorCodes.FriendshipNotFound, System.Net.HttpStatusCode.NotFound)
-            : QualifyFriendship(friendship);
-    }
-
-    private FriendshipReadModel QualifyFriendship(FriendshipReadModel friendship)
-    {
-        return friendship with
-        {
-            Friend = friendship.Friend with { AvatarUrl = QualifyAvatar(friendship.Friend.AvatarUrl, friendship.Friend.AvatarSource) },
-            Fronting = friendship.Fronting
-                .Select(f => f with { Alter = f.Alter with { AvatarUrl = QualifyAvatar(f.Alter.AvatarUrl, f.Alter.AvatarSource) } })
-                .ToArray()
-        };
+        var friendship = await _repository.GetFriendshipAsync(PrincipalId, id, ct);
+        return OkOrNotFound(
+            friendship is null ? null : QualifyFriendship(friendship),
+            "You are not friends with that system.",
+            ErrorCodes.FriendshipNotFound);
     }
 
     [HttpDelete("{id}")]
     public async Task<Response> Delete(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
         // Semantic self-check — see Show handler for the same rationale.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
+        if (RejectIfSelf(
+                id,
                 "I'm pretty sure you don't count as your own friend. (Cannot delete friendship with self.)",
-                ErrorCodes.CannotDeleteOwnFriendship,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+                ErrorCodes.CannotDeleteOwnFriendship) is { } reject)
+            return reject;
 
-        var envelope = new CommandEnvelope<RemoveFriendshipCommand>(
-            OperationIds.FriendDelete,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RemoveFriendshipCommand(id));
-
-        return CommandNoContent(await _remove.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_remove, OperationIds.FriendDelete, new RemoveFriendshipCommand(id), ct);
     }
 
     [HttpPost("{id}/trust")]
@@ -114,14 +90,6 @@ public sealed class FriendsController : InterfoldControllerBase
             return new ErrorResponse("Cannot trust self.", selfErrorCode, System.Net.HttpStatusCode.BadRequest);
         }
 
-        var envelope = new CommandEnvelope<SetFriendTrustCommand>(
-            operationId,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetFriendTrustCommand(id, trusted));
-
-        return CommandNoContent(await _setTrust.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setTrust, operationId, new SetFriendTrustCommand(id, trusted), ct);
     }
 }

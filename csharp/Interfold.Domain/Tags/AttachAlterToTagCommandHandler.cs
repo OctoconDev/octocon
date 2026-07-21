@@ -9,11 +9,10 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Tags;
 
-public sealed class AttachAlterToTagCommandHandler : ICommandHandler<AttachAlterToTagCommand, TagCommandResult>
+public sealed class AttachAlterToTagCommandHandler : IdempotentCommandHandler<AttachAlterToTagCommand, TagCommandResult>
 {
     private readonly ITagRepository _tagRepository;
     private readonly IAlterRepository _alterRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public AttachAlterToTagCommandHandler(
@@ -21,64 +20,31 @@ public sealed class AttachAlterToTagCommandHandler : ICommandHandler<AttachAlter
         IAlterRepository alterRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _tagRepository = tagRepository;
         _alterRepository = alterRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<TagCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.TagAttachAlter;
+
+protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<AttachAlterToTagCommand> command,
         CancellationToken cancellationToken = default)
     {
         var payload = command.Payload;
 
-        var payloadJson = CommandSerialization.Serialize(payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
+        if (await TagCommandFlow.RejectIfAlterNotFoundAsync(command, payload.AlterId, _alterRepository, cancellationToken) is { } rejection)
+            return rejection;
 
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.TagAttachAlter);
-
-            var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<TagCommandResult>.Success(replay with { Replay = true });
-        }
-
-        var alterExists = await _alterRepository.ExistsAsync(command.PrincipalId, payload.AlterId, cancellationToken);
-        if (!alterExists) return RejectInvariant(command, EntityRefs.TagAlterNotFound);
-
-        var tagExists = await _tagRepository.AttachAlterAsync(
-            command.PrincipalId, payload.TagId, payload.AlterId, cancellationToken);
-
-        if (!tagExists) return RejectInvariant(command, EntityRefs.TagNotFound);
-
-        var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey,
-            payloadHash, CommandSerialization.Hash(resultJson), resultJson, cancellationToken);
-
-        await _eventBus.PublishAsync(
-            new TagUpdatedEvent(command.PrincipalId, payload.TagId),
+        return await TagCommandFlow.ExecuteTagMutationAsync(
+            command,
+            payload.TagId,
+            ct => _tagRepository.AttachAlterAsync(command.PrincipalId, payload.TagId, payload.AlterId, ct),
+            EntityRefs.TagNotFound,
+            _eventBus,
             cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
-    private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
-        CommandEnvelope<AttachAlterToTagCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
-
-    private static CommandExecutionResult<TagCommandResult> RejectInvariant(
-        CommandEnvelope<AttachAlterToTagCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

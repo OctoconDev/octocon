@@ -1,4 +1,5 @@
-﻿using Interfold.Contracts.Ids;
+﻿using Interfold.Contracts.Enums;
+using Interfold.Contracts.Ids;
 using Interfold.Contracts.Validation;
 
 namespace Interfold.Contracts.Models.Read;

@@ -13,6 +13,8 @@ namespace Interfold.Api.Controllers.Base;
 
 public abstract class OAuthControllerBase : InterfoldControllerBase
 {
+    private const string OAuthIdentityFailureMessage = "Failed to authenticate. Did you reload the page or copy-paste the URL?";
+
     protected readonly IOptionsMonitor<AuthenticationConfiguration> AuthOptions;
     protected readonly IAuthenticationSchemeProvider SchemeProvider;
     protected readonly GoogleOAuthService GoogleOAuth;
@@ -205,6 +207,9 @@ public abstract class OAuthControllerBase : InterfoldControllerBase
             ErrorCodes.InvalidOAuthProvider,
             provider));
     }
+
+    protected IActionResult OAuthIdentityFailureResponse()
+        => StatusCode(StatusCodes.Status403Forbidden, OAuthIdentityFailureMessage);
 
     /// <summary>
     /// Looks up the registered challenge scheme for the supplied provider key and returns a

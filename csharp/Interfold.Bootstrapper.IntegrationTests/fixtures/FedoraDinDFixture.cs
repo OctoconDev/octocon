@@ -8,3 +8,4 @@ public sealed class FedoraDinDFixture : DinDFixtureBase
 {
     protected override string DockerfileName => "Dockerfile.fedora-dind";
 }
+

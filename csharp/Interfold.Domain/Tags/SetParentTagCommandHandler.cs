@@ -9,23 +9,24 @@ using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Domain.Tags;
 
-public sealed class SetParentTagCommandHandler : ICommandHandler<SetParentTagCommand, TagCommandResult>
+public sealed class SetParentTagCommandHandler : IdempotentCommandHandler<SetParentTagCommand, TagCommandResult>
 {
     private readonly ITagRepository _tagRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public SetParentTagCommandHandler(
         ITagRepository tagRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _tagRepository = tagRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<TagCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.TagSetParent;
+
+protected override async Task<CommandExecutionResult<TagCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetParentTagCommand> command,
         CancellationToken cancellationToken = default)
     {
@@ -34,44 +35,18 @@ public sealed class SetParentTagCommandHandler : ICommandHandler<SetParentTagCom
         if (payload.TagId == payload.ParentTagId)
             return RejectInvariant(command, EntityRefs.TagCycle);
 
-        var payloadJson = CommandSerialization.Serialize(payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.TagSetParent);
-
-            var replay = CommandSerialization.Deserialize<TagCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<TagCommandResult>.Success(replay with { Replay = true });
-        }
-
         // Cycle detection: walk up from the proposed parent — if we encounter TagId, it's a cycle.
         if (await WouldCreateCycleAsync(command.PrincipalId, payload.ParentTagId, payload.TagId, cancellationToken))
             return RejectInvariant(command, EntityRefs.TagCycle);
 
         // SetParentAsync returns false if tag or parent tag does not exist.
-        var set = await _tagRepository.SetParentAsync(
-            command.PrincipalId, payload.TagId, payload.ParentTagId, cancellationToken);
-
-        if (!set) return RejectInvariant(command, EntityRefs.TagNotFound);
-
-        var result = new TagCommandResult(command.PrincipalId, payload.TagId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey,
-            payloadHash, CommandSerialization.Hash(resultJson), resultJson, cancellationToken);
-
-        await _eventBus.PublishAsync(
-            new TagUpdatedEvent(command.PrincipalId, payload.TagId),
+        return await TagCommandFlow.ExecuteTagMutationAsync(
+            command,
+            payload.TagId,
+            ct => _tagRepository.SetParentAsync(command.PrincipalId, payload.TagId, payload.ParentTagId, ct),
+            EntityRefs.TagNotFound,
+            _eventBus,
             cancellationToken);
-
-        return CommandExecutionResult<TagCommandResult>.Success(result);
     }
 
     /// <summary>
@@ -90,13 +65,4 @@ public sealed class SetParentTagCommandHandler : ICommandHandler<SetParentTagCom
         return false;
     }
 
-    private static CommandExecutionResult<TagCommandResult> RejectDuplicate(
-        CommandEnvelope<SetParentTagCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
-
-    private static CommandExecutionResult<TagCommandResult> RejectInvariant(
-        CommandEnvelope<SetParentTagCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<TagCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

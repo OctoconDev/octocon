@@ -4,9 +4,10 @@ namespace Interfold.Contracts.Models;
 
 /// <summary>
 /// Viewer-gating helper for <see cref="VisibilityLevel"/>. Persistence-code round-trip
-/// is handled by casting <c>(short)value</c> outbound and calling
-/// <c>EnumCode&lt;VisibilityLevel&gt;.FromCode(code, VisibilityLevel.Public)</c> (or
-/// <c>VisibilityLevel.Private</c> for the fail-closed settings-field path) inbound.
+/// is handled by casting <c>(short)value</c> outbound and calling the fallback-less
+/// <c>code.FromCode&lt;VisibilityLevel&gt;()</c> inbound; unknown or null on-disk codes
+/// throw <see cref="ArgumentOutOfRangeException"/> so corrupt rows surface loudly rather
+/// than silently coercing to <c>Public</c> or <c>Private</c>.
 /// </summary>
 public static class VisibilityLevelExtensions
 {

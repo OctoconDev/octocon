@@ -36,6 +36,26 @@ public sealed class ConfigValidationTests
         DatabaseMode = DatabaseMode.Single,
     };
 
+    /// <summary>
+    /// Stages a single invariant violation on top of <see cref="MakeValid"/>, invokes the validator,
+    /// and asserts every supplied fragment appears in the thrown <see cref="InvalidOperationException"/>'s
+    /// message. Collapses the ~5-line arrange-assert body every test here would otherwise re-write.
+    /// Sites that need a bespoke starting config (e.g. <c>new BootstrapConfig()</c>) or a non-throwing
+    /// path (positive-case tests) stay inline.
+    /// </summary>
+    private static async Task AssertInvalidAsync(
+        Action<BootstrapConfig> mutate,
+        params string[] messageContains)
+    {
+        var cfg = MakeValid();
+        mutate(cfg);
+        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
+        foreach (var frag in messageContains)
+        {
+            await Assert.That(ex.Message).Contains(frag);
+        }
+    }
+
     [Test]
     public async Task ValidConfigPasses()
     {
@@ -46,67 +66,33 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task EmptyHostsListFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Deployment.Hosts = [];
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("hosts");
-    }
+    public Task EmptyHostsListFailsValidation()
+        => AssertInvalidAsync(c => c.Deployment.Hosts = [], "hosts");
 
     [Test]
-    public async Task ZeroCertYearsFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Deployment.CertYears = 0;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("certYears");
-    }
+    public Task ZeroCertYearsFailsValidation()
+        => AssertInvalidAsync(c => c.Deployment.CertYears = 0, "certYears");
 
     [Test]
-    public async Task NegativeCertYearsFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Deployment.CertYears = -1;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("certYears");
-    }
+    public Task NegativeCertYearsFailsValidation()
+        => AssertInvalidAsync(c => c.Deployment.CertYears = -1, "certYears");
 
     [Test]
-    public async Task CertYearsOverThirtyFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Deployment.CertYears = 31;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("certYears");
-    }
+    public Task CertYearsOverThirtyFailsValidation()
+        => AssertInvalidAsync(c => c.Deployment.CertYears = 31, "certYears");
 
     [Test]
-    public async Task ApiHttpEqualsApiHttpsFailsValidation()
-    {
-        var cfg = MakeValid();
+    public Task ApiHttpEqualsApiHttpsFailsValidation()
         // Same host port can't bind two listeners; the validator must surface this before publish.
-        cfg.Ports.ApiHttp = 5000;
-        cfg.Ports.ApiHttps = 5000;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("apiHttp");
-        await Assert.That(ex.Message).Contains("apiHttps");
-    }
+        => AssertInvalidAsync(c =>
+        {
+            c.Ports.ApiHttp = 5000;
+            c.Ports.ApiHttps = 5000;
+        }, "apiHttp", "apiHttps");
 
     [Test]
-    public async Task DomainWithSpaceFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["api example.com"];
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("whitespace");
-    }
+    public Task DomainWithSpaceFailsValidation()
+        => AssertInvalidAsync(c => c.Deployment.Hosts = ["api example.com"], "whitespace");
 
     [Test]
     public async Task Ipv4HostPassesValidation()
@@ -162,30 +148,17 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task AllCidrHostsFailValidation()
-    {
+    public Task AllCidrHostsFailValidation()
         // A CIDR-only host list has no leaf-eligible primary, so the leaf cert can't be issued
         // (it'd have no CN / no SANs). Validate must reject upfront.
-        var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["192.168.1.0/24", "fe80::/64"];
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("non-CIDR");
-    }
+        => AssertInvalidAsync(c => c.Deployment.Hosts = ["192.168.1.0/24", "fe80::/64"], "non-CIDR");
 
     [Test]
-    public async Task CidrWithHostBitsSetFailsValidation()
-    {
+    public Task CidrWithHostBitsSetFailsValidation()
         // Operator typo: meant /32 (single host) or /24 (network) but typed the host address
         // with /24. Surface the fix-it from HostParser rather than silently normalising.
-        var cfg = MakeValid();
-        cfg.Deployment.Hosts = ["192.168.1.42/24"];
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("host bits");
-        await Assert.That(ex.Message).Contains("192.168.1.0/24");
-        await Assert.That(ex.Message).Contains("192.168.1.42/32");
-    }
+        => AssertInvalidAsync(c => c.Deployment.Hosts = ["192.168.1.42/24"],
+            "host bits", "192.168.1.0/24", "192.168.1.42/32");
 
     [Test]
     public async Task DefaultConstructedDeploymentHasNoHosts()
@@ -212,14 +185,8 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task PortAboveMaxFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Ports.ApiHttp = 70000;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("ApiHttp");
-    }
+    public Task PortAboveMaxFailsValidation()
+        => AssertInvalidAsync(c => c.Ports.ApiHttp = 70000, "ApiHttp");
 
     [Test]
     public async Task InvalidDatabaseModeInJsonFailsDeserialization()
@@ -264,50 +231,26 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task EmptyPostgresDatabaseFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.PostgresDatabase = string.Empty;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("postgresDatabase");
-    }
+    public Task EmptyPostgresDatabaseFailsValidation()
+        => AssertInvalidAsync(c => c.PostgresDatabase = string.Empty, "postgresDatabase");
 
     [Test]
-    public async Task WhitespacePostgresDatabaseFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.PostgresDatabase = "   ";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("postgresDatabase");
-    }
+    public Task WhitespacePostgresDatabaseFailsValidation()
+        => AssertInvalidAsync(c => c.PostgresDatabase = "   ", "postgresDatabase");
 
     [Test]
-    public async Task PostgresDatabaseStartingWithDigitFailsValidation()
-    {
+    public Task PostgresDatabaseStartingWithDigitFailsValidation()
         // Postgres tolerates a leading digit only inside double quotes; rejecting it up front
         // keeps the seeder's CREATE DATABASE "<name>" emission unsurprising and avoids
         // identifier-handling drift between quoted and unquoted call sites.
-        var cfg = MakeValid();
-        cfg.PostgresDatabase = "1interfold";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("postgresDatabase");
-    }
+        => AssertInvalidAsync(c => c.PostgresDatabase = "1interfold", "postgresDatabase");
 
     [Test]
-    public async Task PostgresDatabaseWithDashFailsValidation()
-    {
+    public Task PostgresDatabaseWithDashFailsValidation()
         // A dash is a valid character inside double-quoted Postgres identifiers but is forbidden
         // by our pattern so the value also works as a default role / schema prefix downstream
         // without further quoting gymnastics.
-        var cfg = MakeValid();
-        cfg.PostgresDatabase = "inter-fold";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("postgresDatabase");
-    }
+        => AssertInvalidAsync(c => c.PostgresDatabase = "inter-fold", "postgresDatabase");
 
     [Test]
     public async Task DefaultClusterNamePasses()
@@ -334,47 +277,23 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task EmptyClusterNameFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.ClusterName = string.Empty;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("clusterName");
-    }
+    public Task EmptyClusterNameFailsValidation()
+        => AssertInvalidAsync(c => c.ClusterName = string.Empty, "clusterName");
 
     [Test]
-    public async Task ClusterNameWithSingleQuoteFailsValidation()
-    {
+    public Task ClusterNameWithSingleQuoteFailsValidation()
         // Single quotes are the highest-risk character because Cassandra's entrypoint rewrites
         // cassandra.yaml with the value pasted in; an unescaped quote would corrupt the YAML.
-        var cfg = MakeValid();
-        cfg.ClusterName = "Acme'Prod";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("clusterName");
-    }
+        => AssertInvalidAsync(c => c.ClusterName = "Acme'Prod", "clusterName");
 
     [Test]
-    public async Task ClusterNameWithNewlineFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.ClusterName = "Acme\nProd";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("clusterName");
-    }
+    public Task ClusterNameWithNewlineFailsValidation()
+        => AssertInvalidAsync(c => c.ClusterName = "Acme\nProd", "clusterName");
 
     [Test]
-    public async Task OverlyLongClusterNameFailsValidation()
-    {
+    public Task OverlyLongClusterNameFailsValidation()
         // 64 chars is the published Cassandra limit; anything past it must fail.
-        var cfg = MakeValid();
-        cfg.ClusterName = new string('A', 65);
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("clusterName");
-    }
+        => AssertInvalidAsync(c => c.ClusterName = new string('A', 65), "clusterName");
 
     [Test]
     public async Task InvalidScyllaKeyspaceInJsonFailsDeserialization()
@@ -408,44 +327,27 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task NonHttpCallbackBaseUrlFailsValidation()
-    {
+    public Task NonHttpCallbackBaseUrlFailsValidation()
         // The shared ValidateAbsoluteHttpUri helper rejects anything that doesn't parse as an
         // absolute http(s) URL. Even valid URIs with a different scheme (file://, ftp://, …)
         // must fail so the operator catches typos before the API tries to use the value in
         // the OAuth redirect-URL stitching.
-        var cfg = MakeValid();
-        cfg.ApiRuntime.CallbackBaseUrl = "ftp://api.example.com";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("callbackBaseUrl");
-    }
+        => AssertInvalidAsync(c => c.ApiRuntime.CallbackBaseUrl = "ftp://api.example.com", "callbackBaseUrl");
 
     [Test]
-    public async Task EmptyJwtAudienceFailsValidation()
-    {
+    public Task EmptyJwtAudienceFailsValidation()
         // jwtAudience has a property-initialiser default ("octocon") so it's never empty in
         // practice — but a hand-edited JSON with `"jwtAudience": ""` must reject upfront
         // rather than silently writing an empty value into OCTOCON_JWT_AUDIENCE.
-        var cfg = MakeValid();
-        cfg.ApiRuntime.JwtAudience = "";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("jwtAudience");
-    }
+        => AssertInvalidAsync(c => c.ApiRuntime.JwtAudience = "", "jwtAudience");
 
     [Test]
-    public async Task NonHttpCorsOriginFailsValidation()
-    {
+    public Task NonHttpCorsOriginFailsValidation()
         // Each CORS allow-list entry must parse as an absolute http(s) origin — bare hostnames,
         // wildcards, or non-http schemes would never match the request's Origin header at
         // runtime and are therefore a bootstrapper-time error.
-        var cfg = MakeValid();
-        cfg.ApiRuntime.CorsAllowedOrigins = ["https://app.example.com", "not-a-url"];
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("corsAllowedOrigins");
-    }
+        => AssertInvalidAsync(c => c.ApiRuntime.CorsAllowedOrigins = ["https://app.example.com", "not-a-url"],
+            "corsAllowedOrigins");
 
     [Test]
     public async Task ValidateFillsDerivedApiRuntimeDefaults()
@@ -525,96 +427,50 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task NonHttpAvatarPublicBaseFailsValidation()
-    {
+    public Task NonHttpAvatarPublicBaseFailsValidation()
         // The optional URL fields reuse the same absolute http(s) check as the apiRuntime URL
         // fields — non-http schemes still fail, even when the field is optional overall.
-        var cfg = MakeValid();
-        cfg.Storage.AvatarPublicBase = "ftp://cdn.example.com/avatars/";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("avatarPublicBase");
-    }
+        => AssertInvalidAsync(c => c.Storage.AvatarPublicBase = "ftp://cdn.example.com/avatars/", "avatarPublicBase");
 
     [Test]
-    public async Task RelativeAvatarStorageRootFailsValidation()
-    {
+    public Task RelativeAvatarStorageRootFailsValidation()
         // The avatar storage root lives inside the API container; relative paths would resolve
         // against the container's CWD (whatever Aspire baked into the image) and silently
         // break the avatar-write code path. Reject upfront.
-        var cfg = MakeValid();
-        cfg.Storage.AvatarStorageRoot = "avatars";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("avatarStorageRoot");
-    }
+        => AssertInvalidAsync(c => c.Storage.AvatarStorageRoot = "avatars", "avatarStorageRoot");
 
     [Test]
-    public async Task NonHttpOtlpEndpointFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Observability.OtlpEndpoint = "grpc://otel-collector:4317";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("otlpEndpoint");
-    }
+    public Task NonHttpOtlpEndpointFailsValidation()
+        => AssertInvalidAsync(c => c.Observability.OtlpEndpoint = "grpc://otel-collector:4317", "otlpEndpoint");
 
     [Test]
-    public async Task ZeroDbRetryAttemptsFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Persistence.DbRetryAttempts = 0;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("dbRetryAttempts");
-    }
+    public Task ZeroDbRetryAttemptsFailsValidation()
+        => AssertInvalidAsync(c => c.Persistence.DbRetryAttempts = 0, "dbRetryAttempts");
 
     [Test]
-    public async Task DbRetryAttemptsAboveCapFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Persistence.DbRetryAttempts = 9999;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("dbRetryAttempts");
-    }
+    public Task DbRetryAttemptsAboveCapFailsValidation()
+        => AssertInvalidAsync(c => c.Persistence.DbRetryAttempts = 9999, "dbRetryAttempts");
 
     [Test]
-    public async Task DbRetryMaxBelowInitialFailsValidation()
-    {
+    public Task DbRetryMaxBelowInitialFailsValidation()
         // The cross-check catches the easy swap mistake (initial=1500, max=100) which would
         // make the exponential backoff cap below the starting delay — a guaranteed source of
         // confused operators reading retry logs.
-        var cfg = MakeValid();
-        cfg.Persistence.DbRetryInitialDelayMs = 500;
-        cfg.Persistence.DbRetryMaxDelayMs = 100;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("dbRetryMaxDelayMs");
-        await Assert.That(ex.Message).Contains("dbRetryInitialDelayMs");
-    }
+        => AssertInvalidAsync(c =>
+        {
+            c.Persistence.DbRetryInitialDelayMs = 500;
+            c.Persistence.DbRetryMaxDelayMs = 100;
+        }, "dbRetryMaxDelayMs", "dbRetryInitialDelayMs");
 
     [Test]
-    public async Task HydrationConcurrencyAboveCapFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Persistence.HydrationMaxConcurrency = 9999;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("hydrationMaxConcurrency");
-    }
+    public Task HydrationConcurrencyAboveCapFailsValidation()
+        => AssertInvalidAsync(c => c.Persistence.HydrationMaxConcurrency = 9999, "hydrationMaxConcurrency");
 
     [Test]
-    public async Task SocketBatchThresholdOutOfRangeFailsValidation()
-    {
+    public Task SocketBatchThresholdOutOfRangeFailsValidation()
         // The nullable field is bounded only when set — null still passes (see
         // EmptyOptionalStringsPass above). Once supplied, the 1..16 MiB range applies.
-        var cfg = MakeValid();
-        cfg.Socket.BatchBytesThreshold = 0;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("batchBytesThreshold");
-    }
+        => AssertInvalidAsync(c => c.Socket.BatchBytesThreshold = 0, "batchBytesThreshold");
 
     [Test]
     public async Task DefaultBackupSectionPasses()
@@ -631,75 +487,39 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task ZeroBackupRetainCountFailsValidation()
-    {
+    public Task ZeroBackupRetainCountFailsValidation()
         // retainCount=0 would delete every backup as soon as it's written — almost certainly
         // a typo for the "disable scheduled backups" semantics (which is `enabled=false`).
         // Validator rejects to surface the misconfiguration at bootstrap time.
-        var cfg = MakeValid();
-        cfg.Backup.RetainCount = 0;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("retainCount");
-    }
+        => AssertInvalidAsync(c => c.Backup.RetainCount = 0, "retainCount");
 
     [Test]
-    public async Task NegativeBackupRetainCountFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Backup.RetainCount = -5;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("retainCount");
-    }
+    public Task NegativeBackupRetainCountFailsValidation()
+        => AssertInvalidAsync(c => c.Backup.RetainCount = -5, "retainCount");
 
     [Test]
-    public async Task BackupRetainCountAboveCapFailsValidation()
-    {
+    public Task BackupRetainCountAboveCapFailsValidation()
         // 1000 is the documented cap; anything larger is almost certainly a units error
         // (operator confused minutes-to-keep with files-to-keep, or similar).
-        var cfg = MakeValid();
-        cfg.Backup.RetainCount = 5000;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("retainCount");
-    }
+        => AssertInvalidAsync(c => c.Backup.RetainCount = 5000, "retainCount");
 
     [Test]
-    public async Task EmptyBackupScheduleFailsValidation()
-    {
+    public Task EmptyBackupScheduleFailsValidation()
         // An empty schedule renders into `OnCalendar=` (no value), which systemd-analyze
         // rejects — but rejecting it at config-load time gives the operator a faster
         // feedback loop and a clearer message.
-        var cfg = MakeValid();
-        cfg.Backup.Schedule = string.Empty;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("schedule");
-    }
+        => AssertInvalidAsync(c => c.Backup.Schedule = string.Empty, "schedule");
 
     [Test]
-    public async Task WhitespaceBackupScheduleFailsValidation()
-    {
-        var cfg = MakeValid();
-        cfg.Backup.Schedule = "   ";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("schedule");
-    }
+    public Task WhitespaceBackupScheduleFailsValidation()
+        => AssertInvalidAsync(c => c.Backup.Schedule = "   ", "schedule");
 
     [Test]
-    public async Task BackupScheduleWithShellMetacharactersFailsValidation()
-    {
+    public Task BackupScheduleWithShellMetacharactersFailsValidation()
         // Catches an operator trying to embed a `;` or `&` to chain a second command — the
         // schedule string ends up on the OnCalendar= line of a unit file, but a paranoid
         // upfront reject also defends against future code paths that might shell out with it.
-        var cfg = MakeValid();
-        cfg.Backup.Schedule = "daily;rm -rf /";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("schedule");
-    }
+        => AssertInvalidAsync(c => c.Backup.Schedule = "daily;rm -rf /", "schedule");
 
     [Test]
     public async Task WellKnownBackupScheduleShortcutsPass()
@@ -716,17 +536,11 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task RelativeBackupDirectoryFailsValidation()
-    {
+    public Task RelativeBackupDirectoryFailsValidation()
         // Relative paths resolve against systemd-timer-driven invocations' unpredictable
         // CWD — we'd silently write to /run, /home/root, or wherever depending on the
         // distro's systemd unit defaults. Reject upfront.
-        var cfg = MakeValid();
-        cfg.Backup.Directory = "backups/interfold";
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("directory");
-    }
+        => AssertInvalidAsync(c => c.Backup.Directory = "backups/interfold", "directory");
 
     [Test]
     public async Task EmptyBackupDirectoryPasses()
@@ -758,29 +572,17 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task UpdateHealthCheckTimeoutZeroFailsValidation()
-    {
+    public Task UpdateHealthCheckTimeoutZeroFailsValidation()
         // Lower bound is 1s; a zero timeout would starve every probe on start. The
         // validator error names the field so the operator can find the offending key
         // in interfold.bootstrap.json.
-        var cfg = MakeValid();
-        cfg.Update.HealthCheckTimeoutSeconds = 0;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("healthCheckTimeoutSeconds");
-    }
+        => AssertInvalidAsync(c => c.Update.HealthCheckTimeoutSeconds = 0, "healthCheckTimeoutSeconds");
 
     [Test]
-    public async Task UpdateHealthCheckTimeoutAboveMaxFailsValidation()
-    {
+    public Task UpdateHealthCheckTimeoutAboveMaxFailsValidation()
         // Upper bound is 3600s (1h). Anything higher signals a bug; the operator should
         // instead investigate WHY the stack takes over an hour to come up.
-        var cfg = MakeValid();
-        cfg.Update.HealthCheckTimeoutSeconds = 3601;
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("healthCheckTimeoutSeconds");
-    }
+        => AssertInvalidAsync(c => c.Update.HealthCheckTimeoutSeconds = 3601, "healthCheckTimeoutSeconds");
 
     [Test]
     public async Task UpdateHealthCheckTimeoutInRangePasses()
@@ -797,31 +599,18 @@ public sealed class ConfigValidationTests
     }
 
     [Test]
-    public async Task UpdateServicesUnknownEntryFailsValidation()
-    {
+    public Task UpdateServicesUnknownEntryFailsValidation()
         // The whitelist is the source of truth for compose service names. Typos here
         // would surface later as a docker compose "no such service" error, which is
         // harder to diagnose than "config.update.services entry 'foo' is not a known
         // compose service".
-        var cfg = MakeValid();
-        cfg.Update.Services = ["msg-database"];
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("msg-database");
-        await Assert.That(ex.Message).Contains("msg-db");
-    }
+        => AssertInvalidAsync(c => c.Update.Services = ["msg-database"], "msg-database", "msg-db");
 
     [Test]
-    public async Task UpdateServicesBlankEntryFailsValidation()
-    {
+    public Task UpdateServicesBlankEntryFailsValidation()
         // A stray empty string in the array probably means the JSON was hand-edited
         // to something like `["msg-db", ""]`; reject it so the operator notices.
-        var cfg = MakeValid();
-        cfg.Update.Services = ["msg-db", ""];
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(ex.Message).Contains("blank entry");
-    }
+        => AssertInvalidAsync(c => c.Update.Services = ["msg-db", ""], "blank entry");
 
     [Test]
     public async Task UpdateServicesKnownEntriesPassValidation()
@@ -879,55 +668,41 @@ public sealed class ConfigValidationTests
         // handling are caught at unit speed instead of via a full DinD spin-up. We drive the
         // `publish` command (not `bootstrap`) so the prereqs phase is skipped — this keeps the
         // test runnable on Windows / macOS as well as Linux.
-        var tmpDir = Path.Combine(Path.GetTempPath(), "interfold-cfg-malformed-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmpDir);
-        try
-        {
-            var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
-            await File.WriteAllTextAsync(configPath, "{ this is not valid json");
+        using var scratch = TestSupport.NewScratchDir("interfold-cfg-malformed");
+        var tmpDir = scratch.Path;
+        var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
+        await File.WriteAllTextAsync(configPath, "{ this is not valid json");
 
-            // Shell out to the binary so we exercise the real exit-code path the operator sees.
-            var result = await RunBootstrapperAsync("publish", "--config", configPath,
-                "--output-dir", tmpDir, "--non-interactive");
+        // Shell out to the binary so we exercise the real exit-code path the operator sees.
+        var result = await RunBootstrapperAsync("publish", "--config", configPath,
+            "--output-dir", tmpDir, "--non-interactive");
 
-            await Assert.That(result.ExitCode).IsNotEqualTo(0)
-                .Because("malformed JSON must abort the bootstrap");
-            // The thrown JsonException's message varies across SDK versions but always names the
-            // JSON parse failure mode in some form.
-            var combined = result.Stdout + result.Stderr;
-            await Assert.That(combined).Contains("JSON")
-                .Or.Contains("json")
-                .Or.Contains("parse");
-        }
-        finally
-        {
-            try { Directory.Delete(tmpDir, recursive: true); } catch { /* best effort cleanup */ }
-        }
+        await Assert.That(result.ExitCode).IsNotEqualTo(0)
+            .Because("malformed JSON must abort the bootstrap");
+        // The thrown JsonException's message varies across SDK versions but always names the
+        // JSON parse failure mode in some form.
+        var combined = result.Stdout + result.Stderr;
+        await Assert.That(combined).Contains("JSON")
+            .Or.Contains("json")
+            .Or.Contains("parse");
     }
 
     [Test]
     public async Task MissingFileWithNonInteractiveExitsWithMessage()
     {
         // Drives `publish` (not `bootstrap`) so the prereqs phase is bypassed on non-Linux hosts.
-        var tmpDir = Path.Combine(Path.GetTempPath(), "interfold-cfg-missing-ni-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmpDir);
-        try
-        {
-            var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
-            await Assert.That(File.Exists(configPath)).IsFalse();
+        using var scratch = TestSupport.NewScratchDir("interfold-cfg-missing-ni");
+        var tmpDir = scratch.Path;
+        var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
+        await Assert.That(File.Exists(configPath)).IsFalse();
 
-            var result = await RunBootstrapperAsync("publish", "--config", configPath,
-                "--output-dir", tmpDir, "--non-interactive");
+        var result = await RunBootstrapperAsync("publish", "--config", configPath,
+            "--output-dir", tmpDir, "--non-interactive");
 
-            await Assert.That(result.ExitCode).IsNotEqualTo(0);
-            await Assert.That(result.Stdout + result.Stderr)
-                .Contains("Config file not found")
-                .Or.Contains("non-interactive");
-        }
-        finally
-        {
-            try { Directory.Delete(tmpDir, recursive: true); } catch { /* best effort cleanup */ }
-        }
+        await Assert.That(result.ExitCode).IsNotEqualTo(0);
+        await Assert.That(result.Stdout + result.Stderr)
+            .Contains("Config file not found")
+            .Or.Contains("non-interactive");
     }
 
     /// <summary>

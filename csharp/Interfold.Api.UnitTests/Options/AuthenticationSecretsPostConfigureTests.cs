@@ -37,18 +37,15 @@ public sealed class AuthenticationSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_SnapshotHasAllRows_PatchesAllFields()
     {
-        var snapshot = SecretsSnapshotMock.Empty()
+        var options = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.OAuthGoogleClientSecret,  "google-secret")
             .With(SecretsStoreKeys.OAuthDiscordClientSecret, "discord-secret")
             .With(SecretsStoreKeys.OAuthAppleClientSecret,   "apple-secret")
             .With(SecretsStoreKeys.EncryptionPepper,         "test-pepper")
             .With(SecretsStoreKeys.AuthDeepLinkSecret,       "test-deep-link")
             .With(SecretsStoreKeys.AuthJwtRsa256PrivatePem,  Rsa.PrivatePem)
-            .With(SecretsStoreKeys.AuthJwtEs256PrivatePem,   Es.PrivatePem);
-        var patcher = new AuthenticationSecretsPostConfigure(snapshot.Object);
-        var options = new AuthenticationConfiguration();
-
-        patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
+            .With(SecretsStoreKeys.AuthJwtEs256PrivatePem,   Es.PrivatePem)
+            .ApplyPostConfigure<AuthenticationSecretsPostConfigure, AuthenticationConfiguration>();
 
         using (Assert.Multiple())
         {
@@ -169,12 +166,9 @@ public sealed class AuthenticationSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_NamedInstance_LeavesUntouched()
     {
-        var snapshot = SecretsSnapshotMock.Empty()
-            .With(SecretsStoreKeys.EncryptionPepper, "leaked-if-named");
-        var patcher = new AuthenticationSecretsPostConfigure(snapshot.Object);
-        var options = new AuthenticationConfiguration();
-
-        patcher.PostConfigure("other-name", options);
+        var options = SecretsSnapshotMock.Empty()
+            .With(SecretsStoreKeys.EncryptionPepper, "leaked-if-named")
+            .ApplyPostConfigure<AuthenticationSecretsPostConfigure, AuthenticationConfiguration>(name: "other-name");
 
         await Assert.That(options.EncryptionPepper).IsEqualTo(string.Empty)
             .Because("PostConfigure guards on Options.DefaultName so secrets never bleed into an unrelated named options bucket.");

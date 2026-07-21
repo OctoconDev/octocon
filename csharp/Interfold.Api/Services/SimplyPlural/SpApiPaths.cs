@@ -8,6 +8,7 @@ namespace Interfold.Api.Services.SimplyPlural;
 /// </summary>
 internal static class SpApiPaths
 {
+	//TODO: To make into something that is passed in as this has now been sunset.
     public const string ApiBase = "https://api.apparyllis.com/v1";
 
     public static string Me() => $"{ApiBase}/me";

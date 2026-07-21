@@ -17,3 +17,5 @@ public sealed record DeleteAccountCommand();
 public sealed record WipeAltersCommand();
 
 public sealed record WipeTagsCommand();
+
+public sealed record CreateLinkTokenCommand();

@@ -42,4 +42,8 @@ public enum ImportErrorCode
     /// <summary>The runner threw an unhandled exception.</summary>
     [JsonStringEnumMemberName("exception")]
     Exception,
+
+    /// <summary>The runner is a stub; the importer has not been implemented yet.</summary>
+    [JsonStringEnumMemberName("unimplemented")]
+    Unimplemented,
 }

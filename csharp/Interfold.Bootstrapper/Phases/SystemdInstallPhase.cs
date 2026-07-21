@@ -64,22 +64,10 @@ internal static class SystemdInstallPhase
     {
         logger.PhaseStart(Phase);
 
+        var config = await PhaseArtifactLoader
+            .LoadRequiredConfigAsync(options, logger, Phase, "install-service", ct)
+            .ConfigureAwait(false);
         var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
-        if (!File.Exists(configPath))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
-            throw new InvalidOperationException(
-                $"install-service requires a populated bootstrap config at {configPath}. " +
-                "Run `bootstrap` first.");
-        }
-
-        BootstrapConfig config;
-        await using (var stream = File.OpenRead(configPath))
-        {
-            config = await System.Text.Json.JsonSerializer.DeserializeAsync(
-                stream, BootstrapJsonContext.Default.BootstrapConfig, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"Failed to parse {configPath}.");
-        }
 
         var unitDir = options.SystemdUnitDir ?? DefaultUnitDir;
         var binaryPath = ResolveBinaryPath(options);

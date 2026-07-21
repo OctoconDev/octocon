@@ -9,6 +9,14 @@ namespace Interfold.Api.Services.ImportJobs;
 /// Plural importer (<see cref="ISimplyPluralImportService"/>). One per-process registration
 /// (singleton). The background worker resolves this instance when it dequeues an item
 /// with <see cref="ImportOperationKind.SimplyPlural"/>.
+///
+/// <para>
+/// R7: <see cref="ISimplyPluralImportService.ImportAsync"/> now returns
+/// <see cref="ImportJobOutcome"/> directly, so this runner is a pure pass-through. The
+/// terminal-state contract (graceful failures must populate <see cref="ImportJobOutcome.ErrorCode"/>,
+/// throws are classified as <c>exception</c>) is enforced by the service, not translated
+/// here.
+/// </para>
 /// </summary>
 public sealed class SpImportJobRunner : IImportJobRunner
 {
@@ -21,29 +29,6 @@ public sealed class SpImportJobRunner : IImportJobRunner
 
     public ImportOperationKind Kind => ImportOperationKind.SimplyPlural;
 
-    public async Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
-    {
-        // The service returns Success=false for graceful failures (auth, decryption, etc.)
-        // and throws only on transport or programming errors — let those bubble so the
-        // worker classifies them as exception-failed.
-        var result = await _importService.ImportAsync(
-            item.SystemId,
-            item.Token,
-            item.RecoveryCode,
-            cancellationToken).ConfigureAwait(false);
-
-        if (result.Success)
-        {
-            return new ImportJobOutcome(Success: true, AlterCount: result.AlterCount);
-        }
-
-        // The service supplies the stable machine code directly; sp_import_failed remains
-        // the fallback so the client's terminal socket frame is unchanged when the service
-        // omits one. The raw message lands in error_message for operators.
-        return new ImportJobOutcome(
-            Success: false,
-            AlterCount: 0,
-            ErrorCode: result.ErrorCode ?? ImportErrorCode.SpImportFailed,
-            ErrorMessage: result.ErrorMessage);
-    }
+    public Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
+        => _importService.ImportAsync(item.SystemId, item.Token, item.RecoveryCode, cancellationToken);
 }

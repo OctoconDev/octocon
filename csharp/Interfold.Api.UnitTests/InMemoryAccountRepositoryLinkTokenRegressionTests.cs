@@ -4,6 +4,7 @@ using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.InMemory.Repository;
 using Microsoft.Extensions.Time.Testing;
+using Interfold.Api.UnitTests.Support;
 
 namespace Interfold.Api.UnitTests;
 
@@ -28,18 +29,7 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
     private static readonly SystemId RawSystemId = new("nam:abcdefg");
     private static readonly SystemId AlreadyScopedSystemId = new("nam:abcdefg");
 
-    /// <summary>
-    /// Fixed-region stub so the tests don't depend on <see cref="InMemoryRegionContext"/>'s
-    /// hash-routing, which would otherwise land <c>"nam:abcdefg"</c> in some non-NAM
-    /// region and defeat the byte-form assertion below. The bug fix under test is about
-    /// how the repository composes ids given a region — the routing algorithm is a
-    /// different concern.
-    /// </summary>
-    private sealed class FixedRegionContext(ScyllaKeyspace region) : IRegionContext
-    {
-        public ScyllaKeyspace CurrentRegion { get; } = region;
-        public ScyllaKeyspace ResolveUserRegion(SystemId systemId) => CurrentRegion;
-    }
+
 
     // ---------------- Bug A — TTL honoured on Resolve --------------------
 

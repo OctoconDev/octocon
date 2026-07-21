@@ -15,17 +15,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class BackupPhaseTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task BackupCreatesPostgresAndScyllaArtifacts()
@@ -33,16 +25,10 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // Full bootstrap first so we have a live compose stack to back up. The backup phase
         // depends on the API container + DB containers running (it execs into them via
         // `docker compose exec`).
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts), TestConfigJsonPath);
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts), TestConfigPaths.DefaultConfig);
 
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(BackupCreatesPostgresAndScyllaArtifacts)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
-
-        var backup = await dinD.RunBootstrapperAsync(nameof(BackupCreatesPostgresAndScyllaArtifacts),
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "all", "--non-interactive"]);
+        var backup = await dinD.RunOnScratchAsync(scratch, nameof(BackupCreatesPostgresAndScyllaArtifacts), "backup",
+            "--component", "all");
         await Assert.That(backup.ExitCode).IsEqualTo(0).Because($"backup failed: {backup.Stderr}");
 
         // ls the per-component subdirs — must contain at least one matching archive each.
@@ -77,12 +63,7 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // the two newest survive each iteration. The mtime spacing isn't guaranteed across
         // back-to-back invocations (they happen within the same second), so we use the
         // timestamp encoded in the filename as the secondary ordering.
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupRetentionPrunesOldestPastRetainCount), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupRetentionPrunesOldestPastRetainCount), TestConfigPaths.DefaultConfig);
 
         // First two runs: both should survive under retain=2.
         for (var i = 0; i < 2; i++)
@@ -90,29 +71,27 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
             // sleep 1s between backups so the timestamps differ; backup filenames use second-
             // resolution and we need each iteration's archive to be distinguishable on disk.
             await dinD.ExecAsync(["sleep", "1"]);
-            var b = await dinD.RunBootstrapperAsync($"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-{i}",
-                ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-                 "--component", "all", "--retain", "2", "--non-interactive"]);
+            var b = await dinD.RunOnScratchAsync(scratch, $"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-{i}", "backup",
+                "--component", "all", "--retain", "2");
             await Assert.That(b.ExitCode).IsEqualTo(0).Because($"backup #{i} failed: {b.Stderr}");
         }
 
-        var countAfterTwo = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/postgres/ | wc -l"]);
-        await Assert.That(int.Parse(countAfterTwo.Stdout.Trim())).IsEqualTo(2)
+        var countAfterTwo = await dinD.CountFilesAsync(scratch, "backups/postgres/");
+        await Assert.That(countAfterTwo).IsEqualTo(2)
             .Because("two backups + retain=2 should leave exactly 2 files");
 
         // Third run: pruning kicks in, exactly 2 must remain.
         await dinD.ExecAsync(["sleep", "1"]);
-        var third = await dinD.RunBootstrapperAsync($"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-third",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "all", "--retain", "2", "--non-interactive"]);
+        var third = await dinD.RunOnScratchAsync(scratch, $"{nameof(BackupRetentionPrunesOldestPastRetainCount)}-third", "backup",
+            "--component", "all", "--retain", "2");
         await Assert.That(third.ExitCode).IsEqualTo(0).Because($"third backup failed: {third.Stderr}");
 
-        var pgCount = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/postgres/ | wc -l"]);
-        await Assert.That(int.Parse(pgCount.Stdout.Trim())).IsEqualTo(2)
+        var pgCount = await dinD.CountFilesAsync(scratch, "backups/postgres/");
+        await Assert.That(pgCount).IsEqualTo(2)
             .Because("three backups + retain=2 should prune the oldest, leaving exactly 2");
 
-        var scyllaCount = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/scylla/ | wc -l"]);
-        await Assert.That(int.Parse(scyllaCount.Stdout.Trim())).IsEqualTo(2)
+        var scyllaCount = await dinD.CountFilesAsync(scratch, "backups/scylla/");
+        await Assert.That(scyllaCount).IsEqualTo(2)
             .Because("scylla retention must mirror postgres retention");
     }
 
@@ -121,24 +100,18 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
     {
         // --component postgres should write a .dump but NOT touch backups/scylla/, and vice
         // versa. Pins the contract so a future refactor that ignores the flag is caught.
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupComponentFlagRestrictsScope), TestConfigJsonPath);
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(BackupComponentFlagRestrictsScope), TestConfigPaths.DefaultConfig);
 
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(BackupComponentFlagRestrictsScope)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
-
-        var pgOnly = await dinD.RunBootstrapperAsync($"{nameof(BackupComponentFlagRestrictsScope)}-pg",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var pgOnly = await dinD.RunOnScratchAsync(scratch, $"{nameof(BackupComponentFlagRestrictsScope)}-pg", "backup",
+            "--component", "postgres");
         await Assert.That(pgOnly.ExitCode).IsEqualTo(0).Because(pgOnly.Stderr);
 
         // Postgres subdir populated; scylla subdir either missing or empty.
-        var pgList = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/postgres/*.dump 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(pgList.Stdout.Trim())).IsEqualTo(1);
+        var pgList = await dinD.CountFilesAsync(scratch, "backups/postgres/*.dump");
+        await Assert.That(pgList).IsEqualTo(1);
 
-        var scyllaList = await dinD.ExecAsync(["sh", "-c", $"ls -1 {scratch.OutputDir}/backups/scylla/*.tar.gz 2>/dev/null | wc -l"]);
-        await Assert.That(int.Parse(scyllaList.Stdout.Trim())).IsEqualTo(0)
+        var scyllaList = await dinD.CountFilesAsync(scratch, "backups/scylla/*.tar.gz");
+        await Assert.That(scyllaList).IsEqualTo(0)
             .Because("--component=postgres must not touch the scylla subdir");
     }
 
@@ -151,13 +124,12 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
         // `bootstrap` / `publish`. The phase runs several prerequisite checks and any of
         // them is a legitimate signal — the important contract is that the error names a
         // specific missing artifact and tells the operator to run `bootstrap` first.
-        var scratch = await dinD.CreateScratchAsync(nameof(BackupWithoutComposeFailsClearly), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(BackupWithoutComposeFailsClearly), TestConfigPaths.DefaultConfig);
 
         // Write the config but skip the bootstrap. The scratch's outputDir has only the
         // config file, no compose stack.
-        var result = await dinD.RunBootstrapperAsync(nameof(BackupWithoutComposeFailsClearly),
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(BackupWithoutComposeFailsClearly), "backup",
+            "--component", "postgres");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("backup against a bare scratch (no compose, no secrets) must fail");
@@ -173,3 +145,6 @@ public class BackupPhaseTests(UbuntuDinDFixture dinD)
             .Because("error must guide the operator to `bootstrap` as the fix");
     }
 }
+
+
+

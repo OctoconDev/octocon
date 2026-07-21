@@ -56,11 +56,8 @@ public readonly record struct OperationId : IParsable<OperationId>
     }
 }
 
-internal sealed class OperationIdJsonConverter : JsonConverter<OperationId>
+internal sealed class OperationIdJsonConverter : StringBackedJsonConverter<OperationId>
 {
-    public override OperationId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, OperationId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override OperationId Create(string value) => new(value);
+    protected override string GetValue(OperationId value) => value.Value;
 }

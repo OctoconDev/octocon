@@ -52,31 +52,17 @@ public sealed class FrontingController : InterfoldControllerBase
             req.Start.Select(x => new FrontStartItem(x.AlterId, x.Comment)).ToArray(),
             req.End.ToArray());
 
-        var envelope = new CommandEnvelope<BulkUpdateFrontCommand>(
-            OperationIds.FrontBulkUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: payload
-        );
-
-        return CommandNoContent(await _bulkUpdateHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_bulkUpdateHandler, OperationIds.FrontBulkUpdate, payload, ct);
     }
 
     [HttpPost("start")]
     public async Task<Response<FrontStartedResponse>> Start([FromBody] FrontStartRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<StartFrontCommand>(
-            OperationIds.FrontStart, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new StartFrontCommand(req.Id, req.Comment)
+        var envelope = BuildEnvelope(OperationIds.FrontStart, new StartFrontCommand(req.Id, req.Comment)
         );
 
         var execution = await _startHandler.HandleAsync(envelope, ct);
-        var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value), r => r?.Replay);
+        var response = CommandCreated(execution, r => new FrontStartedResponse(r.FrontId!.Value));
 
         if (response.IsSuccess && response.AsSuccess.Data.FrontId != FrontId.Empty)
         {
@@ -89,44 +75,22 @@ public sealed class FrontingController : InterfoldControllerBase
     [HttpPost("end")]
     public async Task<Response> End([FromBody] FrontEndRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<EndFrontCommand>(
-            OperationIds.FrontEnd, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new EndFrontCommand(req.Id)
-        );
-
-        return CommandNoContent(await _endHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_endHandler, OperationIds.FrontEnd, new EndFrontCommand(req.Id)
+        , ct);
     }
 
     [HttpPost("set")]
     public async Task<Response> Set([FromBody] FrontSetRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<SetFrontCommand>(
-            OperationIds.FrontSet,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetFrontCommand(req.Id, req.Comment)
-        );
-
-        return CommandNoContent(await _setHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_setHandler, OperationIds.FrontSet, new SetFrontCommand(req.Id, req.Comment)
+        , ct);
     }
 
     [HttpPost("primary")]
     public async Task<Response> Primary([FromBody] FrontPrimaryRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<SetPrimaryFrontCommand>(
-            OperationIds.FrontPrimary, Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetPrimaryFrontCommand(req.Id)
-        );
-
-        return CommandNoContent(await _primaryHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_primaryHandler, OperationIds.FrontPrimary, new SetPrimaryFrontCommand(req.Id)
+        , ct);
     }
 
     //TODO: To ensure route works as expected
@@ -172,38 +136,20 @@ public sealed class FrontingController : InterfoldControllerBase
     public async Task<Response<FrontActiveReadModel>> Show(FrontId id, CancellationToken ct)
     {
         var front = await _repository.GetActiveByFrontIdAsync(PrincipalId, id, ct);
-        return front is null
-            ? new ErrorResponse("Front not found.", ErrorCodes.FrontNotFound, System.Net.HttpStatusCode.NotFound)
-            : new SuccessResponse<FrontActiveReadModel>(front);
+        return OkOrNotFound(front, "Front not found.", ErrorCodes.FrontNotFound);
     }
 
     [HttpDelete("{id}")]
     public async Task<Response> Delete(FrontId id, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteFrontByIdCommand>(
-            OperationIds.FrontDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteFrontByIdCommand(id)
-        );
-
-        return CommandNoContent(await _deleteByIdHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_deleteByIdHandler, OperationIds.FrontDelete, new DeleteFrontByIdCommand(id)
+        , ct);
     }
 
     [HttpPost("{id}/comment")]
     public async Task<Response> UpdateComment(FrontId id, [FromBody] FrontCommentRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateFrontCommentCommand>(
-            OperationIds.FrontCommentUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateFrontCommentCommand(id, req.Comment)
-        );
-
-        return CommandNoContent(await _updateCommentHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_updateCommentHandler, OperationIds.FrontCommentUpdate, new UpdateFrontCommentCommand(id, req.Comment)
+        , ct);
     }
 }

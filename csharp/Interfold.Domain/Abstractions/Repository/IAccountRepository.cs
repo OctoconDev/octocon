@@ -82,4 +82,15 @@ public interface IAccountRepository
     Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default);
 
     Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Narrow "public wire view" projection used by
+    /// <see cref="Interfold.Api.Controllers.PublicSystemsController.Show"/>. Returns only
+    /// the five fields the public endpoint surfaces (id, username, description, avatar_url,
+    /// avatar_source) so the controller doesn't have to hand-project from the full
+    /// <see cref="AccountPublicProfileReadModel"/> — which also carries private identity
+    /// links (Discord / Email / Apple) that must not leak on this route. Null when the
+    /// account doesn't exist.
+    /// </summary>
+    Task<PublicSystemReadModel?> GetPublicSystemAsync(SystemId systemId, CancellationToken cancellationToken = default);
 }

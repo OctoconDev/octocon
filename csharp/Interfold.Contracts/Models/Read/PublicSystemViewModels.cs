@@ -24,7 +24,7 @@ public sealed record PublicSystemReadModel(
     AvatarSource? AvatarSource,
     Username? Username,
     string? Description
-);
+) : IAvatarBearing;
 
 /// <summary>
 /// Read model for <c>GET /api/systems/{systemId}/batch</c>. Wire-identical to

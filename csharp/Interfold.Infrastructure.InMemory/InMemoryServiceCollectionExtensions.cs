@@ -1,4 +1,4 @@
-﻿using Interfold.Contracts;
+using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Secrets;
 using Interfold.Domain.Abstractions;
@@ -12,22 +12,8 @@ namespace Interfold.Infrastructure.InMemory;
 
 public static class InMemoryServiceCollectionExtensions
 {
-    // Lazy<T> (default ExecutionAndPublication mode) is a wait-for-completion gate: exactly
-    // one caller runs the factory while every other caller blocks until it returns. The
-    // previous Interlocked.Exchange gate was fire-and-forget — the second caller would
-    // observe `_added == 1` and return *before* the first caller had actually populated
-    // PersistenceReg, then race ahead to AddInterfoldPersistence and trip the
-    // "Persistence mode has not yet been implemented" throw. The integration suite hits
-    // this when multiple WebApplicationFactory<Program> instances build their hosts in
-    // parallel; replacing the gate with Lazy<bool> serialises observers behind the
-    // registration so PersistenceReg is guaranteed populated by the time Register() returns.
-    private static readonly Lazy<bool> Registration = new(() =>
-    {
-        ServiceCollectionExtensions.AddPersistenceMode(PersistenceMode.InMemory, AddInMemoryPersistence);
-        return true;
-    });
-
-    public static void Register() => _ = Registration.Value;
+    private static readonly Action Registration = PersistenceRegistration.Create(PersistenceMode.InMemory, AddInMemoryPersistence);
+    public static void Register() => Registration();
 
     private static IServiceCollection AddInMemoryPersistence(
         IServiceCollection services,

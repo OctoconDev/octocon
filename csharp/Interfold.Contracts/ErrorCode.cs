@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
+using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts;
 
@@ -25,11 +25,8 @@ public readonly record struct ErrorCode
     public override string ToString() => Value;
 }
 
-internal sealed class ErrorCodeJsonConverter : JsonConverter<ErrorCode>
+internal sealed class ErrorCodeJsonConverter : StringBackedJsonConverter<ErrorCode>
 {
-    public override ErrorCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, ErrorCode value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override ErrorCode Create(string value) => new(value);
+    protected override string GetValue(ErrorCode value) => value.Value;
 }

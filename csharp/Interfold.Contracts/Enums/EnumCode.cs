@@ -60,6 +60,20 @@ public static class EnumCode<TEnum> where TEnum : struct, Enum
     }
 
     /// <summary>
+    /// Convert <paramref name="code"/> back to <typeparamref name="TEnum"/>, returning
+    /// <see langword="null"/> if the code is unknown or <see langword="null"/>.
+    /// </summary>
+    public static TEnum? FromCodeOrNull(short? code)
+    {
+        if (code is { } c && ByCode.TryGetValue(c, out var value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Bool + out safe lookup. Returns <see langword="false"/> for <see langword="null"/> or
     /// unknown codes; matches the shape of <see cref="EnumWire{TEnum}.TryParse"/>.
     /// </summary>

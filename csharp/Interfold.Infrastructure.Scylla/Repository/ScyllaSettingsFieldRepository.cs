@@ -14,30 +14,29 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
     private static readonly ConcurrentDictionary<(int ClusterId, string Keyspace), byte> UdtMappings = new();
 
     public ScyllaSettingsFieldRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
     }
 
     public async Task<IReadOnlyList<SettingsFieldReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var (session, keyspace, normalizedSystemId) = scope;
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return Array.Empty<SettingsFieldReadModel>();
@@ -47,15 +46,15 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 .Select((field, index) => new SettingsFieldReadModel(
                     new(field.Id),
                     field.Name,
-                    field.Type.FromCode(FieldType.Text),
-                    field.SecurityLevel.FromCode(VisibilityLevel.Private),
+                    field.Type.FromCode<FieldType>(),
+                    field.SecurityLevel.FromCode<VisibilityLevel>(),
                     field.Locked,
                     index,
                     field.InsertedAt?.UtcDateTime))
                 .ToArray();
 
             return (IReadOnlyList<SettingsFieldReadModel>)result;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<FieldId?> CreateAsync(
@@ -67,25 +66,18 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         DateTime insertedAtUtc,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync<FieldId?>(async () =>
+        return await _scopeResolver.ExecuteAsync<FieldId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId) ?? [];
+            var (session, keyspace, normalizedSystemId) = scope;
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId) ?? [];
 
             var fieldId = Guid.NewGuid();
             fields.Add(CreateFieldUdt(session, keyspace, fieldId, name, type, securityLevel, locked, insertedAtUtc));
 
-            await session.ExecuteAsync(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            await session.ExecuteAsync(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             return new(fieldId);
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAsync(
@@ -96,14 +88,10 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         bool? locked,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var (session, keyspace, normalizedSystemId) = scope;
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return false;
@@ -142,25 +130,18 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 return false;
             }
 
-            await session.ExecuteAsync(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            await session.ExecuteAsync(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> DeleteAsync(SystemId systemId, FieldId fieldId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var (session, keyspace, normalizedSystemId) = scope;
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return false;
@@ -175,27 +156,20 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             // Remove the field values from all alters before deleting the field itself
             // We want to ensure that the field values are removed to ensure no leakage of deleted field data
             var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldId.Value);
-            batch.Add(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            batch.Add(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             await session.ExecuteAsync(batch);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> RelocateAsync(SystemId systemId, FieldId fieldId, int index, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            EnsureFieldUdtMapping(session, keyspace);
-
-            var fields = await LoadFieldsAsync(session, keyspace, normalizedSystemId);
+            var (session, keyspace, normalizedSystemId) = scope;
+            var fields = await LoadFieldsWithMappingAsync(session, keyspace, normalizedSystemId);
             if (fields is null)
             {
                 return false;
@@ -214,13 +188,10 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             var boundedIndex = Math.Max(0, Math.Min(index, fields.Count));
             fields.Insert(boundedIndex, field);
 
-            await session.ExecuteAsync(new SimpleStatement(
-                $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
-                fields,
-                normalizedSystemId));
+            await session.ExecuteAsync(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     private static async Task<List<UserFieldUdt>?> LoadFieldsAsync(ISession session, string keyspace, string normalizedSystemId)
@@ -236,6 +207,12 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         }
 
         return row.GetValue<IEnumerable<UserFieldUdt>?>("fields")?.ToList() ?? [];
+    }
+
+    private static async Task<List<UserFieldUdt>?> LoadFieldsWithMappingAsync(ISession session, string keyspace, string normalizedSystemId)
+    {
+        EnsureFieldUdtMapping(session, keyspace);
+        return await LoadFieldsAsync(session, keyspace, normalizedSystemId);
     }
 
     private static UserFieldUdt CreateFieldUdt(
@@ -265,6 +242,15 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
             UpdatedAt = insertedAtOffset
         };
     }
+
+    private static SimpleStatement BuildPersistFieldsStatement(
+        string keyspace,
+        IReadOnlyCollection<UserFieldUdt> fields,
+        string normalizedSystemId)
+        => new(
+            $"UPDATE {keyspace}.users SET fields = ?, updated_at = toTimestamp(now()) WHERE id = ?",
+            fields,
+            normalizedSystemId);
 
     private static void EnsureFieldUdtMapping(ISession session, string keyspace)
     {
@@ -305,13 +291,13 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         foreach (var row in rows)
         {
             var alterId = row.GetValue<short>("id");
-            var fields = row.GetValue<IEnumerable<ScyllaAlterRepository.AlterFieldUdt>?>("fields")?.ToList();
-            if (fields is null || fields.Count == 0)
+            var currentFields = row.GetValue<IEnumerable<AlterFieldUdt>?>("fields")?.ToList();
+            if (currentFields is null || currentFields.Count == 0)
             {
                 continue;
             }
 
-            var removedAny = fields.RemoveAll(x => x.Id == fieldId) > 0;
+            var removedAny = currentFields.RemoveAll(x => x.Id == fieldId) > 0;
             if (!removedAny)
             {
                 continue;
@@ -319,7 +305,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
 
             batch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.alters SET fields = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND id = ?",
-                fields,
+                currentFields,
                 normalizedSystemId,
                 alterId));
         }

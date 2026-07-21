@@ -16,7 +16,8 @@ public sealed class SocketPushContext
         SemaphoreSlim sendGate,
         CancellationToken cancellationToken,
         string? requestOrigin = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        TimeProvider? timeProvider = null)
     {
         Socket = socket;
         JoinedScopedSystemId = joinedScopedSystemId;
@@ -27,6 +28,7 @@ public sealed class SocketPushContext
         CancellationToken = cancellationToken;
         RequestOrigin = requestOrigin;
         Logger = logger;
+        TimeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public WebSocket Socket { get; }
@@ -60,6 +62,16 @@ public sealed class SocketPushContext
     public string? RequestOrigin { get; }
 
     public ILogger? Logger { get; }
+
+    /// <summary>
+    /// Time source for socket event handlers that need to synthesize a "now"-ish timestamp
+    /// (e.g. <c>FriendshipSocketEventHandlers</c>'s fallback placeholder models when the
+    /// authoritative row hasn't landed yet). Defaults to <see cref="TimeProvider.System"/>
+    /// so callers that construct the context without wiring one (unit-test scaffolds) keep
+    /// working; production paths inject the DI-registered singleton so time-freezing tests
+    /// stay possible.
+    /// </summary>
+    public TimeProvider TimeProvider { get; }
 
     public bool TryGetSystemTopic(SystemId systemId, out string topic, out string? joinRef, out bool asArray)
     {
@@ -95,4 +107,38 @@ public sealed class SocketPushContext
             asArray,
             CancellationToken,
             SendGate);
+
+    /// <summary>
+    /// Sends <paramref name="payload"/> to the socket's system topic only when the socket
+    /// has joined that topic; silently no-ops otherwise. Use this in event handlers that
+    /// consist of nothing but the four-line topic-guard followed by a single
+    /// <see cref="SendAsync{TPayload}"/> call, collapsing both lines into one expression.
+    /// </summary>
+    public Task SendIfJoinedAsync<TPayload>(SystemId targetSystemId, string eventName, TPayload payload)
+    {
+        if (!TryGetSystemTopic(targetSystemId, out var topic, out var joinRef, out var asArray))
+            return Task.CompletedTask;
+        return SendAsync(topic, joinRef, asArray, eventName, payload);
+    }
+
+    /// <summary>
+    /// Fetches an entity and, when present, wraps it into a socket payload and sends it on
+    /// the joined system topic. Silently no-ops when the socket hasn't joined the target
+    /// topic or when <paramref name="fetch"/> returns <see langword="null"/>.
+    /// </summary>
+    public async Task PushIfJoinedAsync<TEntity, TPayload>(
+        SystemId systemId,
+        string eventName,
+        Func<CancellationToken, Task<TEntity?>> fetch,
+        Func<TEntity, TPayload> wrap)
+    {
+        if (!TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
+            return;
+
+        var entity = await fetch(CancellationToken).ConfigureAwait(false);
+        if (entity is null)
+            return;
+
+        await SendAsync(topic, joinRef, asArray, eventName, wrap(entity));
+    }
 }

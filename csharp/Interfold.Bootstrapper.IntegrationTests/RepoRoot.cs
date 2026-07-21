@@ -28,3 +28,4 @@ internal static class RepoRoot
             $"Could not locate Interfold.slnx starting from {AppContext.BaseDirectory}.");
     }
 }
+

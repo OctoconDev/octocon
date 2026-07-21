@@ -91,6 +91,18 @@ public sealed class ReplayStep
     public bool? ExpectedReplay { get; init; }
 
     /// <summary>
+    /// When non-null, asserts that the response body contains this substring.
+    /// </summary>
+    [JsonPropertyName("expectedJsonContains")]
+    public string? ExpectedJsonContains { get; init; }
+
+    /// <summary>
+    /// When non-null, asserts that the response body does not contain this substring.
+    /// </summary>
+    [JsonPropertyName("expectedJsonNotContains")]
+    public string? ExpectedJsonNotContains { get; init; }
+
+    /// <summary>
     /// When non-null, captures the named field from the JSON response into a step
     /// variable that can be referenced via <c>{varName}</c> in subsequent step paths.
     /// Example: <c>{ "alterId": "alterId" }</c>

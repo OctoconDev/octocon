@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using Interfold.Bootstrapper.Cli;
+using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Configuration;
@@ -80,4 +82,43 @@ internal static class MdnsAvailability
         _ =>
             "(install avahi-daemon and its nss module for your distro, then enable the service)",
     };
+
+    /// <summary>
+    /// Attempts to install the avahi packages for <paramref name="distro"/> and enable the
+    /// daemon via <c>systemctl</c>. Returns <c>true</c> when the install succeeded (the
+    /// caller should re-probe to confirm resolution works end-to-end); <c>false</c> when
+    /// the distro is unsupported or the install failed (details are logged).
+    /// </summary>
+    public static async Task<bool> TryInstallAvahiAsync(
+        DistroInfo distro, PhaseLogger logger, CancellationToken ct)
+    {
+        var packages = InstallPackages(distro.Family);
+        if (packages.Count == 0)
+        {
+            logger.Warn($"    unsupported distro family {distro.Family}; skipping avahi install");
+            return false;
+        }
+
+        logger.Info($"    installing avahi ({string.Join(" ", packages)}) ...");
+        try
+        {
+            await PrerequisitesPhase.RunInstallAsync(distro, packages, logger, ct).ConfigureAwait(false);
+            try
+            {
+                await ProcessRunner.RunAsync(
+                    "systemctl", ["enable", "--now", "avahi-daemon"], ct: ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn($"    could not `systemctl enable --now avahi-daemon` ({ex.GetType().Name}: {ex.Message}); " +
+                            "start it manually if the re-probe below still fails.");
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.Warn($"    avahi install failed ({ex.GetType().Name}: {ex.Message})");
+            return false;
+        }
+    }
 }

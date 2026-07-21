@@ -1,8 +1,7 @@
 using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -12,6 +11,15 @@ namespace Interfold.IntegrationTests.Controllers;
 /// invalid ids could leak past model binding must now short-circuit with a
 /// <c>400 { code: "invalid_alter_id" }</c> — the same wire shape callers already handle for
 /// every other <c>ErrorResponse</c>.
+///
+/// <para>
+/// The negative-path helpers below build their request bodies through
+/// <see cref="TestJson.RawJsonContent"/> because the whole point is to send
+/// <c>id: 0</c> / <c>alter_id: 0</c> — values that <see cref="AlterId"/>'s constructor
+/// would happily accept in C#, but that must be rejected by ASP.NET Core model
+/// binding before the controller action runs. Raw JSON keeps the wire bytes explicit and
+/// avoids any typed-code path that would round-trip through <c>ValidAlterId</c> client-side.
+/// </para>
 ///
 /// <para>
 /// Deliberately isolated to <see cref="InMemoryWebFactoryFixture"/> only (unlike the other
@@ -39,19 +47,15 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
     [Test]
     public async Task FrontStart_ValidId_HappyPathStillWorks()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
-        var principal = $"alterid-front-ok-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("alterid-front-ok");
         var alterId = await CreateAlterAsync(client, principal, "HappyPathAlter");
 
-        var res = await PostAuthenticatedJsonAsync(
-            client,
-            principal,
-            "/api/systems/me/front/start",
-            new { id = alterId });
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/front/start",
+            new FrontStartRequest(alterId),
+            principal);
 
         await Assert.That(res.StatusCode)
             .IsEqualTo(HttpStatusCode.Created)
@@ -60,28 +64,28 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
 
     [Test]
     public async Task FrontStart_ZeroId_Returns400InvalidAlterId()
-        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/start", new { id = 0 });
+        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/start", "{\"id\":0}");
 
     [Test]
     public async Task FrontStart_MissingBody_Returns400InvalidAlterId()
         // The record has `Id = default`, so an empty body deserialises to AlterId(0) and
         // ValidAlterId rejects it exactly like an explicit `{ "id": 0 }`.
-        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/start", new { });
+        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/start", "{}");
 
     [Test]
     public async Task FrontEnd_ZeroId_Returns400InvalidAlterId()
-        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/end", new { id = 0 });
+        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/end", "{\"id\":0}");
 
     [Test]
     public async Task FrontSet_ZeroId_Returns400InvalidAlterId()
-        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/set", new { id = 0 });
+        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/set", "{\"id\":0}");
 
     [Test]
     public async Task FrontPrimary_ZeroId_Returns400InvalidAlterId()
-        // FrontPrimary keeps a nullable AlterId (null clears the primary) but a non-null
+        // FrontPrimary keeps a nullable AlterId (null clears the primary front) but a non-null
         // out-of-range id must still be rejected: [ValidAlterId(AllowNull = true)] only
         // skips the null check, not the range check.
-        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/primary", new { id = 0 });
+        => await AssertInvalidAlterId(HttpMethod.Post, "/api/systems/me/front/primary", "{\"id\":0}");
 
     // ---------- Tags ----------
 
@@ -92,14 +96,14 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
         // and the ValidAlterId short-circuit fires before the tag lookup, so we can use any
         // syntactically-valid GUID without setting the tag up in the store.
         var tagId = Guid.NewGuid();
-        await AssertInvalidAlterId(HttpMethod.Post, $"/api/systems/me/tags/{tagId}/alter", new { alter_id = 0 });
+        await AssertInvalidAlterId(HttpMethod.Post, $"/api/systems/me/tags/{tagId}/alter", "{\"alter_id\":0}");
     }
 
     [Test]
     public async Task TagDetachAlter_ZeroAlterId_Returns400InvalidAlterId()
     {
         var tagId = Guid.NewGuid();
-        await AssertInvalidAlterId(HttpMethod.Delete, $"/api/systems/me/tags/{tagId}/alter", new { alter_id = 0 });
+        await AssertInvalidAlterId(HttpMethod.Delete, $"/api/systems/me/tags/{tagId}/alter", "{\"alter_id\":0}");
     }
 
     // ---------- Journals ----------
@@ -108,14 +112,14 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
     public async Task JournalAttachAlter_ZeroAlterId_Returns400InvalidAlterId()
     {
         var journalId = Guid.NewGuid();
-        await AssertInvalidAlterId(HttpMethod.Post, $"/api/journals/{journalId}/alter", new { alter_id = 0 });
+        await AssertInvalidAlterId(HttpMethod.Post, $"/api/journals/{journalId}/alter", "{\"alter_id\":0}");
     }
 
     [Test]
     public async Task JournalDetachAlter_ZeroAlterId_Returns400InvalidAlterId()
     {
         var journalId = Guid.NewGuid();
-        await AssertInvalidAlterId(HttpMethod.Delete, $"/api/journals/{journalId}/alter", new { alter_id = 0 });
+        await AssertInvalidAlterId(HttpMethod.Delete, $"/api/journals/{journalId}/alter", "{\"alter_id\":0}");
     }
 
     // ---------- Route alterId ----------
@@ -126,7 +130,7 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
 
     [Test]
     public async Task AltersUpdate_ZeroRouteAlterId_Returns400InvalidAlterId()
-        => await AssertInvalidAlterIdRoute(HttpMethod.Patch, "/api/systems/me/alters/0", new { name = "ignored" });
+        => await AssertInvalidAlterIdRoute(HttpMethod.Patch, "/api/systems/me/alters/0", "{\"name\":\"ignored\"}");
 
     [Test]
     public async Task AltersDelete_ZeroRouteAlterId_Returns400InvalidAlterId()
@@ -139,105 +143,76 @@ public sealed class AlterIdValidationTests(InMemoryWebFactoryFixture fixture) : 
     [Test]
     public async Task PublicSystemsShowAlter_ZeroRouteAlterId_Returns400InvalidAlterId()
     {
-        var systemId = $"public-alterid-{Guid.NewGuid():N}"[..32];
+        var systemId = TestIds.NewSystemId("public-alterid");
         await AssertInvalidAlterIdRoute(HttpMethod.Get, $"/api/systems/{systemId}/alters/0");
     }
 
     // ---------- helpers ----------
 
-    private async Task AssertInvalidAlterId(HttpMethod method, string path, object body)
+    private async Task AssertInvalidAlterId(HttpMethod method, string path, string rawJsonBody)
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         // A fresh principal per call keeps the negative tests independent of any tag / journal
         // rows created by other tests in the same session — the model-binding 400 fires
         // before the controller reads persistence, but authorisation still runs, so we need
         // a legitimate token bound to a real user row.
-        var principal = $"alterid-neg-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("alterid-neg");
         await EnsureUserExistsAsync(client, principal);
 
-        using var req = new HttpRequestMessage(method, path)
-        {
-            Content = JsonContent.Create(body)
-        };
-        AttachPrincipalAuth(req, client, principal);
-
-        var res = await client.SendAsync(req);
-        var payload = await res.Content.ReadAsStringAsync();
+        using var res = await client.SendRawJsonAsync(method, path, rawJsonBody, principal);
+        var error = await res.ReadErrorAsync(HttpStatusCode.BadRequest);
 
         using (Assert.Multiple())
         {
-            await Assert.That(res.StatusCode)
-                .IsEqualTo(HttpStatusCode.BadRequest)
-                .Because($"expected 400 for invalid AlterId at {method} {path}. Body: {payload}");
-
-            using var doc = JsonDocument.Parse(payload);
-            var code = ReadStringField(doc.RootElement, "code");
-            var error = ReadStringField(doc.RootElement, "error");
-
-            await Assert.That(code)
+            await Assert.That(error.Code.Value)
                 .IsEqualTo(InvalidAlterIdCode)
-                .Because($"the ErrorResponse code must survive the DataAnnotation → ErrorResponse mapping. Body: {payload}");
+                .Because("the ErrorResponse code must survive the DataAnnotation → ErrorResponse mapping.");
 
-            await Assert.That(error)
+            await Assert.That(error.Error)
                 .IsEqualTo(InvalidAlterIdMessage)
-                .Because($"the error message must be the sentinel used by ValidationErrorCodeRegistry. Body: {payload}");
+                .Because("the error message must be the sentinel used by ValidationErrorCodeRegistry.");
         }
     }
 
-    private static async Task<HttpResponseMessage> PostAuthenticatedJsonAsync(
-        HttpClient client,
-        string principal,
-        string path,
-        object body)
+    private async Task AssertInvalidAlterIdRoute(HttpMethod method, string path, string? rawJsonBody = null)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, path);
-        req.Content = JsonContent.Create(body);
-        AttachPrincipalAuth(req, client, principal);
-        return await client.SendAsync(req);
-    }
+        using var client = TestClient.NoRedirect(fixture);
 
-    private async Task AssertInvalidAlterIdRoute(HttpMethod method, string path, object? body = null)
-    {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
-
-        var principal = $"alterid-route-neg-{Guid.NewGuid():N}"[..32];
+        var principal = TestIds.NewSystemId("alterid-route-neg");
         await EnsureUserExistsAsync(client, principal);
 
-        using var req = new HttpRequestMessage(method, path);
-        if (body is not null)
+        HttpResponseMessage res;
+        if (rawJsonBody is null)
         {
-            req.Content = JsonContent.Create(body);
+            using var req = new HttpRequestMessage(method, path);
+            AttachPrincipalAuth(req, client, principal);
+            res = await client.SendAsync(req);
+        }
+        else
+        {
+            res = await client.SendRawJsonAsync(method, path, rawJsonBody, principal);
         }
 
-        AttachPrincipalAuth(req, client, principal);
-
-        var res = await client.SendAsync(req);
-        var payload = await res.Content.ReadAsStringAsync();
-
-        using (Assert.Multiple())
+        try
         {
-            await Assert.That(res.StatusCode)
-                .IsEqualTo(HttpStatusCode.BadRequest)
-                .Because($"expected 400 for invalid route AlterId at {method} {path}. Body: {payload}");
+            var error = await res.ReadErrorAsync(HttpStatusCode.BadRequest);
 
-            using var doc = JsonDocument.Parse(payload);
-            var code = ReadStringField(doc.RootElement, "code");
-            var error = ReadStringField(doc.RootElement, "error");
+            using (Assert.Multiple())
+            {
+                await Assert.That(error.Code.Value)
+                    .IsEqualTo(InvalidAlterIdCode)
+                    .Because("the ErrorResponse code must survive route-parameter validation mapping.");
 
-            await Assert.That(code)
-                .IsEqualTo(InvalidAlterIdCode)
-                .Because($"the ErrorResponse code must survive route-parameter validation mapping. Body: {payload}");
-
-            await Assert.That(error)
-                .IsEqualTo(InvalidAlterIdMessage)
-                .Because($"the error message must be the sentinel used by ValidationErrorCodeRegistry. Body: {payload}");
+                await Assert.That(error.Error)
+                    .IsEqualTo(InvalidAlterIdMessage)
+                    .Because("the error message must be the sentinel used by ValidationErrorCodeRegistry.");
+            }
+        }
+        finally
+        {
+            res.Dispose();
         }
     }
 }
+

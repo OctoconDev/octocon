@@ -38,29 +38,6 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class ConfigPhaseResolveDerivedDefaultsTests
 {
-    /// <summary>
-    /// Builds a fresh <see cref="BootstrapConfig"/> with explicit deployment values so the
-    /// derivation inputs are unambiguous, default-shipped ports (5001/8080/8081), and an empty
-    /// <see cref="ApiRuntimeSection"/> so every test starts from the "needs derivation" state.
-    /// </summary>
-    private static BootstrapConfig MakeConfigWithEmptyApiRuntime(
-        bool webHttps = false,
-        params string[] hosts)
-    {
-        var cfg = new BootstrapConfig
-        {
-            Deployment =
-            {
-                Hosts = hosts.Length > 0 ? [.. hosts] : ["api.example.com"],
-                WebHttps = webHttps,
-            },
-        };
-        cfg.ApiRuntime.CallbackBaseUrl = string.Empty;
-        cfg.ApiRuntime.JwtAuthority = string.Empty;
-        cfg.ApiRuntime.CorsAllowedOrigins = [];
-        return cfg;
-    }
-
     [Test]
     public async Task ApiUrlIsHttpsWithApiHttpsPortRegardlessOfWebHttpsFalse()
     {
@@ -69,7 +46,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // Deployment.WebHttps (which only governs the web container). So the derived
         // CallbackBaseUrl and JwtAuthority must say `https` and carry `:{Ports.ApiHttps}`
         // even when the operator turned the web tier's HTTPS off.
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: "api.example.com");
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
 
@@ -82,7 +59,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
     [Test]
     public async Task ApiUrlStaysHttpsWithApiHttpsPortWhenWebHttpsTrue()
     {
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
 
@@ -98,7 +75,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // Operator fronting the API with a 443-bound proxy (or rebinding Kestrel onto 443
         // directly) gets a clean URL without a port suffix — matches the canonical form for
         // an https URI on its default port (RFC 7230 §2.7.2).
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
         cfg.Ports.ApiHttps = 443;
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -110,7 +87,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
     [Test]
     public async Task CorsOmitsPortSuffixOnDefaultHttpsPort()
     {
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
         cfg.Ports.WebHttps = 443;
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -121,7 +98,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
     [Test]
     public async Task CorsOmitsPortSuffixOnDefaultHttpPort()
     {
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: "api.example.com");
         cfg.Ports.WebHttp = 80;
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -135,7 +112,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // Two hosts supplied. CallbackBaseUrl and JwtAuthority must take only the FIRST
         // non-CIDR one — they're single-value scalars, and the bootstrapper's contract says
         // the operator's primary public host is what callbacks and JWT iss claims target.
-        var cfg = MakeConfigWithEmptyApiRuntime(
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(
             webHttps: true,
             "api.example.com", "admin.example.com");
 
@@ -154,7 +131,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // CORS preserves all non-CIDR hosts: every leaf-eligible entry on the deployment side
         // gets a matching entry in the allow-list, in the same order, with the scheme + port
         // derived from WebHttps + the matching Ports.Web* slot.
-        var cfg = MakeConfigWithEmptyApiRuntime(
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(
             webHttps: false,
             "api.example.com", "admin.example.com", "www.example.com");
 
@@ -172,7 +149,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // The "stored wins" rule applied to CallbackBaseUrl: if the operator supplied an
         // explicit value (interactive or via the JSON), derivation must not overwrite it
         // — even if the value differs from what derivation would produce.
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
         cfg.ApiRuntime.CallbackBaseUrl = "https://callback-override.example.com";
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -185,7 +162,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
     [Test]
     public async Task StoredJwtAuthorityWinsOverDerived()
     {
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
         cfg.ApiRuntime.JwtAuthority = "https://issuer-override.example.com";
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -198,7 +175,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
     public async Task StoredCorsListWinsOverDerived()
     {
         // A non-empty CORS list (even with a single entry) must survive derivation untouched.
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
         cfg.ApiRuntime.CorsAllowedOrigins = ["https://custom-front.example.com"];
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -214,7 +191,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // once — once a value is filled, the second pass sees it as non-empty and skips it.
         // The interactive form's Show callbacks fire on every redraw, so this property is
         // load-bearing for menu stability.
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
         var firstCallback = cfg.ApiRuntime.CallbackBaseUrl;
@@ -234,7 +211,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // ResolveDerivedDefaults has nothing to work from when Hosts is empty. Validate's
         // host check will throw downstream, but ResolveDerivedDefaults itself must early-out
         // gracefully rather than throwing or writing junk values.
-        var cfg = MakeConfigWithEmptyApiRuntime();
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime();
         cfg.Deployment.Hosts = [];
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -249,7 +226,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
     {
         // JwtAudience has a hardcoded property-initialiser default ("octocon") and is NOT a
         // derivable field — derivation must leave it alone in every path.
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: true, hosts: "api.example.com");
         cfg.ApiRuntime.JwtAudience = "custom-aud";
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
@@ -265,7 +242,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // HostParser.ToUrlHost behaviour as observed through the derivation surface that real
         // consumers (callback URL, JWT issuer) see — the port suffix still appears after the
         // closing bracket on a non-default port.
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: "::1");
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: "::1");
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
 
@@ -281,7 +258,7 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         // skipped when picking the primary host and when building the CORS allow-list.
         // ["192.168.1.0/24", "192.168.1.42"] → primary is 192.168.1.42; CORS has exactly one
         // entry (the CIDR doesn't add a second).
-        var cfg = MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: ["192.168.1.0/24", "192.168.1.42"]);
+        var cfg = TestSupport.MakeConfigWithEmptyApiRuntime(webHttps: false, hosts: ["192.168.1.0/24", "192.168.1.42"]);
 
         ConfigPhase.ResolveDerivedDefaults(cfg);
 
@@ -290,3 +267,4 @@ public sealed class ConfigPhaseResolveDerivedDefaultsTests
         await Assert.That(cfg.ApiRuntime.CorsAllowedOrigins[0]).IsEqualTo("http://192.168.1.42:8080");
     }
 }
+

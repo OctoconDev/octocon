@@ -14,64 +14,7 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class UpdateCommandBuildingTests
 {
-    [Test]
-    public async Task ComposePullWithoutServicesTargetsEveryService()
-    {
-        // Empty services list is compose's "act on every service" idiom. The argv must
-        // end with `pull` and nothing after it — appending a stray "" would make
-        // compose interpret it as an empty-name service and fail.
-        var args = UpdateImagesPhase.BuildComposePullArgs(
-            composeFile: "/srv/deploy/docker-compose.yaml",
-            services: []);
 
-        await Assert.That(args).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml", "pull",
-        });
-    }
-
-    [Test]
-    public async Task ComposePullWithServicesAppendsServiceList()
-    {
-        var args = UpdateImagesPhase.BuildComposePullArgs(
-            composeFile: "/srv/deploy/docker-compose.yaml",
-            services: ["interfold-api", "octocon-web"]);
-
-        await Assert.That(args).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml", "pull",
-            "interfold-api", "octocon-web",
-        });
-    }
-
-    [Test]
-    public async Task ComposeUpWithoutServicesActsOnEveryService()
-    {
-        var args = UpdateImagesPhase.BuildComposeUpArgs(
-            composeFile: "/srv/deploy/docker-compose.yaml",
-            services: []);
-
-        // `-d` (detach) is load-bearing — an interactive `up` would block the update
-        // workflow forever.
-        await Assert.That(args).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml", "up", "-d",
-        });
-    }
-
-    [Test]
-    public async Task ComposeUpWithServicesNarrowsRecreate()
-    {
-        var args = UpdateImagesPhase.BuildComposeUpArgs(
-            composeFile: "/srv/deploy/docker-compose.yaml",
-            services: ["interfold-api"]);
-
-        await Assert.That(args).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml", "up", "-d",
-            "interfold-api",
-        });
-    }
 
     [Test]
     public async Task ComposeImagesRequestsJsonFormat()
@@ -88,29 +31,11 @@ public sealed class UpdateCommandBuildingTests
     }
 
     [Test]
-    public async Task ComposeLogsClampsTailToOperatorValue()
-    {
-        // The failure-diagnosis path dumps the last N lines of a failing container's
-        // logs. N is the caller's choice — we default to 200 in UpdateImagesPhase but
-        // the argv builder itself must respect whatever's handed in.
-        var args = UpdateImagesPhase.BuildComposeLogsArgs(
-            composeFile: "/srv/deploy/docker-compose.yaml",
-            service: "interfold-api",
-            tail: 50);
-
-        await Assert.That(args).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml",
-            "logs", "--tail", "50", "interfold-api",
-        });
-    }
-
-    [Test]
     public async Task ResolveServiceWhitelistCliBeatsConfig()
     {
         // CLI --service wins over config.update.services. The operator's ad-hoc override
         // is always the more specific intent.
-        var options = MakeOptions(updateServices: ["interfold-api"]);
+        var options = TestSupport.MakeOptions(updateServices: ["interfold-api"]);
         var config = new BootstrapConfig { Update = { Services = ["msg-db", "scylla"] } };
 
         var resolved = UpdateImagesPhase.ResolveServiceWhitelist(options, config);
@@ -122,7 +47,7 @@ public sealed class UpdateCommandBuildingTests
     public async Task ResolveServiceWhitelistFallsBackToConfig()
     {
         // No CLI → use the persistent config value.
-        var options = MakeOptions(updateServices: null);
+        var options = TestSupport.MakeOptions(updateServices: null);
         var config = new BootstrapConfig { Update = { Services = ["msg-db"] } };
 
         var resolved = UpdateImagesPhase.ResolveServiceWhitelist(options, config);
@@ -136,7 +61,7 @@ public sealed class UpdateCommandBuildingTests
         // The empty sentinel propagates through — UpdateImagesPhase interprets an empty
         // result as "pass no service names to docker compose", which compose reads as
         // "every service in the file".
-        var options = MakeOptions(updateServices: null);
+        var options = TestSupport.MakeOptions(updateServices: null);
         var config = new BootstrapConfig();
 
         var resolved = UpdateImagesPhase.ResolveServiceWhitelist(options, config);
@@ -260,19 +185,5 @@ public sealed class UpdateCommandBuildingTests
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["msg-db"])).IsFalse();
         await Assert.That(UpdateImagesPhase.ShouldRebuildCassandra(config, ["interfold-api", "octocon-web"])).IsFalse();
     }
-
-    private static BootstrapOptions MakeOptions(string[]? updateServices)
-    {
-        return new BootstrapOptions(
-            Command: BootstrapCommand.UpdateImages,
-            ConfigPath: null,
-            OutputDir: Path.GetFullPath("./deploy"),
-            SkipPrereqs: false,
-            RotateSecrets: false,
-            RotateCerts: false,
-            NonInteractive: false,
-            FaultInject: null,
-            PrintPhaseStatus: false,
-            UpdateServices: updateServices);
-    }
 }
+

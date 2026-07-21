@@ -256,14 +256,8 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
 
     private async Task<ISession> OpenScyllaSessionAsync()
     {
-        var cluster = Cluster.Builder()
-            .AddContactPoint("127.0.0.1")
-            .WithPort(SharedDb.ScyllaPort!.Value)
-            .WithLoadBalancingPolicy(new DCAwareRoundRobinPolicy("nam"))
-            .WithCredentials(TestDbCredentials.ScyllaAdminUser, TestDbCredentials.ScyllaAdminPassword)
-            .WithQueryTimeout(30000)
-            .Build();
-        return await cluster.ConnectAsync();
+        var sts = await ScyllaTestSession.OpenAsAdminAsync("127.0.0.1", SharedDb.ScyllaPort!.Value);
+        return sts.Session;
     }
 
     private async Task<Dictionary<string, DateTime>> SnapshotPostgresLedgerAsync()

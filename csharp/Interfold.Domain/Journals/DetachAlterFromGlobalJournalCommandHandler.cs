@@ -9,11 +9,10 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Journals;
 
-public sealed class DetachAlterFromGlobalJournalCommandHandler : ICommandHandler<DetachAlterFromGlobalJournalCommand, GlobalJournalCommandResult>
+public sealed class DetachAlterFromGlobalJournalCommandHandler : IdempotentCommandHandler<DetachAlterFromGlobalJournalCommand, GlobalJournalCommandResult>
 {
     private readonly IJournalRepository _journalRepository;
     private readonly IAlterRepository _alterRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public DetachAlterFromGlobalJournalCommandHandler(
@@ -21,73 +20,36 @@ public sealed class DetachAlterFromGlobalJournalCommandHandler : ICommandHandler
         IAlterRepository alterRepository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _journalRepository = journalRepository;
         _alterRepository = alterRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<GlobalJournalCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.JournalGlobalDetachAlter;
+
+protected override async Task<CommandExecutionResult<GlobalJournalCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<DetachAlterFromGlobalJournalCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-            return RejectInvariant(command, EntityRefs.AlterId);
+        if (await AlterJournalCommandFlow.RejectIfInvalidOrMissingAlterAsync<DetachAlterFromGlobalJournalCommand, GlobalJournalCommandResult>(
+                command,
+                command.Payload.AlterId,
+                _alterRepository,
+                EntityRefs.AlterId,
+                EntityRefs.JournalAlterNotFound,
+                cancellationToken) is { } alterReject)
+            return alterReject;
 
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-                return RejectDuplicate(command, EntityRefs.JournalGlobalDetachAlter);
-
-            var replay = CommandSerialization.Deserialize<GlobalJournalCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-                return CommandExecutionResult<GlobalJournalCommandResult>.Success(replay with { Replay = true });
-        }
-
-        var alterExists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!alterExists)
-            return RejectInvariant(command, EntityRefs.JournalAlterNotFound);
-
-        var exists = await _journalRepository.ExistsGlobalAsync(command.PrincipalId, command.Payload.EntryId, cancellationToken);
-        if (!exists)
-            return RejectInvariant(command, EntityRefs.JournalNotFound);
-
-        var detached = await _journalRepository.DetachGlobalAlterAsync(
-            command.PrincipalId, command.Payload.EntryId, command.Payload.AlterId, cancellationToken);
-        if (!detached)
-            return RejectInvariant(command, EntityRefs.JournalDetachFailed);
-
-        var result = new GlobalJournalCommandResult(command.PrincipalId, command.Payload.EntryId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken
-        );
-
-        await _eventBus.PublishAsync(new GlobalJournalEntryUpdatedEvent(command.PrincipalId, command.Payload.EntryId), cancellationToken);
-        return CommandExecutionResult<GlobalJournalCommandResult>.Success(result);
+        return await GlobalJournalCommandFlow.ExecuteUpdateAsync(
+            command,
+            command.Payload.EntryId,
+            _journalRepository,
+            _eventBus,
+            ct => _journalRepository.DetachGlobalAlterAsync(command.PrincipalId, command.Payload.EntryId, command.Payload.AlterId, ct),
+            EntityRefs.JournalDetachFailed,
+            cancellationToken);
     }
 
-    private static CommandExecutionResult<GlobalJournalCommandResult> RejectDuplicate(
-        CommandEnvelope<DetachAlterFromGlobalJournalCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<GlobalJournalCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
-
-    private static CommandExecutionResult<GlobalJournalCommandResult> RejectInvariant(
-        CommandEnvelope<DetachAlterFromGlobalJournalCommand> command, EntityRef entityRef) =>
-        CommandExecutionResult<GlobalJournalCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

@@ -334,8 +334,5 @@ public sealed class FirebasePhaseTests
         finally { TryDelete(dir); }
     }
 
-    private static void TryDelete(string dir)
-    {
-        try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
-    }
+    private static void TryDelete(string dir) => TestSupport.TryDeleteDir(dir);
 }

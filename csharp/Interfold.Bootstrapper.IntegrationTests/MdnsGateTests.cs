@@ -30,18 +30,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class MdnsGateTests(UbuntuDinDFixture dinD)
 {
-    private static string MdnsGateConfigPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.mdns-gate.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues()
@@ -56,12 +47,12 @@ public class MdnsGateTests(UbuntuDinDFixture dinD)
         // db-init / launch / compose-up never run).
         var scratch = await dinD.CreateScratchAsync(
             nameof(NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues),
-            MdnsGateConfigPath);
+            TestConfigPaths.MdnsGateConfig);
 
-        var result = await dinD.RunBootstrapperAsync(
+        var result = await dinD.RunOnScratchAsync(scratch,
             nameof(NonInteractiveBootstrapStripsUnresolvableLocalHostsAndContinues),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs", "--fault-inject=after-publish"]);
+            "bootstrap",
+            "--skip-prereqs", "--fault-inject=after-publish");
 
         // Exit 0 pins the "bootstrap always continues" contract. A regression that (say) started
         // treating the strip as a fatal error would flip this to non-zero and fail loudly.
@@ -118,3 +109,6 @@ public class MdnsGateTests(UbuntuDinDFixture dinD)
             .Because("stripped .local entries must not leak into the leaf cert's SAN list");
     }
 }
+
+
+

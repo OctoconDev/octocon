@@ -9,6 +9,7 @@ using Interfold.Contracts.Models;
 using Interfold.Contracts.Models.Commands;
 using Interfold.Domain;
 using Interfold.Domain.Abstractions;
+using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 using Interfold.Contracts;
@@ -46,6 +47,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     private readonly IAvatarStorage _avatarStorage;
     private readonly IEncryptionStateRepository _encryptionStateRepository;
     private readonly IOptionsMonitor<AuthenticationConfiguration> _authOptions;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<SimplyPluralImportService> _logger;
 
     public SimplyPluralImportService(
@@ -58,7 +60,10 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         IPollRepository pollRepository,
         IJournalRepository journalRepository,
         IAvatarStorage avatarStorage,
-        ILogger<SimplyPluralImportService> logger, IEncryptionStateRepository encryptionStateRepository, IOptionsMonitor<AuthenticationConfiguration> authConfig)
+        ILogger<SimplyPluralImportService> logger,
+        IEncryptionStateRepository encryptionStateRepository,
+        IOptionsMonitor<AuthenticationConfiguration> authConfig,
+        TimeProvider timeProvider)
     {
         _httpClientFactory = httpClientFactory;
         _alterRepository = alterRepository;
@@ -72,11 +77,12 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         _logger = logger;
         _encryptionStateRepository = encryptionStateRepository;
         _authOptions = authConfig;
+        _timeProvider = timeProvider;
     }
 
     public bool? WaitForAvatars { get; set; }
     
-    public async Task<SpImportResult> ImportAsync(
+    public async Task<ImportJobOutcome> ImportAsync(
         SystemId systemId,
         ImportToken spToken,
         RecoveryCode? recoveryKey,
@@ -104,7 +110,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         // 1. Fetch system data
         var systemData = await FetchAsync<SpEntity<SpSystemContent>>(httpClient, SpApiPaths.Me(), cancellationToken);
         if (systemData is null)
-            return new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Failed to fetch system data from Simply Plural.");
+            return new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "Failed to fetch system data from Simply Plural.");
 
         var spSystemId = systemData.Id;
         var description = systemData.Content.Desc;
@@ -159,7 +165,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
 
         _logger.LogInformation("Simply Plural import complete for system {SystemId}: {AlterCount} alters imported", systemId, alterCount);
-        return new SpImportResult(true, alterCount);
+        return new ImportJobOutcome(true, alterCount);
     }
 
     private async Task<(Dictionary<string, FieldId> FieldMapping, List<FieldId> CreatedFieldIds)> ImportCustomFieldsAsync(
@@ -256,7 +262,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             }
             else
             {
-                createdAt = DateTimeOffset.UtcNow;
+                createdAt = _timeProvider.GetUtcNow();
                 _logger.LogWarning(
                     "SP alter {SpMemberId} for system {SystemId} has no date and non-decodable id; using import time as created date.",
                     uuid, systemId);
@@ -326,23 +332,21 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 }
             }
 
-            var updateCommand = new UpdateAlterCommand(
-                AlterId: alterId.Value,
-                Name: null, // already set via CreateAsync
-                Description: desc,
-                AvatarUrl: AvatarUrl.FromNullable(passthroughUrl),
-                AvatarSource: passthroughUrl is null ? null : AvatarSource.External,
-                Color: HexColor.FromNullable(color),
-                Pronouns: pronouns,
-                SecurityLevel: securityLevel,
-                Fields: fields,
-                ProxyName: null,
-                Alias: null,
-                Untracked: isCustomFront,
-                Archived: content.Archived,
-                Pinned: false,
-                UpdatedAt: updatedAt
-            );
+            var updateCommand = new UpdateAlterCommand
+            {
+                AlterId = alterId.Value,
+                Description = desc,
+                AvatarUrl = AvatarUrl.FromNullable(passthroughUrl),
+                AvatarSource = passthroughUrl is null ? null : AvatarSource.External,
+                Color = HexColor.FromNullable(color),
+                Pronouns = pronouns,
+                SecurityLevel = securityLevel,
+                Fields = fields,
+                Untracked = isCustomFront,
+                Archived = content.Archived,
+                Pinned = false,
+                UpdatedAt = updatedAt,
+            };
 
             await _alterRepository.UpdateAsync(systemId, updateCommand, ct);
 
@@ -457,7 +461,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         const long startEpoch = 1_420_070_400_000;
         const int monthInterval = 6;
         var chunkSizeMs = (long)monthInterval * 30 * 24 * 60 * 60 * 1000;
-        var endTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var endTimeMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
         var numberOfChunks = (int)Math.Ceiling((double)(endTimeMs - startEpoch) / chunkSizeMs);
 
         var seenFrontIds = new HashSet<string>();
@@ -597,7 +601,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             }
             else
             {
-                insertedAt = DateTime.UtcNow;
+                insertedAt = _timeProvider.GetUtcNow().UtcDateTime;
                 _logger.LogWarning(
                     "SP poll {PollId} for system {SystemId} has non-decodable id and no lastOperationTime; using import time as inserted_at.",
                     poll.Id, systemId);
@@ -662,7 +666,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 }
                 else
                 {
-                    createdAt = DateTimeOffset.UtcNow;
+                    createdAt = _timeProvider.GetUtcNow();
                     _logger.LogWarning(
                         "SP note {SpNoteId} for system {SystemId} alter {AlterId} has no date and non-decodable id; using import time as created date.",
                         note.Id, systemId, alterId);
@@ -754,20 +758,20 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     // at the outer guard, and the tuple's second slot is EncryptionKeyMaterial? so the
     // caller assigns straight into a typed nullable local rather than encoding "no derived
     // key" through an empty-string sentinel + IsNullOrWhiteSpace gate.
-    private async Task<(SpImportResult Result, EncryptionKeyMaterial? DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, RecoveryCode recoveryCode, CancellationToken ct)
+    private async Task<(ImportJobOutcome Result, EncryptionKeyMaterial? DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, RecoveryCode recoveryCode, CancellationToken ct)
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);
         if (state is not { Initialized: true, KeyChecksum: { } keyChecksum, Salt: { } salt }
             || string.IsNullOrWhiteSpace(keyChecksum.Value))
-            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), null);
+            return (new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "Encryption is not initialized for this system."), null);
 
         var pepper = _authOptions.CurrentValue.EncryptionPepper;
         var key = EncryptionKey.DeriveKey(pepper, systemId, recoveryCode, salt);
         var checksum = EncryptionKey.DeriveChecksum(key);
         if (checksum != keyChecksum)
-            return (new SpImportResult(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), null);
+            return (new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "The provided encryption key is invalid."), null);
 
-        return (new SpImportResult(true, 0), key);
+        return (new ImportJobOutcome(true, 0), key);
     }
 
     /// <summary>
@@ -863,23 +867,13 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                     // command payload boundary preserves the "avatar was captured locally" signal.
                     var localUrl = await _avatarStorage.SaveAlterAvatarAsync(download.SystemId, download.AlterId!.Value, stream, cancellationToken);
 
-                    await _alterRepository.UpdateAsync(systemId, new UpdateAlterCommand(
-                        AlterId: download.AlterId!.Value,
-                        Name: null,
-                        Description: null,
-                        AvatarUrl: localUrl,
-                        AvatarSource: AvatarSource.Local,
-                        Color: null,
-                        Pronouns: null,
-                        SecurityLevel: null,
-                        Fields: null,
-                        ProxyName: null,
-                        Alias: null,
-                        Untracked: null,
-                        Archived: null,
-                        Pinned: null,
-                        UpdatedAt: DateTimeOffset.UtcNow
-                    ), cancellationToken);
+                    await _alterRepository.UpdateAsync(systemId, new UpdateAlterCommand
+                    {
+                        AlterId = download.AlterId!.Value,
+                        AvatarUrl = localUrl,
+                        AvatarSource = AvatarSource.Local,
+                        UpdatedAt = _timeProvider.GetUtcNow(),
+                    }, cancellationToken);
                 }
             }
             catch (Exception ex)

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "description": "Fronting delete-parity: deleting a historical front must not wipe a subsequently-started active front on the same alter.",
+  "steps": [
+    {
+      "name": "create alter",
+      "method": "POST",
+      "path": "/api/systems/me/alters",
+      "principalId": "replay-sys-front-parity",
+      "idempotencyKey": "replay-front-parity-alter-001",
+      "body": { "name": "ParityAlter" },
+      "expectedStatus": 201,
+      "captureAs": { "alterId": "id" }
+    },
+    {
+      "name": "start F1",
+      "method": "POST",
+      "path": "/api/systems/me/front/start",
+      "principalId": "replay-sys-front-parity",
+      "idempotencyKey": "replay-front-parity-start-f1",
+      "body": { "id": "{alterId}" },
+      "expectedStatus": 201,
+      "expectedReplay": false,
+      "captureAs": { "frontId1": "frontId" }
+    },
+    {
+      "name": "end F1 (moves F1 to history)",
+      "method": "POST",
+      "path": "/api/systems/me/front/end",
+      "principalId": "replay-sys-front-parity",
+      "idempotencyKey": "replay-front-parity-end-f1",
+      "body": { "id": "{alterId}" },
+      "expectedStatus": 204
+    },
+    {
+      "name": "start F2 (same alter, new active front)",
+      "method": "POST",
+      "path": "/api/systems/me/front/start",
+      "principalId": "replay-sys-front-parity",
+      "idempotencyKey": "replay-front-parity-start-f2",
+      "body": { "id": "{alterId}" },
+      "expectedStatus": 201,
+      "expectedReplay": false,
+      "captureAs": { "frontId2": "frontId" }
+    },
+    {
+      "name": "delete F1 from history - must not clear F2",
+      "method": "DELETE",
+      "path": "/api/systems/me/front/{frontId1}",
+      "principalId": "replay-sys-front-parity",
+      "idempotencyKey": "replay-front-parity-delete-f1",
+      "expectedStatus": 204
+    },
+    {
+      "name": "F2 must still be active after deleting F1",
+      "method": "GET",
+      "path": "/api/systems/me/front/{frontId2}",
+      "principalId": "replay-sys-front-parity",
+      "expectedStatus": 200
+    }
+  ]
+}

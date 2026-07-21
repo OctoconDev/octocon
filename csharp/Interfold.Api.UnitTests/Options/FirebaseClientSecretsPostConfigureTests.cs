@@ -60,14 +60,11 @@ public sealed class FirebaseClientSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_ThreeValidPlatformJsonRows_PopulatesAll()
     {
-        var snapshot = SecretsSnapshotMock.Empty()
+        var options = SecretsSnapshotMock.Empty()
             .With(SecretsStoreKeys.FirebaseClientAndroid, AndroidJson)
             .With(SecretsStoreKeys.FirebaseClientIos,     IosJson)
-            .With(SecretsStoreKeys.FirebaseClientWeb,     WebJson);
-        var patcher = new FirebaseClientSecretsPostConfigure(snapshot.Object);
-        var options = new FirebaseClientConfiguration();
-
-        patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
+            .With(SecretsStoreKeys.FirebaseClientWeb,     WebJson)
+            .ApplyPostConfigure<FirebaseClientSecretsPostConfigure, FirebaseClientConfiguration>();
 
         using (Assert.Multiple())
         {
@@ -95,11 +92,8 @@ public sealed class FirebaseClientSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_MissingRows_LeavesAllNull()
     {
-        var snapshot = SecretsSnapshotMock.Empty();
-        var patcher = new FirebaseClientSecretsPostConfigure(snapshot.Object);
-        var options = new FirebaseClientConfiguration();
-
-        patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
+        var options = SecretsSnapshotMock.Empty()
+            .ApplyPostConfigure<FirebaseClientSecretsPostConfigure, FirebaseClientConfiguration>();
 
         using (Assert.Multiple())
         {
@@ -144,12 +138,9 @@ public sealed class FirebaseClientSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_NamedInstance_LeavesUntouched()
     {
-        var snapshot = SecretsSnapshotMock.Empty()
-            .With(SecretsStoreKeys.FirebaseClientAndroid, AndroidJson);
-        var patcher = new FirebaseClientSecretsPostConfigure(snapshot.Object);
-        var options = new FirebaseClientConfiguration();
-
-        patcher.PostConfigure("other-name", options);
+        var options = SecretsSnapshotMock.Empty()
+            .With(SecretsStoreKeys.FirebaseClientAndroid, AndroidJson)
+            .ApplyPostConfigure<FirebaseClientSecretsPostConfigure, FirebaseClientConfiguration>(name: "other-name");
 
         await Assert.That(options.Android).IsNull()
             .Because("PostConfigure guards on Options.DefaultName so a named bucket never receives the default's Firebase payload.");

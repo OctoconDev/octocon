@@ -41,17 +41,20 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly ILogger<ScyllaImportOperationRepository> _logger;
 
     public ScyllaImportOperationRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options,
+        IScyllaScopeResolver scopeResolver,
         ILogger<ScyllaImportOperationRepository> logger)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
+        _scopeResolver = scopeResolver;
         _logger = logger;
     }
 
@@ -61,11 +64,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync<ImportOperationClaim>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var session = scope.Session;
+            var keyspace = scope.Keyspace;
+            var normalizedSystemId = scope.NormalizedSystemId;
             var now = DateTimeOffset.UtcNow;
             var newOperationId = TimeUuid.NewId();
             var kindWire = kind.ToWire();
@@ -108,7 +111,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             await session.ExecuteAsync(historyInsert);
 
             return new ImportOperationClaim(new(newOperationId.ToGuid()), IsNew: true);
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task MarkRunningAsync(
@@ -116,11 +119,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         ImportOperationId operationId,
         CancellationToken cancellationToken = default)
     {
-        await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var session = scope.Session;
+            var keyspace = scope.Keyspace;
+            var normalizedSystemId = scope.NormalizedSystemId;
 
             // Conditional update keeps the transition idempotent: a re-pickup of an
             // already-Running row leaves it untouched and the LWT returns [applied]=false,
@@ -133,7 +136,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 ImportOperationStatus.Queued.ToWire());
             await session.ExecuteAsync(update);
             return true;
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task MarkSucceededAsync(
@@ -143,11 +146,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         int alterCount,
         CancellationToken cancellationToken = default)
     {
-        await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var session = scope.Session;
+            var keyspace = scope.Keyspace;
+            var normalizedSystemId = scope.NormalizedSystemId;
             var now = DateTimeOffset.UtcNow;
 
             var batch = new BatchStatement();
@@ -160,7 +163,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 
             await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWire(), (TimeUuid)operationId.Value);
             return true;
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task MarkFailedAsync(
@@ -171,11 +174,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         string? errorMessage,
         CancellationToken cancellationToken = default)
     {
-        await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var session = scope.Session;
+            var keyspace = scope.Keyspace;
+            var normalizedSystemId = scope.NormalizedSystemId;
             var now = DateTimeOffset.UtcNow;
 
             var update = new SimpleStatement(
@@ -187,7 +190,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 
             await ReleaseSlot(session, keyspace, normalizedSystemId, kind.ToWire(), (TimeUuid)operationId.Value);
             return true;
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<ImportOperationSnapshot?> GetByIdAsync(
@@ -195,11 +198,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         ImportOperationId operationId,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync<ImportOperationSnapshot?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var session = scope.Session;
+            var keyspace = scope.Keyspace;
+            var normalizedSystemId = scope.NormalizedSystemId;
 
             var query = new SimpleStatement(
                 $"SELECT system_id, operation_id, kind, status, started_at, finished_at, " +
@@ -210,7 +213,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var rows = await session.ExecuteAsync(query);
             var row = rows.FirstOrDefault();
             return row is null ? null : MapRow(row);
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<ImportOperationId?> GetActiveOperationIdAsync(
@@ -218,11 +221,11 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         ImportOperationKind kind,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync<ImportOperationId?>(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
+            var session = scope.Session;
+            var keyspace = scope.Keyspace;
+            var normalizedSystemId = scope.NormalizedSystemId;
 
             var query = new SimpleStatement(
                 $"SELECT operation_id FROM {keyspace}.active_import_by_system WHERE system_id = ? AND kind = ?",
@@ -231,16 +234,16 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var rows = await session.ExecuteAsync(query);
             var row = rows.FirstOrDefault();
             return row is null ? (ImportOperationId?)null : new ImportOperationId(row.GetValue<TimeUuid>("operation_id").ToGuid());
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ImportOperationSnapshot>> GetStaleRunningAsync(
         TimeSpan olderThan,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteGlobalAsync<IReadOnlyList<ImportOperationSnapshot>>(async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var session = scope.Session;
             var keyspace = _keyspaceResolver.DefaultKeyspace;
             var cutoff = DateTimeOffset.UtcNow - olderThan;
 
@@ -262,7 +265,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 list.Add(MapRow(row));
             }
             return (IReadOnlyList<ImportOperationSnapshot>)list;
-        }, _options, cancellationToken, _logger);
+        }, cancellationToken);
     }
 
     private static async Task ReleaseSlot(

@@ -51,4 +51,18 @@ internal static class BackupStoragePaths
     public const string ScyllaDir = "scylla";
     public const string PostgresArchivePattern = "*.dump";
     public const string ScyllaArchivePattern = "*.tar.gz";
+
+    /// <summary>
+    /// Returns the newest file matching <paramref name="pattern"/> under
+    /// <paramref name="dir"/> by last-write time, or <c>null</c> if the directory
+    /// doesn't exist or contains no matching files.
+    /// </summary>
+    public static FileInfo? LatestFile(string dir, string pattern)
+    {
+        if (!Directory.Exists(dir)) return null;
+        return new DirectoryInfo(dir)
+            .EnumerateFiles(pattern, SearchOption.TopDirectoryOnly)
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .FirstOrDefault();
+    }
 }

@@ -41,7 +41,7 @@ internal static class ScyllaSharedQueries
             normalizedViewerSystemId);
 
         var row = (await session.ExecuteAsync(query)).FirstOrDefault();
-        return row is null ? null : row.GetValue<short>("level").FromCode(FriendshipLevel.Friend);
+        return row is null ? null : row.GetValue<short>("level").FromCode<FriendshipLevel>();
     }
 
     /// <summary>
@@ -49,7 +49,7 @@ internal static class ScyllaSharedQueries
     /// emitting one entry per definition (null value when the alter hasn't filled it in).
     /// </summary>
     public static IReadOnlyList<AlterPublicFieldReadModel> ResolveAlterFields(
-        IEnumerable<ScyllaAlterRepository.AlterFieldUdt>? alterFields,
+        IEnumerable<AlterFieldUdt>? alterFields,
         IReadOnlyList<SettingsFieldReadModel> definitions)
     {
         if (definitions.Count == 0)
@@ -57,8 +57,28 @@ internal static class ScyllaSharedQueries
             return [];
         }
 
+        // Materialise the stored UDTs into a dict keyed by field id so the per-definition
+        // projection is O(N + M) rather than O(N * M) — matters once a system has more
+        // than a handful of fields since the LINQ FirstOrDefault we used to run allocated
+        // and scanned the sequence for every definition.
+        var byFieldId = alterFields?.ToDictionary(x => x.Id, x => x.Value);
         return definitions
-            .Select(def => new AlterPublicFieldReadModel(def.Id, def.Name, def.Type, alterFields?.FirstOrDefault(x => x.Id == def.Id)?.Value))
+            .Select(def => new AlterPublicFieldReadModel(
+                def.Id,
+                def.Name,
+                def.Type,
+                byFieldId is not null && byFieldId.TryGetValue(def.Id, out var value) ? value : null))
             .ToArray();
+    }
+
+    public static async Task<AlterId?> LoadPrimaryFrontAlterAsync(ISession session, string keyspace, string normalizedSystemId)
+    {
+        var primaryRow = (await session.ExecuteAsync(new SimpleStatement(
+            $"SELECT primary_front_alter FROM {keyspace}.users WHERE id = ? LIMIT 1",
+            normalizedSystemId))).FirstOrDefault();
+
+        return primaryRow?.GetValue<short?>("primary_front_alter") is { } primaryShort
+            ? new AlterId(primaryShort)
+            : null;
     }
 }

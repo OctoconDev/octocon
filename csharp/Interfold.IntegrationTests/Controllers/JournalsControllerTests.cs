@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Controllers;
@@ -13,12 +13,11 @@ public class JournalsControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     {
         await RunSoakAsync(fixture.Factory, async (client, key) =>
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/journals")
-            {
-                Content = JsonContent.Create(new { title = "SoakJournal", body = "entry body" })
-            };
-            req.Headers.Add("X-Interfold-Idempotency-Key", key);
-            return await client.SendAsync(req);
+            return await client.SendAsJsonAsync(
+                HttpMethod.Post, "/api/journals",
+                new CreateGlobalJournalRequest("SoakJournal"),
+                "soak-default-principal",
+                idempotencyKey: key);
         });
     }
 }

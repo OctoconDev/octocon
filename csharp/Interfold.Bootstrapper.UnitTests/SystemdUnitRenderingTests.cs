@@ -158,32 +158,23 @@ public sealed class SystemdUnitRenderingTests
         // The drop-in template is copied verbatim (no token substitution), so this test
         // exercises the write path directly against a temp unit dir. Confirms the file
         // lands at the systemd-conventional path and contains the OnSuccess= directive.
-        var tmp = Path.Combine(Path.GetTempPath(), "interfold-dropin-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmp);
-        try
-        {
-            var logger = new PhaseLogger(
-                new BootstrapOptions(
-                    Command: BootstrapCommand.InstallService,
-                    ConfigPath: null, OutputDir: tmp,
-                    SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
-                    NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
+        using var scratch = TestSupport.NewScratchDir("interfold-dropin");
+        var tmp = scratch.Path;
+        var logger = new PhaseLogger(TestSupport.MakeOptions(
+            command: BootstrapCommand.InstallService,
+            outputDir: tmp,
+            nonInteractive: true));
 
-            await SystemdInstallPhase.WriteBackupOnSuccessDropInAsync(tmp, logger, CancellationToken.None);
+        await SystemdInstallPhase.WriteBackupOnSuccessDropInAsync(tmp, logger, CancellationToken.None);
 
-            var dropInPath = Path.Combine(tmp,
-                SystemdInstallPhase.BackupOnSuccessDropInDir,
-                SystemdInstallPhase.BackupOnSuccessDropInFile);
-            await Assert.That(File.Exists(dropInPath)).IsTrue()
-                .Because($"drop-in must be written to {dropInPath}");
-            var content = await File.ReadAllTextAsync(dropInPath);
-            await Assert.That(content).Contains("[Unit]");
-            await Assert.That(content).Contains("OnSuccess=interfold-update.service");
-        }
-        finally
-        {
-            try { Directory.Delete(tmp, recursive: true); } catch { /* best effort */ }
-        }
+        var dropInPath = Path.Combine(tmp,
+            SystemdInstallPhase.BackupOnSuccessDropInDir,
+            SystemdInstallPhase.BackupOnSuccessDropInFile);
+        await Assert.That(File.Exists(dropInPath)).IsTrue()
+            .Because($"drop-in must be written to {dropInPath}");
+        var content = await File.ReadAllTextAsync(dropInPath);
+        await Assert.That(content).Contains("[Unit]");
+        await Assert.That(content).Contains("OnSuccess=interfold-update.service");
     }
 
     [Test]
@@ -192,28 +183,19 @@ public sealed class SystemdUnitRenderingTests
         // Idempotency: an install-service with update.enabled=false against a host that
         // never had the drop-in must not throw. RemoveIfPresent silently no-ops when
         // the file (or the directory) is missing.
-        var tmp = Path.Combine(Path.GetTempPath(), "interfold-dropin-abs-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmp);
-        try
-        {
-            var logger = new PhaseLogger(
-                new BootstrapOptions(
-                    Command: BootstrapCommand.InstallService,
-                    ConfigPath: null, OutputDir: tmp,
-                    SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
-                    NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
+        using var scratch = TestSupport.NewScratchDir("interfold-dropin-abs");
+        var tmp = scratch.Path;
+        var logger = new PhaseLogger(TestSupport.MakeOptions(
+            command: BootstrapCommand.InstallService,
+            outputDir: tmp,
+            nonInteractive: true));
 
-            SystemdInstallPhase.RemoveBackupOnSuccessDropInIfPresent(tmp, logger);
+        SystemdInstallPhase.RemoveBackupOnSuccessDropInIfPresent(tmp, logger);
 
-            var dropInPath = Path.Combine(tmp,
-                SystemdInstallPhase.BackupOnSuccessDropInDir,
-                SystemdInstallPhase.BackupOnSuccessDropInFile);
-            await Assert.That(File.Exists(dropInPath)).IsFalse();
-        }
-        finally
-        {
-            try { Directory.Delete(tmp, recursive: true); } catch { /* best effort */ }
-        }
+        var dropInPath = Path.Combine(tmp,
+            SystemdInstallPhase.BackupOnSuccessDropInDir,
+            SystemdInstallPhase.BackupOnSuccessDropInFile);
+        await Assert.That(File.Exists(dropInPath)).IsFalse();
     }
 
     [Test]
@@ -223,30 +205,21 @@ public sealed class SystemdUnitRenderingTests
         // drop-in and the operator has since flipped update.enabled=false. On the
         // next install-service run we must delete the stale file so a scheduled
         // backup no longer fires the update chain.
-        var tmp = Path.Combine(Path.GetTempPath(), "interfold-dropin-del-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tmp);
-        try
-        {
-            var dropInDir = Path.Combine(tmp, SystemdInstallPhase.BackupOnSuccessDropInDir);
-            Directory.CreateDirectory(dropInDir);
-            var dropInPath = Path.Combine(dropInDir, SystemdInstallPhase.BackupOnSuccessDropInFile);
-            await File.WriteAllTextAsync(dropInPath, "[Unit]\nOnSuccess=interfold-update.service\n");
+        using var scratch = TestSupport.NewScratchDir("interfold-dropin-del");
+        var tmp = scratch.Path;
+        var dropInDir = Path.Combine(tmp, SystemdInstallPhase.BackupOnSuccessDropInDir);
+        Directory.CreateDirectory(dropInDir);
+        var dropInPath = Path.Combine(dropInDir, SystemdInstallPhase.BackupOnSuccessDropInFile);
+        await File.WriteAllTextAsync(dropInPath, "[Unit]\nOnSuccess=interfold-update.service\n");
 
-            var logger = new PhaseLogger(
-                new BootstrapOptions(
-                    Command: BootstrapCommand.InstallService,
-                    ConfigPath: null, OutputDir: tmp,
-                    SkipPrereqs: false, RotateSecrets: false, RotateCerts: false,
-                    NonInteractive: true, FaultInject: null, PrintPhaseStatus: false));
+        var logger = new PhaseLogger(TestSupport.MakeOptions(
+            command: BootstrapCommand.InstallService,
+            outputDir: tmp,
+            nonInteractive: true));
 
-            SystemdInstallPhase.RemoveBackupOnSuccessDropInIfPresent(tmp, logger);
+        SystemdInstallPhase.RemoveBackupOnSuccessDropInIfPresent(tmp, logger);
 
-            await Assert.That(File.Exists(dropInPath)).IsFalse();
-        }
-        finally
-        {
-            try { Directory.Delete(tmp, recursive: true); } catch { /* best effort */ }
-        }
+        await Assert.That(File.Exists(dropInPath)).IsFalse();
     }
 
     [Test]

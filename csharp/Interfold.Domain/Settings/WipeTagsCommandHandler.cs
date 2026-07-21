@@ -10,9 +10,8 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class WipeTagsCommandHandler : ICommandHandler<WipeTagsCommand, SettingsCommandResult>
+public sealed class WipeTagsCommandHandler : IdempotentCommandHandler<WipeTagsCommand, SettingsCommandResult>
 {
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
     private readonly ITagRepository _tagRepository;
 
@@ -20,34 +19,35 @@ public sealed class WipeTagsCommandHandler : ICommandHandler<WipeTagsCommand, Se
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus,
         ITagRepository tagRepository)
+        : base(idempotencyStore)
     {
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
         _tagRepository = tagRepository;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<WipeTagsCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(command, SettingsAction.TagsWiped, EntityRefs.SettingsTagsWipe, _idempotencyStore, async ct =>
-        {
-            var systemId = command.PrincipalId;
-            var tags = await _tagRepository.ListAsync(systemId, ct);
-            foreach (var tag in tags)
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsTagsWipe;
+
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<WipeTagsCommand> command,
+        CancellationToken cancellationToken)
+        => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
+            command,
+            async ct =>
             {
-                // Repository delete also removes alter_tag join rows in both backends, mirroring
-                // Octocon.Accounts.wipe_tags/1 in the legacy stack which truncated both Tag and
-                // AlterTag tables for the system.
-                await _tagRepository.DeleteAsync(systemId, tag.Id, ct);
-            }
+                var systemId = command.PrincipalId;
+                var tags = await _tagRepository.ListAsync(systemId, ct);
+                foreach (var tag in tags)
+                {
+                    // Repository delete also removes alter_tag join rows in both backends, mirroring
+                    // Octocon.Accounts.wipe_tags/1 in the legacy stack which truncated both Tag and
+                    // AlterTag tables for the system.
+                    await _tagRepository.DeleteAsync(systemId, tag.Id, ct);
+                }
 
-            return true;
-        }, cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsTagsWipedSignalEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
+                return true;
+            },
+            EntityRefs.SettingsActionFailed(SettingsAction.TagsWiped),
+            SettingsAction.TagsWiped,
+            ct => _eventBus.PublishAsync(new SettingsTagsWipedSignalEvent(command.PrincipalId), ct),
+            cancellationToken);
 }

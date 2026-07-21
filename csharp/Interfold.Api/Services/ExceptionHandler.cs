@@ -6,12 +6,12 @@ namespace Interfold.Api.Services;
 
 public class ExceptionHandler : IExceptionHandler
 {
-    public ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
         // Log the exception and return a generic error response.
         httpContext.Response.ContentType = "application/json";
-        httpContext.Response.WriteAsJsonAsync(CreateError(httpContext, exception), cancellationToken);
-        return new ValueTask<bool>(true);
+        await httpContext.Response.WriteAsJsonAsync(CreateError(httpContext, exception), cancellationToken);
+        return true;
     }
 
     private ErrorResponse CreateError(HttpContext httpContext, Exception exception)

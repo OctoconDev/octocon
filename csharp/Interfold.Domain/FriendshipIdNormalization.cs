@@ -15,21 +15,6 @@ namespace Interfold.Domain;
 internal static class FriendshipIdNormalization
 {
     /// <summary>
-    /// Canonicalise <paramref name="candidateSystemId"/> into the region of a scoped
-    /// principal. Since the principal is always scoped, the Compose call is unconditional.
-    /// </summary>
-    public static ScopedSystemId CanonicalizeForPrincipal(ScopedSystemId principal, ScopedSystemId candidateSystemId)
-        => ScopedSystemId.Compose(principal.Region, candidateSystemId);
-
-    /// <summary>
-    /// Overload for the "resolved-but-unscoped candidate" call site (repository lookups
-    /// that hand back a raw <see cref="SystemId"/> before it's been composed).
-    /// </summary>
-    public static ScopedSystemId CanonicalizeForPrincipal(ScopedSystemId principal, SystemId candidateSystemId)
-        => ScopedSystemId.Compose(principal.Region, candidateSystemId);
-
-    /// <summary>
-    /// "Flip" overload used by the symmetric friendship canonicalisation
     /// (<c>CanonicalizeForPrincipal(sourceId, command.PrincipalId)</c>) — the caller
     /// wants the principal id expressed in the source's region. When the source id is
     /// parseable as scoped we compose in its region; otherwise the candidate flows

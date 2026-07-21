@@ -13,6 +13,7 @@ using Interfold.Api.Services.ImportJobs;
 using Interfold.Api.Services.Secrets;
 using Interfold.Api.Socket;
 using Interfold.Api.Swagger;
+using Interfold.Api.SimplyPlural;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Ids;
@@ -134,20 +135,17 @@ builder.Services.AddInterfoldPersistence(persistenceConfig.Mode, persistenceConf
 builder.Services.AddInterfoldDomainHandlers();
 
 // --- Health Checks ---
-// Readiness checks use a short timeout (5s) — fail fast if a dependency drops.
-// Startup checks use a longer timeout (30s) — databases may still be initializing at boot.
+// Readiness checks fail fast (dependency dropped after boot); startup checks allow
+// longer for cold-start migrations. Timeouts and the "-ready"/"-startup" naming
+// convention live in HealthCheckExtensions.AddReadyAndStartup so any tweak stays
+// consistent across the persistence-mode branches.
 var healthChecks = builder.Services.AddHealthChecks();
 
 if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
 {
-    healthChecks.AddCheck<ScyllaHealthChecker>(
-        "scylla-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<ScyllaHealthChecker>(
-        "scylla-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
-    healthChecks.AddCheck<PostgresHealthChecker>(
-        "postgres-ready", tags: [HealthCheckTags.Ready], timeout: TimeSpan.FromSeconds(5));
-    healthChecks.AddCheck<PostgresHealthChecker>(
-        "postgres-startup", tags: [HealthCheckTags.Startup], timeout: TimeSpan.FromSeconds(30));
+    healthChecks
+        .AddReadyAndStartup<ScyllaHealthChecker>("scylla")
+        .AddReadyAndStartup<PostgresHealthChecker>("postgres");
 }
 builder.Services.AddSingleton<IAvatarStorage, LocalAvatarStorage>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -159,8 +157,7 @@ builder.Services.AddTransient<HttpLoggingHandler>();
 builder.Services.AddHttpClient<GoogleOAuthService>();
 builder.Services.AddHttpClient<DiscordOAuthService>();
 builder.Services.AddHttpClient<AppleOAuthService>();
-builder.Services.AddHttpClient(HttpClientNames.SimplyPlural).AddHttpMessageHandler<HttpLoggingHandler>();
-builder.Services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
+builder.Services.AddSimplyPluralImport();
 
 // Async-import worker stack. The queue itself is registered in
 // AddInterfoldCluster (it's a coordination primitive). Runners are per-kind and
@@ -168,7 +165,6 @@ builder.Services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportServ
 // drains the queue, drives operation-row transitions, and publishes the
 // sp_import_complete / pk_import_complete events that the existing socket pump
 // relays to the WebSocket client.
-builder.Services.AddSingleton<IImportJobRunner, SpImportJobRunner>();
 builder.Services.AddSingleton<IImportJobRunner, PkImportJobRunner>();
 builder.Services.AddHostedService<ImportJobBackgroundService>();
 
@@ -581,77 +577,5 @@ static SecurityToken ValidateJwtTokenSignatureForBearer(
     string token,
     AuthenticationConfiguration config)
 {
-    if (string.IsNullOrWhiteSpace(token))
-    {
-        throw new SecurityTokenInvalidSignatureException("Token is empty.");
-    }
-
-    var parts = token.Split('.');
-    if (parts.Length != 3)
-    {
-        throw new SecurityTokenInvalidSignatureException("Token is not a valid JWS compact token.");
-    }
-
-    var headerJson = Encoding.UTF8.GetString(parts[0].Base64UrlDecode());
-    var header = JsonSerializer.Deserialize<JwsHeader>(headerJson);
-    if (header is null || string.IsNullOrWhiteSpace(header.Alg))
-    {
-        throw new SecurityTokenInvalidSignatureException("Missing JWT algorithm.");
-    }
-
-    var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
-    var signatureBytes = parts[2].Base64UrlDecode();
-
-    // ES256 (ECDSA P-256 with SHA-256) validation
-    if (!string.Equals(header.Alg, JwsHeader.Es256, StringComparison.Ordinal))
-    {
-        throw new SecurityTokenInvalidSignatureException("Only ES256 algorithm is supported.");
-    }
-
-    var pems = config.JwtEs256VerificationKeyPems ?? [];
-    if (pems.Length == 0)
-    {
-        throw new SecurityTokenInvalidSignatureException("No ES256 verification keys configured.");
-    }
-
-    foreach (var rawPem in pems)
-    {
-        using var ecdsa = ECDsa.Create();
-        try
-        {
-            ecdsa.ImportFromPem(NormalizePem(rawPem).AsSpan());
-        }
-        catch (CryptographicException)
-        {
-            continue;
-        }
-
-        if (ecdsa.VerifyData(
-            signingInput,
-            signatureBytes,
-            HashAlgorithmName.SHA256,
-            DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
-        {
-            return new JsonWebToken(token);
-        }
-    }
-
-    throw new SecurityTokenInvalidSignatureException("Invalid JWT signature: no verification key matched.");
-}
-
-static string NormalizePem(string pem)
-{
-    if (string.IsNullOrWhiteSpace(pem))
-        return pem;
-
-    // PEMs arrive from env vars / DB with both real and escaped line endings; collapse all
-    // of them to '\n' so ECDsa.ImportFromPem accepts the result.
-    var normalized = pem
-        .Replace(@"\r\n", "\n", StringComparison.Ordinal)
-        .Replace("\\r", "\n", StringComparison.Ordinal)
-        .Replace("\\n", "\n", StringComparison.Ordinal)
-        .Replace("\r\n", "\n", StringComparison.Ordinal)
-        .Replace("\r", "\n", StringComparison.Ordinal);
-
-    return normalized;
+    return Interfold.Api.Auth.JwtEs256Validator.ValidateSignature(token, config.JwtEs256VerificationKeyPems ?? [], useJsonWebToken: true);
 }

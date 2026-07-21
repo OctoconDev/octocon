@@ -15,24 +15,13 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class SecretsBackfillTests
 {
-    private static BootstrapOptions OptionsFor(string outputDir, bool rotateSecrets = false) => new(
-        Command: BootstrapCommand.Bootstrap,
-        ConfigPath: null,
-        OutputDir: outputDir,
-        SkipPrereqs: true,
-        RotateSecrets: rotateSecrets,
-        RotateCerts: false,
-        NonInteractive: true,
-        FaultInject: null,
-        PrintPhaseStatus: false);
-
-    /// <summary>Creates an isolated scratch output directory and returns its path.</summary>
-    private static string MakeScratchDir()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "interfold-secrets-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    private static BootstrapOptions OptionsFor(string outputDir, bool rotateSecrets = false) =>
+        TestSupport.MakeOptions(
+            command: BootstrapCommand.Bootstrap,
+            outputDir: outputDir,
+            skipPrereqs: true,
+            rotateSecrets: rotateSecrets,
+            nonInteractive: true);
 
     /// <summary>Writes <paramref name="secrets"/> as JSON to the canonical location under <paramref name="outputDir"/>.</summary>
     private static async Task StagePriorSecretsAsync(string outputDir, GeneratedSecrets secrets)
@@ -51,238 +40,114 @@ public sealed class SecretsBackfillTests
         return JsonSerializer.Deserialize(json, BootstrapJsonContext.Default.GeneratedSecrets)!;
     }
 
+    private sealed record BackfillSetup(TestSupport.ScratchDir Scratch, GeneratedSecrets Prior, GeneratedSecrets Result) : IDisposable
+    {
+        public void Dispose() => Scratch.Dispose();
+    }
+
+    private static async Task<BackfillSetup> RunBackfillAsync(Action<GeneratedSecrets>? mutate = null, bool rotateSecrets = false)
+    {
+        var scratch = TestSupport.NewScratchDir("interfold-secrets");
+        try
+        {
+            var prior = SecretsPhase.Generate();
+            mutate?.Invoke(prior);
+            await StagePriorSecretsAsync(scratch.Path, prior);
+
+            var options = OptionsFor(scratch.Path, rotateSecrets);
+            var logger = new PhaseLogger(options);
+            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
+            return new BackfillSetup(scratch, prior, result);
+        }
+        catch
+        {
+            scratch.Dispose();
+            throw;
+        }
+    }
+
     [Test]
     public async Task BackfillsMissingPostgresInitPassword()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            // Old-format secrets.json: every other field populated, but PostgresInitPassword absent.
-            var prior = SecretsPhase.Generate();
-            prior.PostgresInitPassword = string.Empty;
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.PostgresInitPassword).IsNotEmpty();
-            // The fixture is persisted back to disk; reload to confirm the mutation survived the round-trip.
-            var reloaded = await LoadPersistedAsync(outputDir);
-            await Assert.That(reloaded.PostgresInitPassword).IsEqualTo(result.PostgresInitPassword);
-            // Other fields must be left alone — the backfill is surgical, not a regeneration.
-            await Assert.That(reloaded.PostgresPassword).IsEqualTo(prior.PostgresPassword);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(p => p.PostgresInitPassword = string.Empty);
+        await Assert.That(setup.Result.PostgresInitPassword).IsNotEmpty();
+        var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
+        await Assert.That(reloaded.PostgresInitPassword).IsEqualTo(setup.Result.PostgresInitPassword);
+        await Assert.That(reloaded.PostgresPassword).IsEqualTo(setup.Prior.PostgresPassword);
     }
 
     [Test]
     public async Task BackfillsMissingPostgresAdminPassword()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            prior.PostgresAdminPassword = string.Empty;
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.PostgresAdminPassword).IsNotEmpty();
-            var reloaded = await LoadPersistedAsync(outputDir);
-            await Assert.That(reloaded.PostgresAdminPassword).IsEqualTo(result.PostgresAdminPassword);
-            await Assert.That(reloaded.PostgresPassword).IsEqualTo(prior.PostgresPassword);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(p => p.PostgresAdminPassword = string.Empty);
+        await Assert.That(setup.Result.PostgresAdminPassword).IsNotEmpty();
+        var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
+        await Assert.That(reloaded.PostgresAdminPassword).IsEqualTo(setup.Result.PostgresAdminPassword);
+        await Assert.That(reloaded.PostgresPassword).IsEqualTo(setup.Prior.PostgresPassword);
     }
 
     [Test]
     public async Task BackfillsMissingScyllaAdminPassword()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            prior.ScyllaAdminPassword = string.Empty;
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.ScyllaAdminPassword).IsNotEmpty();
-            var reloaded = await LoadPersistedAsync(outputDir);
-            await Assert.That(reloaded.ScyllaAdminPassword).IsEqualTo(result.ScyllaAdminPassword);
-            await Assert.That(reloaded.ScyllaPassword).IsEqualTo(prior.ScyllaPassword);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(p => p.ScyllaAdminPassword = string.Empty);
+        await Assert.That(setup.Result.ScyllaAdminPassword).IsNotEmpty();
+        var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
+        await Assert.That(reloaded.ScyllaAdminPassword).IsEqualTo(setup.Result.ScyllaAdminPassword);
+        await Assert.That(reloaded.ScyllaPassword).IsEqualTo(setup.Prior.ScyllaPassword);
     }
 
     [Test]
     public async Task RotateSecretsPreservesLeafPfxPassword()
     {
-        // RotateSecrets regenerates DB / encryption credentials but must keep the leaf PFX
-        // password in lock-step with the on-disk leaf.pfx (which only changes on rotate-certs).
-        // Rotating just the password would invalidate Kestrel's PFX load without delivering any
-        // real security benefit.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            prior.LeafPfxPassword = "well-known-pfx-password-do-not-rotate-on-secrets-rotate";
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir, rotateSecrets: true);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.LeafPfxPassword).IsEqualTo(prior.LeafPfxPassword);
-            // DB credentials, in contrast, MUST have changed - rotate-secrets is the rotate path.
-            await Assert.That(result.PostgresPassword).IsNotEqualTo(prior.PostgresPassword);
-            await Assert.That(result.ScyllaPassword).IsNotEqualTo(prior.ScyllaPassword);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(p => p.LeafPfxPassword = "well-known-pfx-password-do-not-rotate-on-secrets-rotate", rotateSecrets: true);
+        await Assert.That(setup.Result.LeafPfxPassword).IsEqualTo(setup.Prior.LeafPfxPassword);
+        await Assert.That(setup.Result.PostgresPassword).IsNotEqualTo(setup.Prior.PostgresPassword);
+        await Assert.That(setup.Result.ScyllaPassword).IsNotEqualTo(setup.Prior.ScyllaPassword);
     }
 
     [Test]
     public async Task RerunDoesNotEmitKeysDirectory()
     {
-        // Inverse of the legacy invariant: after migrating JWT signing material into
-        // internal.secrets, SecretsPhase must NEVER emit standalone PEM files on disk. If a
-        // future change accidentally reintroduces the keys/ directory, the API container's
-        // bind mount also has to come back — this assertion fails first.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-            await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            var keysDir = Path.Combine(outputDir, "secrets", "keys");
-            await Assert.That(Directory.Exists(keysDir)).IsFalse()
-                .Because("JWT PEMs live in internal.secrets exclusively; no keys/ dir should appear.");
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync();
+        var keysDir = Path.Combine(setup.Scratch.Path, "secrets", "keys");
+        await Assert.That(Directory.Exists(keysDir)).IsFalse()
+            .Because("JWT PEMs live in internal.secrets exclusively; no keys/ dir should appear.");
     }
 
     [Test]
     public async Task BackfillsMissingDeepLinkSecret()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            prior.DeepLinkSecret = string.Empty;
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.DeepLinkSecret).IsNotEmpty();
-            var reloaded = await LoadPersistedAsync(outputDir);
-            await Assert.That(reloaded.DeepLinkSecret).IsEqualTo(result.DeepLinkSecret);
-            await Assert.That(reloaded.PostgresPassword).IsEqualTo(prior.PostgresPassword);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(p => p.DeepLinkSecret = string.Empty);
+        await Assert.That(setup.Result.DeepLinkSecret).IsNotEmpty();
+        var reloaded = await LoadPersistedAsync(setup.Scratch.Path);
+        await Assert.That(reloaded.DeepLinkSecret).IsEqualTo(setup.Result.DeepLinkSecret);
+        await Assert.That(reloaded.PostgresPassword).IsEqualTo(setup.Prior.PostgresPassword);
     }
 
     [Test]
     public async Task BackfillsMissingJwtRsaPrivatePem()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            prior.JwtRsa256PrivateKeyPem = string.Empty;
-            prior.JwtRsa256PublicKeyPem = string.Empty;
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.JwtRsa256PrivateKeyPem).Contains("-----BEGIN");
-            await Assert.That(result.JwtRsa256PublicKeyPem).Contains("-----BEGIN");
-            // ES256 keys were already populated; backfill must not touch them.
-            await Assert.That(result.JwtEs256PrivateKeyPem).IsEqualTo(prior.JwtEs256PrivateKeyPem);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(p => { p.JwtRsa256PrivateKeyPem = string.Empty; p.JwtRsa256PublicKeyPem = string.Empty; });
+        await Assert.That(setup.Result.JwtRsa256PrivateKeyPem).Contains("-----BEGIN");
+        await Assert.That(setup.Result.JwtRsa256PublicKeyPem).Contains("-----BEGIN");
+        await Assert.That(setup.Result.JwtEs256PrivateKeyPem).IsEqualTo(setup.Prior.JwtEs256PrivateKeyPem);
     }
 
     [Test]
     public async Task BackfillsMissingJwtEs256PrivatePem()
     {
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            prior.JwtEs256PrivateKeyPem = string.Empty;
-            prior.JwtEs256PublicKeyPem = string.Empty;
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.JwtEs256PrivateKeyPem).Contains("-----BEGIN");
-            await Assert.That(result.JwtEs256PublicKeyPem).Contains("-----BEGIN");
-            await Assert.That(result.JwtRsa256PrivateKeyPem).IsEqualTo(prior.JwtRsa256PrivateKeyPem);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(p => { p.JwtEs256PrivateKeyPem = string.Empty; p.JwtEs256PublicKeyPem = string.Empty; });
+        await Assert.That(setup.Result.JwtEs256PrivateKeyPem).Contains("-----BEGIN");
+        await Assert.That(setup.Result.JwtEs256PublicKeyPem).Contains("-----BEGIN");
+        await Assert.That(setup.Result.JwtRsa256PrivateKeyPem).IsEqualTo(setup.Prior.JwtRsa256PrivateKeyPem);
     }
 
     [Test]
     public async Task RotateSecretsRegeneratesJwtAndDeepLink()
     {
-        // Rotate-secrets must roll the JWT signing keypair and the deep-link HMAC secret —
-        // they're the highest-value bearer material in the system after the encryption pepper.
-        var outputDir = MakeScratchDir();
-        try
-        {
-            var prior = SecretsPhase.Generate();
-            await StagePriorSecretsAsync(outputDir, prior);
-
-            var options = OptionsFor(outputDir, rotateSecrets: true);
-            var logger = new PhaseLogger(options);
-            var result = await SecretsPhase.RunAsync(options, new BootstrapConfig(), logger, CancellationToken.None);
-
-            await Assert.That(result.JwtRsa256PrivateKeyPem).IsNotEqualTo(prior.JwtRsa256PrivateKeyPem);
-            await Assert.That(result.JwtEs256PrivateKeyPem).IsNotEqualTo(prior.JwtEs256PrivateKeyPem);
-            await Assert.That(result.DeepLinkSecret).IsNotEqualTo(prior.DeepLinkSecret);
-        }
-        finally
-        {
-            try { Directory.Delete(outputDir, recursive: true); } catch { /* best effort */ }
-        }
+        using var setup = await RunBackfillAsync(rotateSecrets: true);
+        await Assert.That(setup.Result.JwtRsa256PrivateKeyPem).IsNotEqualTo(setup.Prior.JwtRsa256PrivateKeyPem);
+        await Assert.That(setup.Result.JwtEs256PrivateKeyPem).IsNotEqualTo(setup.Prior.JwtEs256PrivateKeyPem);
+        await Assert.That(setup.Result.DeepLinkSecret).IsNotEqualTo(setup.Prior.DeepLinkSecret);
     }
 }

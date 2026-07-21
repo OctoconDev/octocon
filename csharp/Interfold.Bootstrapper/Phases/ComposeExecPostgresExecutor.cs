@@ -89,19 +89,19 @@ internal sealed class ComposeExecPostgresExecutor(string composeFile, string pos
         string user, string password, string database, string sql,
         IReadOnlyList<(string Name, string Value)>? vars, CancellationToken ct)
     {
-        // -T disables tty allocation, required for stdin piping. -e PGPASSWORD avoids
-        // putting the password on the visible command line. -v ON_ERROR_STOP=1 turns the
-        // first SQL error into a non-zero exit (otherwise psql silently continues past
+        // -e PGPASSWORD avoids putting the password on the visible command line.
+        // -v ON_ERROR_STOP=1 turns the first SQL error into a non-zero exit (otherwise psql silently continues past
         // errors which would mask half-broken bootstraps). -t -A trim leading whitespace
         // and the column-alignment padding for scalar probes.
+        
+        var env = new Dictionary<string, string> { { DatabaseArchiveStreamer.PgPasswordEnvVar, password } };
+        
         var args = new List<string>
         {
-            "compose", "-f", composeFile,
-            "exec", "-T", "-e", $"PGPASSWORD={password}",
-            postgresService, "psql",
             "-U", user, "-d", database,
             "-v", "ON_ERROR_STOP=1",
         };
+        
         if (vars is not null)
         {
             foreach (var (name, value) in vars)
@@ -113,7 +113,8 @@ internal sealed class ComposeExecPostgresExecutor(string composeFile, string pos
         args.Add("-t");
         args.Add("-A");
 
-        return await ProcessRunner.RunAsync("docker", args, stdin: sql, ct: ct).ConfigureAwait(false);
+        return await Util.DockerComposeExec.RunAsync(
+            composeFile, postgresService, "psql", args, env, stdin: sql, ct: ct).ConfigureAwait(false);
     }
 
     /// <summary>

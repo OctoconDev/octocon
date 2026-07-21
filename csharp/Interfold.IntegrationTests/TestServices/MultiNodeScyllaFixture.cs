@@ -224,60 +224,43 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
 
             try
             {
-                using var cluster = Cluster.Builder()
-                    .AddContactPoint(scEndpoint.Host)
-                    .WithPort(scEndpoint.Port)
-                    .WithLoadBalancingPolicy(new DCAwareRoundRobinPolicy("nam"))
-                    .WithCredentials(TestDbCredentials.ScyllaAppUser, TestDbCredentials.ScyllaAppPassword)
-                    .WithQueryTimeout(15000)
-                    .Build();
+                await using var sts = await ScyllaTestSession.OpenAsAppAsync(
+                    scEndpoint.Host, scEndpoint.Port, queryTimeoutMs: 15000);
+                var session = sts.Session;
 
-                var session = await cluster.ConnectAsync();
-                try
+                var visibleDcs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                var localRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.local"));
+                foreach (var row in localRows)
                 {
-                    var visibleDcs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                    var localRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.local"));
-                    foreach (var row in localRows)
-                    {
-                        var dc = row.GetValue<string>("data_center");
-                        if (!string.IsNullOrWhiteSpace(dc))
-                            visibleDcs.Add(dc.ToLowerInvariant());
-                    }
-
-                    var peerRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.peers"));
-                    foreach (var row in peerRows)
-                    {
-                        var dc = row.GetValue<string>("data_center");
-                        if (!string.IsNullOrWhiteSpace(dc))
-                            visibleDcs.Add(dc.ToLowerInvariant());
-                    }
-
-                    // Console.WriteLine here goes to TUnit's per-test capture, but this code
-                    // runs in the fixture init phase before any test owns the async context, so
-                    // the stdout is dropped. The message is still useful for ad-hoc diagnosis
-                    // when running the tests outside `dotnet test` (e.g. IDE Test Explorer
-                    // streams stdout live), so we keep it as a low-cost progress indicator.
-                    if (!visibleDcs.SetEquals(lastObserved))
-                    {
-                        Console.WriteLine(
-                            $"[multi-node-fixture {DateTime.UtcNow:HH:mm:ss}] gossip view: {string.Join(", ", visibleDcs.OrderBy(x => x))}");
-                        lastObserved = new HashSet<string>(visibleDcs, StringComparer.OrdinalIgnoreCase);
-                    }
-
-                    if (expectedRegions.All(r => visibleDcs.Contains(r)))
-                    {
-                        return;
-                    }
-
-                    lastError = new InvalidOperationException(
-                        $"Gossip not converged yet — saw {string.Join(", ", visibleDcs.OrderBy(x => x))}, " +
-                        $"expected {string.Join(", ", expectedRegions)}.");
+                    var dc = row.GetValue<string>("data_center");
+                    if (!string.IsNullOrWhiteSpace(dc))
+                        visibleDcs.Add(dc.ToLowerInvariant());
                 }
-                finally
+
+                var peerRows = await session.ExecuteAsync(new SimpleStatement("SELECT data_center FROM system.peers"));
+                foreach (var row in peerRows)
                 {
-                    await session.ShutdownAsync();
+                    var dc = row.GetValue<string>("data_center");
+                    if (!string.IsNullOrWhiteSpace(dc))
+                        visibleDcs.Add(dc.ToLowerInvariant());
                 }
+
+                if (!visibleDcs.SetEquals(lastObserved))
+                {
+                    Console.WriteLine(
+                        $"[multi-node-fixture {DateTime.UtcNow:HH:mm:ss}] gossip view: {string.Join(", ", visibleDcs.OrderBy(x => x))}");
+                    lastObserved = new HashSet<string>(visibleDcs, StringComparer.OrdinalIgnoreCase);
+                }
+
+                if (expectedRegions.All(r => visibleDcs.Contains(r)))
+                {
+                    return;
+                }
+
+                lastError = new InvalidOperationException(
+                    $"Gossip not converged yet — saw {string.Join(", ", visibleDcs.OrderBy(x => x))}, " +
+                    $"expected {string.Join(", ", expectedRegions)}.");
             }
             catch (Exception ex)
             {

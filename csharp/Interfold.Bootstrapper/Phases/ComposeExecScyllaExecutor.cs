@@ -38,12 +38,9 @@ internal sealed class ComposeExecScyllaExecutor(string composeFile, string scyll
         // connection attempt. -e takes inline CQL.
         var args = new[]
         {
-            "compose", "-f", composeFile,
-            "exec", "-T",
-            scyllaService, "cqlsh",
             "-u", user, "-p", password,
             "-e", cql,
         };
-        return await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
+        return await Util.DockerComposeExec.RunAsync(composeFile, scyllaService, "cqlsh", args, ct: ct).ConfigureAwait(false);
     }
 }

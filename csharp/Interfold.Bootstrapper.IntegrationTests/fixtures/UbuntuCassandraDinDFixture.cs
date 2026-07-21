@@ -21,3 +21,4 @@ public sealed class UbuntuCassandraDinDFixture : DinDFixtureBase
 
     protected override IReadOnlyList<string> AdditionalPreloadImages => ["cassandra:5"];
 }
+

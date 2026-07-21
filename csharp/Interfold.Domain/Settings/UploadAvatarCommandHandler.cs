@@ -10,47 +10,33 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class UploadAvatarCommandHandler : ICommandHandler<UploadAvatarCommand, SettingsCommandResult>
+public sealed class UploadAvatarCommandHandler : IdempotentCommandHandler<UploadAvatarCommand, SettingsCommandResult>
 {
     private readonly IAccountRepository _accountRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public UploadAvatarCommandHandler(IAccountRepository accountRepository, IIdempotencyStore idempotencyStore, IClusterEventBus eventBus)
+        : base(idempotencyStore)
     {
         _accountRepository = accountRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UploadAvatarCommand> command, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(command.Payload.AvatarUrl))
-        {
-            return Task.FromResult(CommandExecutionResult<SettingsCommandResult>.Rejected(
-                new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, EntityRefs.SettingsAvatarInvalid, ResolutionHint.ManualMergeRequired)));
-        }
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsAvatarUpload;
 
-        return ExecuteAndPublishAsync(command, cancellationToken);
-    }
-
-    private async Task<CommandExecutionResult<SettingsCommandResult>> ExecuteAndPublishAsync(
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
         CommandEnvelope<UploadAvatarCommand> command,
         CancellationToken cancellationToken)
     {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+        if (RejectIfBlank(command, command.Payload.AvatarUrl, EntityRefs.SettingsAvatarInvalid) is { } blankReject)
+            return Task.FromResult(blankReject);
+
+        return SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
-            SettingsAction.AvatarUploaded,
-            EntityRefs.SettingsAvatarUpload,
-            _idempotencyStore,
             ct => _accountRepository.UpdateAvatarAsync(command.PrincipalId, command.Payload.AvatarUrl, command.Payload.Source, ct),
+            EntityRefs.SettingsActionFailed(SettingsAction.AvatarUploaded),
+            SettingsAction.AvatarUploaded,
+            ct => _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, ct),
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, false), cancellationToken);
-        }
-
-        return result;
     }
 }

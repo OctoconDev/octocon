@@ -11,6 +11,20 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class HostParserTests
 {
+    /// <summary>
+    /// Invokes <see cref="HostParser.Parse"/> with the supplied bad input and asserts the resulting
+    /// <see cref="FormatException"/>'s message contains every supplied fragment. Collapses the
+    /// arrange-throws-assert triple every negative test here would otherwise re-write.
+    /// </summary>
+    private static async Task AssertHostParseFailsAsync(string input, params string[] messageFragments)
+    {
+        var ex = Assert.Throws<FormatException>(() => HostParser.Parse(input));
+        foreach (var frag in messageFragments)
+        {
+            await Assert.That(ex.Message).Contains(frag);
+        }
+    }
+
     [Test]
     public async Task DnsNameClassifiesAsDns()
     {
@@ -82,65 +96,39 @@ public sealed class HostParserTests
     }
 
     [Test]
-    public async Task EmptyInputRejected()
-    {
-        var ex = Assert.Throws<FormatException>(() => HostParser.Parse("   "));
-        await Assert.That(ex.Message).Contains("empty");
-    }
+    public Task EmptyInputRejected()
+        => AssertHostParseFailsAsync("   ", "empty");
 
     [Test]
-    public async Task DnsNameWithSpaceRejected()
-    {
+    public Task DnsNameWithSpaceRejected()
         // Mirrors the previous Validate() RFC 1035-lite rule. Whitespace is always a typo, so we
         // reject before the cert phase tries to use it as a dNSName value.
-        var ex = Assert.Throws<FormatException>(() => HostParser.Parse("api example.com"));
-        await Assert.That(ex.Message).Contains("whitespace");
-    }
+        => AssertHostParseFailsAsync("api example.com", "whitespace");
 
     [Test]
-    public async Task DnsNameTooLongRejected()
-    {
+    public Task DnsNameTooLongRejected()
         // 254 chars - one over the RFC 1035 limit. Use a single-label form so we don't trip on
         // any unrelated label-length check.
-        var tooLong = new string('a', 254);
-        var ex = Assert.Throws<FormatException>(() => HostParser.Parse(tooLong));
-        await Assert.That(ex.Message).Contains("253");
-    }
+        => AssertHostParseFailsAsync(new string('a', 254), "253");
 
     [Test]
-    public async Task Ipv4CidrWithHostBitsSetRejectedWithFixIt()
-    {
+    public Task Ipv4CidrWithHostBitsSetRejectedWithFixIt()
         // RFC 5280 §4.2.1.10 requires host bits beyond the mask to be zero. Surface a fix-it that
         // shows both the network-mask interpretation and the single-host interpretation so the
         // operator can pick the one they meant.
-        var ex = Assert.Throws<FormatException>(() => HostParser.Parse("192.168.1.42/24"));
-        await Assert.That(ex.Message).Contains("host bits");
-        await Assert.That(ex.Message).Contains("192.168.1.0/24");
-        await Assert.That(ex.Message).Contains("192.168.1.42/32");
-    }
+        => AssertHostParseFailsAsync("192.168.1.42/24", "host bits", "192.168.1.0/24", "192.168.1.42/32");
 
     [Test]
-    public async Task Ipv4CidrPrefixOutOfRangeRejected()
-    {
-        var ex = Assert.Throws<FormatException>(() => HostParser.Parse("10.0.0.0/33"));
-        await Assert.That(ex.Message).Contains("out of range");
-        await Assert.That(ex.Message).Contains("32");
-    }
+    public Task Ipv4CidrPrefixOutOfRangeRejected()
+        => AssertHostParseFailsAsync("10.0.0.0/33", "out of range", "32");
 
     [Test]
-    public async Task Ipv6CidrPrefixOutOfRangeRejected()
-    {
-        var ex = Assert.Throws<FormatException>(() => HostParser.Parse("fe80::/129"));
-        await Assert.That(ex.Message).Contains("out of range");
-        await Assert.That(ex.Message).Contains("128");
-    }
+    public Task Ipv6CidrPrefixOutOfRangeRejected()
+        => AssertHostParseFailsAsync("fe80::/129", "out of range", "128");
 
     [Test]
-    public async Task CidrWithNonNumericPrefixRejected()
-    {
-        var ex = Assert.Throws<FormatException>(() => HostParser.Parse("10.0.0.0/abc"));
-        await Assert.That(ex.Message).Contains("non-negative integer");
-    }
+    public Task CidrWithNonNumericPrefixRejected()
+        => AssertHostParseFailsAsync("10.0.0.0/abc", "non-negative integer");
 
     [Test]
     public async Task BuildNetmaskIpv4SlashTwentyFour()

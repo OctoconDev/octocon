@@ -54,6 +54,7 @@ public sealed class SettingsController : InterfoldControllerBase
     private readonly UpdateFieldCommandHandler _updateFieldHandler;
     private readonly DeleteFieldCommandHandler _deleteFieldHandler;
     private readonly RelocateFieldCommandHandler _relocateFieldHandler;
+    private readonly CreateLinkTokenCommandHandler _createLinkTokenHandler;
 
     public SettingsController(
         IAccountRepository accountRepository,
@@ -81,7 +82,8 @@ public sealed class SettingsController : InterfoldControllerBase
         DeleteFieldCommandHandler deleteFieldHandler,
         RelocateFieldCommandHandler relocateFieldHandler,
         IOptionsMonitor<AuthenticationConfiguration> authenticationConfiguration,
-        IOptionsMonitor<FirebaseClientConfiguration> firebaseClientConfiguration)
+        IOptionsMonitor<FirebaseClientConfiguration> firebaseClientConfiguration,
+        CreateLinkTokenCommandHandler createLinkTokenHandler)
     {
         _accountRepository = accountRepository;
         _singletonTaskOwner = singletonTaskOwner;
@@ -107,6 +109,7 @@ public sealed class SettingsController : InterfoldControllerBase
         _updateFieldHandler = updateFieldHandler;
         _deleteFieldHandler = deleteFieldHandler;
         _relocateFieldHandler = relocateFieldHandler;
+        _createLinkTokenHandler = createLinkTokenHandler;
         _authenticationConfiguration = authenticationConfiguration;
         _firebaseClientConfiguration = firebaseClientConfiguration;
     }
@@ -122,8 +125,8 @@ public sealed class SettingsController : InterfoldControllerBase
         var principal = PrincipalId;
         if (_singletonTaskOwner.OwnsTask(SingletonTaskNames.LinkTokenRegistry))
         {
-            var token = await _accountRepository.GetOrCreateLinkTokenAsync(principal, ct);
-            return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(token)));
+            var result = await _createLinkTokenHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsLinkToken, new CreateLinkTokenCommand()), ct);
+            return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(result.Result!.Token)));
         }
 
         var existing = await _accountRepository.GetLinkTokenAsync(principal, ct);
@@ -142,30 +145,15 @@ public sealed class SettingsController : InterfoldControllerBase
     public async Task<Response> UpdateUsername([FromBody] SettingsUsernameRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = new CommandEnvelope<UpdateUsernameCommand>(
-            OperationIds.SettingsUsernameUpdate, Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateUsernameCommand(req.Username)
-        );
-
-        return CommandNoContent(await _usernameHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_usernameHandler, OperationIds.SettingsUsernameUpdate, new UpdateUsernameCommand(req.Username)
+        , ct);
     }
 
     [HttpPost("description")]
     public async Task<Response> UpdateDescription([FromBody] SettingsDescriptionRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateDescriptionCommand>(
-            OperationIds.SettingsDescriptionUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateDescriptionCommand(req.Description)
-        );
-
-        return CommandNoContent(await _descriptionHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_descriptionHandler, OperationIds.SettingsDescriptionUpdate, new UpdateDescriptionCommand(req.Description)
+        , ct);
     }
 
     [HttpPost("push-token")]
@@ -174,16 +162,8 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req.Token is not { } pushToken || string.IsNullOrWhiteSpace(pushToken.Value))
             return new ErrorResponse("Invalid push token.", ErrorCodes.InvalidPushToken, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<AddPushTokenCommand>(
-            OperationIds.SettingsPushTokenAdd,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AddPushTokenCommand(pushToken)
-        );
-
-        return CommandNoContent(await _addPushTokenHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_addPushTokenHandler, OperationIds.SettingsPushTokenAdd, new AddPushTokenCommand(pushToken)
+        , ct);
     }
 
     [HttpDelete("push-token")]
@@ -192,16 +172,8 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req.Token is not { } pushToken || string.IsNullOrWhiteSpace(pushToken.Value))
             return new ErrorResponse("Invalid push token.", ErrorCodes.InvalidPushToken, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<RemovePushTokenCommand>(
-            OperationIds.SettingsPushTokenRemove,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RemovePushTokenCommand(pushToken)
-        );
-
-        return CommandNoContent(await _removePushTokenHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_removePushTokenHandler, OperationIds.SettingsPushTokenRemove, new RemovePushTokenCommand(pushToken)
+        , ct);
     }
 
     [HttpPost("setup-encryption")]
@@ -210,20 +182,12 @@ public sealed class SettingsController : InterfoldControllerBase
         if (!TryResolveRecoveryCode(req.RecoveryCode.Value, out var recoveryCode, out var decryptionErrorCode))
             return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<SetupEncryptionCommand>(
+        return await DispatchOkAsync(
+            _setupEncryptionHandler,
             OperationIds.SettingsEncryptionSetup,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetupEncryptionCommand(recoveryCode)
-        );
-
-        var execution = await _setupEncryptionHandler.HandleAsync(envelope, ct);
-        if (execution.Accepted)
-            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key.Value))));
-
-        return ConflictToError(execution.Conflict!);
+            new SetupEncryptionCommand(recoveryCode),
+            ToEncryptionKeyResponse,
+            ct);
     }
 
     [HttpPost("recover-encryption")]
@@ -232,117 +196,34 @@ public sealed class SettingsController : InterfoldControllerBase
         if (!TryResolveRecoveryCode(req.RecoveryCode.Value, out var recoveryCode, out var decryptionErrorCode))
             return new ErrorResponse("Failed to decrypt recovery code.", decryptionErrorCode, System.Net.HttpStatusCode.BadRequest);
 
-        var envelope = new CommandEnvelope<RecoverEncryptionCommand>(
+        return await DispatchOkAsync(
+            _recoverEncryptionHandler,
             OperationIds.SettingsEncryptionRecover,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RecoverEncryptionCommand(recoveryCode)
-        );
-
-        var execution = await _recoverEncryptionHandler.HandleAsync(envelope, ct);
-        if (execution.Accepted)
-            return new SuccessResponse<EncryptionKeyResponse>(new EncryptionKeyResponse(Convert.ToBase64String(Encoding.UTF8.GetBytes(execution.Result!.Key.Value))));
-
-        //TODO: To ensure route works as expected
-        return ConflictToError(execution.Conflict!);
+            new RecoverEncryptionCommand(recoveryCode),
+            ToEncryptionKeyResponse,
+            ct);
     }
 
     //TODO: To ensure route works as expected - does not delete journal entries currently which need adding
     [HttpPost("reset-encryption")]
     public async Task<Response> ResetEncryption(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<ResetEncryptionCommand>(
-            OperationIds.SettingsEncryptionReset,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new ResetEncryptionCommand()
-        );
-
-        return CommandNoContent(await _resetEncryptionHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_resetEncryptionHandler, OperationIds.SettingsEncryptionReset, new ResetEncryptionCommand()
+        , ct);
     }
 
     [HttpPut("avatar")]
     [Consumes("multipart/form-data")]
     public async Task<Response> UploadAvatarMultipart(CancellationToken ct)
     {
-        var principal = PrincipalId;
-        var upload = await ResolveMultipartUploadAsync(ct);
-        var avatarStream = upload.Stream;
-        if (avatarStream is null)
-        {
-            if (upload.EmptyFilePart)
-                return new ErrorResponse("Avatar file is empty.", ErrorCodes.AvatarFileEmpty, System.Net.HttpStatusCode.BadRequest);
-
-            return new ErrorResponse("No avatar file provided.", ErrorCodes.AvatarFileRequired, System.Net.HttpStatusCode.BadRequest);
-        }
-
-        AvatarUrl avatarUrl;
-        try
-        {
-            await using (avatarStream)
-            {
-                avatarUrl = await _avatarStorage.SaveSystemAvatarAsync(principal, avatarStream, ct);
-            }
-        }
-        catch
-        {
-            return new ErrorResponse("An error occurred while uploading the file.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
-        }
-
-        AvatarUrl? currentAvatarUrl = null;
-        AvatarSource? currentAvatarSource = null;
-        try
-        {
-            var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
-            currentAvatarUrl = currentProfile?.AvatarUrl;
-            currentAvatarSource = currentProfile?.AvatarSource;
-        }
-        catch
-        {
-        }
-
-        var envelope = new CommandEnvelope<UploadAvatarCommand>(
-            OperationIds.SettingsAvatarUpload,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(avatarUrl, AvatarSource.Local)
-        );
-
-        var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
-
-        if (!result.IsSuccess)
-        {
-            return result;
-        }
-
-        // Only the local storage owns the previous bytes; an external URL was never ours
-        // to delete and must be passed through untouched.
-        if (currentAvatarSource == AvatarSource.Local)
-        {
-            try
-            {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
-            }
-            catch
-            {
-                // Avatar metadata was updated successfully; tolerate storage cleanup failures.
-            }
-        }
-
-        return result;
+        return await HandleAvatarUploadAsync(
+            async (c) => await _accountRepository.GetPublicProfileAsync(PrincipalId, c),
+            async (principal, stream, c) => await _avatarStorage.SaveSystemAvatarAsync(principal, stream, c),
+            async (url, c) => CommandNoContent(await _uploadAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(url, AvatarSource.Local)), c)),
+            _avatarStorage,
+            ct);
     }
 
-    /// <summary>
-    /// Sibling action that consumes <c>application/json</c> on the same route + verb.
-    /// ASP.NET Core's <see cref="ConsumesAttribute"/> is an <c>IActionConstraint</c>, so it
-    /// dispatches purely on Content-Type and leaves the multipart action above untouched.
-    /// </summary>
     [HttpPut("avatar")]
     [Consumes("application/json")]
     public async Task<Response> UploadAvatarByUrl([FromBody] AvatarUrlUploadRequest req, CancellationToken ct)
@@ -350,84 +231,22 @@ public sealed class SettingsController : InterfoldControllerBase
         if (req is null)
             return new ErrorResponse("Avatar URL payload required.", ErrorCodes.AvatarUrlInvalid, System.Net.HttpStatusCode.BadRequest);
 
-        if (!AvatarUrlValidator.TryNormalize(req.Url.Value, out var url, out var err))
-            return new ErrorResponse("Invalid avatar URL.", err, System.Net.HttpStatusCode.BadRequest);
-
-        var principal = PrincipalId;
-
-        AvatarUrl? currentAvatarUrl = null;
-        AvatarSource? currentAvatarSource = null;
-        try
-        {
-            var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
-            currentAvatarUrl = currentProfile?.AvatarUrl;
-            currentAvatarSource = currentProfile?.AvatarSource;
-        }
-        catch
-        {
-        }
-
-        var envelope = new CommandEnvelope<UploadAvatarCommand>(
-            OperationIds.SettingsAvatarUpload,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UploadAvatarCommand(new(url), AvatarSource.External)
-        );
-
-        var result = CommandNoContent(await _uploadAvatarHandler.HandleAsync(envelope, ct));
-
-        if (!result.IsSuccess)
-        {
-            return result;
-        }
-
-        if (currentAvatarSource == AvatarSource.Local)
-        {
-            try
-            {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
-            }
-            catch
-            {
-            }
-        }
-
-        return result;
+        return await HandleAvatarUrlUploadAsync(
+            req.Url.Value,
+            async (c) => await _accountRepository.GetPublicProfileAsync(PrincipalId, c),
+            async (url, c) => CommandNoContent(await _uploadAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarUpload, new UploadAvatarCommand(url, AvatarSource.External)), c)),
+            _avatarStorage,
+            ct);
     }
 
     [HttpDelete("avatar")]
     public async Task<Response> DeleteAvatar(CancellationToken ct)
     {
-        var principal = PrincipalId;
-        var currentProfile = await _accountRepository.GetPublicProfileAsync(principal, ct);
-        AvatarUrl? currentAvatarUrl = currentProfile?.AvatarUrl;
-        var currentAvatarSource = currentProfile?.AvatarSource;
-
-        var envelope = new CommandEnvelope<DeleteAvatarCommand>(
-            OperationIds.SettingsAvatarDelete,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteAvatarCommand()
-        );
-
-        var execution = await _deleteAvatarHandler.HandleAsync(envelope, ct);
-        if (execution.Accepted && currentAvatarSource == AvatarSource.Local)
-        {
-            try
-            {
-                await _avatarStorage.DeleteByUrlAsync(currentAvatarUrl, ct);
-            }
-            catch
-            {
-                // Avatar metadata was cleared successfully; tolerate storage cleanup failures.
-            }
-        }
-
-        return CommandNoContent(execution);
+        return await HandleAvatarDeleteAsync(
+            async (c) => await _accountRepository.GetPublicProfileAsync(PrincipalId, c),
+            async (c) => CommandNoContent(await _deleteAvatarHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsAvatarDelete, new DeleteAvatarCommand()), c)),
+            _avatarStorage,
+            ct);
     }
 
     /// <summary>
@@ -440,13 +259,7 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("import-pk")]
     public async Task<Response<ImportDispatchResponse>> ImportPk([FromBody] SettingsImportRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<ImportPkCommand>(
-            OperationIds.SettingsImportPk,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new ImportPkCommand(req.Token)
+        var envelope = BuildEnvelope(OperationIds.SettingsImportPk, new ImportPkCommand(req.Token)
         );
 
         return CommandAccepted(
@@ -483,13 +296,7 @@ public sealed class SettingsController : InterfoldControllerBase
             recoveryCode = resolved;
         }
 
-        var envelope = new CommandEnvelope<ImportSpCommand>(
-            OperationIds.SettingsImportSp,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new ImportSpCommand(req.Token, recoveryCode)
+        var envelope = BuildEnvelope(OperationIds.SettingsImportSp, new ImportSpCommand(req.Token, recoveryCode)
         );
 
         return CommandAccepted(
@@ -500,93 +307,45 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPost("unlink_discord")]
     public async Task<Response> UnlinkDiscord(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UnlinkDiscordCommand>(
-            OperationIds.SettingsAuthUnlinkDiscord,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UnlinkDiscordCommand()
-        );
-
-        return CommandNoContent(await _unlinkDiscordHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_unlinkDiscordHandler, OperationIds.SettingsAuthUnlinkDiscord, new UnlinkDiscordCommand()
+        , ct);
     }
 
     [HttpPost("unlink_email")]
     public async Task<Response> UnlinkEmail(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UnlinkEmailCommand>(
-            OperationIds.SettingsAuthUnlinkEmail,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UnlinkEmailCommand()
-        );
-
-        return CommandNoContent(await _unlinkEmailHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_unlinkEmailHandler, OperationIds.SettingsAuthUnlinkEmail, new UnlinkEmailCommand()
+        , ct);
     }
 
     //TODO: To ensure route works as expected - other ones work but this one needs testing to ensure the command handler is correctly implemented
     [HttpPost("unlink_apple")]
     public async Task<Response> UnlinkApple(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UnlinkAppleCommand>(
-            OperationIds.SettingsAuthUnlinkApple,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UnlinkAppleCommand()
-        );
-
-        return CommandNoContent(await _unlinkAppleHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_unlinkAppleHandler, OperationIds.SettingsAuthUnlinkApple, new UnlinkAppleCommand()
+        , ct);
     }
 
     //TODO: To ensure route works as expected
     [HttpPost("delete-account")]
     public async Task<Response> DeleteAccount(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteAccountCommand>(
-            OperationIds.SettingsAccountDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteAccountCommand()
-        );
-
-        return CommandNoContent(await _deleteAccountHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_deleteAccountHandler, OperationIds.SettingsAccountDelete, new DeleteAccountCommand()
+        , ct);
     }
 
     [HttpPost("wipe-alters")]
     public async Task<Response> WipeAlters(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<WipeAltersCommand>(
-            OperationIds.SettingsAltersWipe,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new WipeAltersCommand()
-        );
-
-        return CommandNoContent(await _wipeAltersHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_wipeAltersHandler, OperationIds.SettingsAltersWipe, new WipeAltersCommand()
+        , ct);
     }
 
     [HttpPost("wipe-tags")]
     public async Task<Response> WipeTags(CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<WipeTagsCommand>(
-            OperationIds.SettingsTagsWipe,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new WipeTagsCommand()
-        );
-
-        return CommandNoContent(await _wipeTagsHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_wipeTagsHandler, OperationIds.SettingsTagsWipe, new WipeTagsCommand()
+        , ct);
     }
 
     [HttpPost("fields")]
@@ -597,13 +356,7 @@ public sealed class SettingsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        var envelope = new CommandEnvelope<CreateFieldCommand>(
-            OperationIds.SettingsFieldCreate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreateFieldCommand(req.Name, req.Type ?? FieldType.Text, req.SecurityLevel ?? VisibilityLevel.Private, req.Locked ?? false, InsertedAtUtc: default)
+        var envelope = BuildEnvelope(OperationIds.SettingsFieldCreate, new CreateFieldCommand(req.Name, req.Type ?? FieldType.Text, req.SecurityLevel ?? VisibilityLevel.Private, req.Locked ?? false, InsertedAtUtc: default)
         );
 
         var execution = await _createFieldHandler.HandleAsync(envelope, ct);
@@ -616,46 +369,22 @@ public sealed class SettingsController : InterfoldControllerBase
     [HttpPatch("fields/{id}")]
     public async Task<Response> UpdateField([FromRoute] FieldId id, [FromBody] SettingsUpdateFieldRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateFieldCommand>(
-            OperationIds.SettingsFieldUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateFieldCommand(id, req.Name, req.SecurityLevel, req.Locked)
-        );
-
-        return CommandNoContent(await _updateFieldHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_updateFieldHandler, OperationIds.SettingsFieldUpdate, new UpdateFieldCommand(id, req.Name, req.SecurityLevel, req.Locked)
+        , ct);
     }
 
     [HttpDelete("fields/{id}")]
     public async Task<Response> DeleteField([FromRoute] FieldId id, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteFieldCommand>(
-            OperationIds.SettingsFieldDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteFieldCommand(id)
-        );
-
-        return CommandNoContent(await _deleteFieldHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_deleteFieldHandler, OperationIds.SettingsFieldDelete, new DeleteFieldCommand(id)
+        , ct);
     }
 
     [HttpPost("fields/{id}/relocate")]
     public async Task<Response> RelocateField([FromRoute] FieldId id, [FromBody] SettingsRelocateFieldRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<RelocateFieldCommand>(
-            OperationIds.SettingsFieldRelocate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RelocateFieldCommand(id, req.Index)
-        );
-
-        return CommandNoContent(await _relocateFieldHandler.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_relocateFieldHandler, OperationIds.SettingsFieldRelocate, new RelocateFieldCommand(id, req.Index)
+        , ct);
     }
 
     /* New endpoints from here! */
@@ -698,4 +427,13 @@ public sealed class SettingsController : InterfoldControllerBase
 
     private bool TryResolveRecoveryCode(string candidate, out RecoveryCode recoveryCode, out ErrorCode errorCode)
         => Helpers.RecoveryCodeResolver.TryResolve(candidate, _authenticationConfiguration.CurrentValue.Rsa256PrivateKey, out recoveryCode, out errorCode);
+
+    /// <summary>
+    /// Setup / recover both project to the same wire shape (base64-encoded UTF-8 bytes
+    /// of the symmetric key material), and both handlers surface an
+    /// <see cref="EncryptionCommandResult"/>, so the projection lives once here and
+    /// both endpoints hand it to <c>DispatchOkAsync</c>.
+    /// </summary>
+    private static EncryptionKeyResponse ToEncryptionKeyResponse(EncryptionCommandResult result)
+        => new(Convert.ToBase64String(Encoding.UTF8.GetBytes(result.Key.Value)));
 }

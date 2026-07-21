@@ -1257,25 +1257,10 @@ internal static class ConfigPhase
             logger.Warn($"    unsupported distro family {distro.Family}; skipping install and .local pre-fill");
             return null;
         }
-        logger.Info($"    installing avahi ({string.Join(" ", packages)}) ...");
-        try
+
+        if (!await MdnsAvailability.TryInstallAvahiAsync(distro, logger, ct).ConfigureAwait(false))
         {
-            await PrerequisitesPhase.RunInstallAsync(distro, packages, logger, ct).ConfigureAwait(false);
-            // Best-effort daemon start — fall through to the re-probe on failure.
-            try
-            {
-                await ProcessRunner.RunAsync(
-                    "systemctl", ["enable", "--now", "avahi-daemon"], ct: ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logger.Warn($"    could not `systemctl enable --now avahi-daemon` ({ex.GetType().Name}: {ex.Message}); " +
-                            "start it manually if the re-probe below fails.");
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Warn($"    avahi install failed ({ex.GetType().Name}: {ex.Message}); {hostname} will be omitted from the pre-fill");
+            logger.Warn($"    {hostname} will be omitted from the pre-fill");
             return null;
         }
 
@@ -1355,44 +1340,28 @@ internal static class ConfigPhase
             { DefaultValue = true });
             if (install)
             {
-                var packages = MdnsAvailability.InstallPackages(distro.Family);
-                if (packages.Count > 0)
+                if (await MdnsAvailability.TryInstallAvahiAsync(distro, logger, ct).ConfigureAwait(false))
                 {
-                    logger.Info($"    installing avahi ({string.Join(" ", packages)}) ...");
-                    try
+                    // Re-probe; any residual failure falls through to strip so the run still succeeds.
+                    var stillBroken = false;
+                    foreach (var host in broken)
                     {
-                        await PrerequisitesPhase.RunInstallAsync(distro, packages, logger, ct).ConfigureAwait(false);
-                        try
+                        if (await probeFn(host, ct).ConfigureAwait(false) != true)
                         {
-                            await ProcessRunner.RunAsync(
-                                "systemctl", ["enable", "--now", "avahi-daemon"], ct: ct).ConfigureAwait(false);
+                            stillBroken = true;
+                            break;
                         }
-                        catch (Exception ex)
-                        {
-                            logger.Warn($"    could not `systemctl enable --now avahi-daemon` ({ex.GetType().Name}: {ex.Message}); " +
-                                        "start it manually and re-run bootstrap if the re-probe below still fails.");
-                        }
-                        // Re-probe; any residual failure falls through to strip so the run still succeeds.
-                        var stillBroken = false;
-                        foreach (var host in broken)
-                        {
-                            if (await probeFn(host, ct).ConfigureAwait(false) != true)
-                            {
-                                stillBroken = true;
-                                break;
-                            }
-                        }
-                        if (!stillBroken)
-                        {
-                            logger.Info("    mDNS now resolvable for all .local hosts");
-                            return false;
-                        }
-                        logger.Warn($"avahi installed but {string.Join(", ", broken)} still doesn't resolve; removing from hosts.");
                     }
-                    catch (Exception ex)
+                    if (!stillBroken)
                     {
-                        logger.Warn($"avahi install failed ({ex.GetType().Name}: {ex.Message}); removing unresolvable .local host(s).");
+                        logger.Info("    mDNS now resolvable for all .local hosts");
+                        return false;
                     }
+                    logger.Warn($"avahi installed but {string.Join(", ", broken)} still doesn't resolve; removing from hosts.");
+                }
+                else
+                {
+                    logger.Warn("removing unresolvable .local host(s) after failed avahi install.");
                 }
             }
         }

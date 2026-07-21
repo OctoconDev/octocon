@@ -1,3 +1,4 @@
+using Interfold.Contracts;
 using TUnit.Core.Interfaces;
 
 namespace Interfold.IntegrationTests.TestServices;
@@ -43,7 +44,7 @@ public sealed class CassandraWebFactoryFixture : IWebFactoryFixture, IAsyncIniti
     // Postgres path. CassandraPort is guaranteed non-null by InitializeAsync's guard above —
     // this method is only reached after the fixture has passed that check.
     public InterfoldWebApplicationFactory CreatePrivateFactory()
-        => new InterfoldWebApplicationFactory("scylla-postgres", "cassandra")
+        => new InterfoldWebApplicationFactory(PersistenceMode.ScyllaPostgres, "cassandra")
             .WithConfiguration("OCTOCON_POSTGRES_CONNECTION", Aspire.PostgresConnectionString)
             .WithConfiguration("OCTOCON_SCYLLA_PORT", Aspire.CassandraPort!.Value.ToString())
             .WithConfiguration("OCTOCON_SINGLE_SCYLLA_INSTANCE", "true")

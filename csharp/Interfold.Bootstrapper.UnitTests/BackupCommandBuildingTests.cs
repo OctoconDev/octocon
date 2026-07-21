@@ -30,7 +30,7 @@ public sealed class BackupCommandBuildingTests
         {
             "compose", "-f", "/srv/deploy/docker-compose.yaml",
             "exec", "-T",
-            "--env", "PGPASSWORD",
+            "--env", Interfold.Bootstrapper.Util.DatabaseArchiveStreamer.PgPasswordEnvVar,
             "msg-db",
             "pg_dump",
             "-U", "interfold_admin",
@@ -50,7 +50,7 @@ public sealed class BackupCommandBuildingTests
             adminUser: "interfold_admin",
             database: "interfold");
 
-        await Assert.That(args).DoesNotContain("PGPASSWORD=anything");
+        await Assert.That(args).DoesNotContain($"{Interfold.Bootstrapper.Util.DatabaseArchiveStreamer.PgPasswordEnvVar}=anything");
         // The literal "PGPASSWORD" appears as the env-var name (no `=value` suffix); that's
         // safe — only the value side leaks to ps.
         foreach (var arg in args)
@@ -63,7 +63,7 @@ public sealed class BackupCommandBuildingTests
     [Test]
     public async Task ScyllaSnapshotArgsTargetCorrectService()
     {
-        var (snap, resolveContainer, clear) = BackupPhase.BuildScyllaSnapshotArgs(
+        var (snap, clear) = BackupPhase.BuildScyllaSnapshotArgs(
             composeFile: "/srv/deploy/docker-compose.yaml",
             service: "scylla",
             dataPath: ContainerMountPaths.ScyllaData,
@@ -76,16 +76,11 @@ public sealed class BackupCommandBuildingTests
             "nodetool", "snapshot", "-t", "interfold-backup-20260301-120000",
         });
 
-        // ResolveContainer argv resolves the seed's runtime container id via `docker compose
-        // ps -q`. The archive itself is streamed out of the container by the host-side
-        // `docker cp` step (see BuildContainerCpArgs) because the scylladb/scylla image
-        // ships no `tar` binary — an in-container tar exits 127.
-        await Assert.That(resolveContainer).IsEquivalentTo(new[]
-        {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml",
-            "ps", "-q", "scylla",
-        });
-
+        // The middle "resolve container id" step used to be part of this tuple; it now
+        // lives at the call site via DockerCompose.PsAsync (see R2-C11). The archive
+        // itself is still streamed out of the container by the host-side `docker cp`
+        // step (see BuildContainerCpArgs) because the scylladb/scylla image ships no
+        // `tar` binary — an in-container tar exits 127.
         await Assert.That(clear).IsEquivalentTo(new[]
         {
             "compose", "-f", "/srv/deploy/docker-compose.yaml",
@@ -130,7 +125,7 @@ public sealed class BackupCommandBuildingTests
     {
         // single-mode AppHost wires up the bare "scylla" service name; matches the AppHost
         // resource graph in InterfoldAppHost.Configure.
-        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Single };
+        var config = TestSupport.MakeConfig(DatabaseMode.Single);
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla");
@@ -143,7 +138,7 @@ public sealed class BackupCommandBuildingTests
         // multi-mode publishes 7 regional services; the seed (NAM) is the only one we
         // snapshot. Multi-DC operators that want all seven captured are documented as
         // out-of-scope for the bootstrapper itself.
-        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Multi };
+        var config = TestSupport.MakeConfig(DatabaseMode.Multi);
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("scylla-nam");
@@ -155,7 +150,7 @@ public sealed class BackupCommandBuildingTests
     {
         // cassandra-mode replaces Scylla entirely with a single Cassandra 5 node; the data
         // directory inside the official cassandra image is /var/lib/cassandra (not /var/lib/scylla).
-        var config = new BootstrapConfig { DatabaseMode = DatabaseMode.Cassandra };
+        var config = TestSupport.MakeConfig(DatabaseMode.Cassandra);
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
         await Assert.That(service).IsEqualTo("cassandra");
@@ -169,19 +164,11 @@ public sealed class BackupCommandBuildingTests
         // an absolute one because BackupPhase later wraps it in Directory.CreateDirectory +
         // EnumerateFiles, and both behave erratically with relative paths under a systemd
         // unit's unpredictable CWD.
-        var options = new BootstrapOptions(
-            Command: BootstrapCommand.Backup,
-            ConfigPath: null,
-            OutputDir: Path.GetFullPath("./deploy"),
-            SkipPrereqs: false,
-            RotateSecrets: false,
-            RotateCerts: false,
-            NonInteractive: false,
-            FaultInject: null,
-            PrintPhaseStatus: false,
-            BackupDirOverride: "/srv/backups");
+        var options = TestSupport.MakeOptions(
+            command: BootstrapCommand.Backup,
+            backupDirOverride: "/srv/backups");
 
-        var config = new BootstrapConfig { Backup = { Directory = "/var/never-seen" } };
+        var config = TestSupport.MakeConfig(tweak: c => c.Backup.Directory = "/var/never-seen");
         var resolved = BackupPhase.ResolveBackupRoot(options, config);
 
         // Path.GetFullPath normalises to the platform's separator style; just check it ends
@@ -193,18 +180,9 @@ public sealed class BackupCommandBuildingTests
     [Test]
     public async Task ResolveBackupRootFallsBackToConfig()
     {
-        var options = new BootstrapOptions(
-            Command: BootstrapCommand.Backup,
-            ConfigPath: null,
-            OutputDir: Path.GetFullPath("./deploy"),
-            SkipPrereqs: false,
-            RotateSecrets: false,
-            RotateCerts: false,
-            NonInteractive: false,
-            FaultInject: null,
-            PrintPhaseStatus: false);
+        var options = TestSupport.MakeOptions(command: BootstrapCommand.Backup);
 
-        var config = new BootstrapConfig { Backup = { Directory = "/var/backups/interfold" } };
+        var config = TestSupport.MakeConfig(tweak: c => c.Backup.Directory = "/var/backups/interfold");
         var resolved = BackupPhase.ResolveBackupRoot(options, config);
 
         await Assert.That(resolved.Replace('\\', '/'))
@@ -218,18 +196,11 @@ public sealed class BackupCommandBuildingTests
         // default path that 99% of operators will hit; the assertion confirms the join is
         // exactly "backups" (no typos, no leading slash).
         var outputDir = Path.GetFullPath("./deploy");
-        var options = new BootstrapOptions(
-            Command: BootstrapCommand.Backup,
-            ConfigPath: null,
-            OutputDir: outputDir,
-            SkipPrereqs: false,
-            RotateSecrets: false,
-            RotateCerts: false,
-            NonInteractive: false,
-            FaultInject: null,
-            PrintPhaseStatus: false);
+        var options = TestSupport.MakeOptions(
+            command: BootstrapCommand.Backup,
+            outputDir: outputDir);
 
-        var config = new BootstrapConfig();
+        var config = TestSupport.MakeConfig();
         var resolved = BackupPhase.ResolveBackupRoot(options, config);
 
         await Assert.That(resolved).IsEqualTo(Path.Combine(outputDir, "backups"));

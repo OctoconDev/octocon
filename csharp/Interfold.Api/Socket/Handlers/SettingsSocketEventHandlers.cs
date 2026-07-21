@@ -3,21 +3,18 @@ using Interfold.Contracts.Enums;
 using Interfold.Contracts.Events;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Api.Socket.Handlers;
 
 public static class SettingsSocketEventHandlers
 {
-    public static async Task HandleAsync(SettingsFieldsChangedEvent evt, SocketPushContext context, ISettingsFieldRepository fieldRepository)
-    {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var fields = await fieldRepository.ListAsync(evt.TargetSystemId, context.CancellationToken).ConfigureAwait(false);
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Settings.FieldsUpdated, new SettingsFieldsUpdatedPayload(fields));
-    }
+    public static Task HandleAsync(SettingsFieldsChangedEvent evt, SocketPushContext context, ISettingsFieldRepository fieldRepository)
+        => context.PushIfJoinedAsync<IReadOnlyList<SettingsFieldReadModel>, SettingsFieldsUpdatedPayload>(
+            evt.TargetSystemId,
+            SocketEventNames.Settings.FieldsUpdated,
+            ct => fieldRepository.ListAsync(evt.TargetSystemId, ct),
+            fields => new SettingsFieldsUpdatedPayload(fields));
 
     public static async Task HandleAsync(
         SettingsProfileUpdatedEvent evt,
@@ -82,12 +79,7 @@ public static class SettingsSocketEventHandlers
 
     private static async Task HandleSignalAsync(SystemId systemId, string eventName, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new EmptyPayload());
+        await context.SendIfJoinedAsync(systemId, eventName, new EmptyPayload());
     }
 
     public static Task HandleAsync(SettingsDiscordAccountLinkedEvent evt, SocketPushContext context)
@@ -101,11 +93,6 @@ public static class SettingsSocketEventHandlers
 
     private static async Task SendLinkedAsync(SystemId systemId, string eventName, ISocketPayload payload, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, payload);
+        await context.SendIfJoinedAsync(systemId, eventName, payload);
     }
 }

@@ -121,6 +121,10 @@ public readonly record struct FrontId(Guid Value) : IParsable<FrontId>
         result = new FrontId(g);
         return true;
     }
+
+    public const int MaxCommentLength = 50;
+
+    public static bool IsValidComment(string? comment) => (comment?.Length ?? 0) <= MaxCommentLength;
 }
 
 /// <summary>Strongly-typed wrapper around a settings-field id (Guid, wire form is 32-char lowercase hex).</summary>
@@ -150,62 +154,61 @@ public readonly record struct FieldId(Guid Value) : IParsable<FieldId>
     }
 }
 
-// JSON converters preserve the historic wire form (compact 32-char lowercase hex) so
-// persisted command payloads keep the same SHA-256 hash for idempotency replay and
-// existing HTTP clients see byte-identical response bodies. Read accepts both "N"
-// and hyphenated forms (UuidString.TryParse) so legacy persisted payloads deserialize.
-
-internal sealed class TagIdJsonConverter : JsonConverter<TagId>
+/// <summary>
+/// Common JSON converter shape for the Guid-backed entity IDs above. Preserves the
+/// historic wire form (compact 32-char lowercase hex, <c>Guid.ToString("N")</c>) so
+/// persisted command payloads keep the same SHA-256 hash for idempotency replay and
+/// existing HTTP clients see byte-identical response bodies. Read accepts both "N"
+/// and hyphenated forms (<see cref="UuidString.TryParse"/>) so legacy persisted
+/// payloads deserialize. Concrete stubs stay <c>sealed</c> and are named individually
+/// because <c>[JsonConverter(typeof(...))]</c> requires a concrete class name.
+/// </summary>
+internal abstract class GuidIdJsonConverter<T> : JsonConverter<T>
 {
-    public override TagId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => UuidString.TryParse(reader.GetString() ?? string.Empty, out var g)
-            ? new(g)
-            : throw new JsonException("TagId JSON value must be a Guid string (compact or hyphenated).");
+    protected abstract T Create(Guid value);
+    protected abstract Guid GetValue(T value);
+    protected abstract string TypeLabel { get; }
 
-    public override void Write(Utf8JsonWriter writer, TagId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value.ToString("N"));
+    public sealed override T Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => UuidString.TryParse(reader.GetString() ?? string.Empty, out var g)
+            ? Create(g)
+            : throw new JsonException($"{TypeLabel} JSON value must be a Guid string (compact or hyphenated).");
+
+    public sealed override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
+        => writer.WriteStringValue(GetValue(value).ToString("N"));
 }
 
-internal sealed class PollIdJsonConverter : JsonConverter<PollId>
+internal sealed class TagIdJsonConverter : GuidIdJsonConverter<TagId>
 {
-    public override PollId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => UuidString.TryParse(reader.GetString() ?? string.Empty, out var g)
-            ? new(g)
-            : throw new JsonException("PollId JSON value must be a Guid string (compact or hyphenated).");
-
-    public override void Write(Utf8JsonWriter writer, PollId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value.ToString("N"));
+    protected override TagId Create(Guid value) => new(value);
+    protected override Guid GetValue(TagId value) => value.Value;
+    protected override string TypeLabel => nameof(TagId);
 }
 
-internal sealed class EntryIdJsonConverter : JsonConverter<EntryId>
+internal sealed class PollIdJsonConverter : GuidIdJsonConverter<PollId>
 {
-    public override EntryId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => UuidString.TryParse(reader.GetString() ?? string.Empty, out var g)
-            ? new(g)
-            : throw new JsonException("EntryId JSON value must be a Guid string (compact or hyphenated).");
-
-    public override void Write(Utf8JsonWriter writer, EntryId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value.ToString("N"));
+    protected override PollId Create(Guid value) => new(value);
+    protected override Guid GetValue(PollId value) => value.Value;
+    protected override string TypeLabel => nameof(PollId);
 }
 
-internal sealed class FrontIdJsonConverter : JsonConverter<FrontId>
+internal sealed class EntryIdJsonConverter : GuidIdJsonConverter<EntryId>
 {
-    public override FrontId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => UuidString.TryParse(reader.GetString() ?? string.Empty, out var g)
-            ? new(g)
-            : throw new JsonException("FrontId JSON value must be a Guid string (compact or hyphenated).");
-
-    public override void Write(Utf8JsonWriter writer, FrontId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value.ToString("N"));
+    protected override EntryId Create(Guid value) => new(value);
+    protected override Guid GetValue(EntryId value) => value.Value;
+    protected override string TypeLabel => nameof(EntryId);
 }
 
-internal sealed class FieldIdJsonConverter : JsonConverter<FieldId>
+internal sealed class FrontIdJsonConverter : GuidIdJsonConverter<FrontId>
 {
-    public override FieldId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => UuidString.TryParse(reader.GetString() ?? string.Empty, out var g)
-            ? new(g)
-            : throw new JsonException("FieldId JSON value must be a Guid string (compact or hyphenated).");
+    protected override FrontId Create(Guid value) => new(value);
+    protected override Guid GetValue(FrontId value) => value.Value;
+    protected override string TypeLabel => nameof(FrontId);
+}
 
-    public override void Write(Utf8JsonWriter writer, FieldId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value.ToString("N"));
+internal sealed class FieldIdJsonConverter : GuidIdJsonConverter<FieldId>
+{
+    protected override FieldId Create(Guid value) => new(value);
+    protected override Guid GetValue(FieldId value) => value.Value;
+    protected override string TypeLabel => nameof(FieldId);
 }

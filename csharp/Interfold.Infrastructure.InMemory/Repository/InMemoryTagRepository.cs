@@ -46,7 +46,7 @@ public sealed class InMemoryTagRepository : ITagRepository
         CancellationToken cancellationToken = default
     )
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<TagId, TagState>());
 
         if (command.ParentTagId is { } parent && parent != TagId.Empty && !store.ContainsKey(parent))
@@ -59,15 +59,14 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     public Task<bool> ExistsAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(tagId);
         return Task.FromResult(exists);
     }
 
        public Task<bool> UpdateAsync(SystemId systemId, UpdateTagCommand command, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.TagId, out var existing))
+           if (!TryGetTag(systemId, command.TagId, out var store, out var existing))
                return Task.FromResult(false);
 
            store[command.TagId] = existing with
@@ -83,8 +82,8 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> DeleteAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store))
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetStore(systemKey, out var store))
                return Task.FromResult(false);
 
            var removed = store.TryRemove(tagId, out _);
@@ -95,19 +94,19 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> AttachAlterAsync(SystemId systemId, TagId tagId, AlterId alterId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store) || !store.ContainsKey(tagId))
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetStore(systemKey, out var store) || !store.ContainsKey(tagId))
                return Task.FromResult(false);
 
            var members = _alterMemberships.GetOrAdd((systemKey, tagId), _ => new ConcurrentDictionary<BareAlter, bool>());
-           members[new BareAlter(alterId, "", null, null, null, null, null, null!)] = true;
+           members[BareAlter.CreatePlaceholder(alterId)] = true;
            return Task.FromResult(true);
        }
 
        public Task<bool> DetachAlterAsync(SystemId systemId, TagId tagId, AlterId alterId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_alterMemberships.TryGetValue((systemKey, tagId), out var members))
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetAlterMembers(systemKey, tagId, out var members))
                return Task.FromResult(false);
 
            return Task.FromResult(members.Remove(members.FirstOrDefault(x => x.Key.Id == alterId).Key, out _));
@@ -115,8 +114,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<TagId?> GetParentIdAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (_bySystem.TryGetValue(systemKey, out var store) && store.TryGetValue(tagId, out var state))
+           if (TryGetTag(systemId, tagId, out _, out var state))
                return Task.FromResult(state.ParentTagId);
 
            return Task.FromResult<TagId?>(null);
@@ -124,8 +122,8 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> SetParentAsync(SystemId systemId, TagId tagId, TagId parentTagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store))
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetStore(systemKey, out var store))
                return Task.FromResult(false);
 
            if (!store.TryGetValue(tagId, out var existing) || !store.ContainsKey(parentTagId))
@@ -137,8 +135,7 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<bool> RemoveParentAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(tagId, out var existing))
+           if (!TryGetTag(systemId, tagId, out var store, out var existing))
                return Task.FromResult(false);
 
            store[tagId] = existing with { ParentTagId = null, UpdatedAt = DateTime.UtcNow };
@@ -147,26 +144,16 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<IReadOnlyList<TagReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store))
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetStore(systemKey, out var store))
                return Task.FromResult<IReadOnlyList<TagReadModel>>(Array.Empty<TagReadModel>());
 
            // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
            // to the historic string-backed TagId — Guid.CompareTo bytewise reorders differently.
-           var rows = store.Values
-               .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
-               .Select(x => new TagReadModel(
-                   x.TagId,
-                   x.Name,
-                   x.Color,
-                   x.Description,
-                   x.ParentTagId,
-                   GetAlterIds(systemKey, x.TagId),
-                   x.InsertedAt,
-                   x.UpdatedAt,
-                   x.SecurityLevel,
-                   systemId))
-               .ToArray();
+            var rows = store.Values
+                .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
+                .Select(x => MapTagReadModel(x, GetAlterIds(systemKey, x.TagId), systemId))
+                .ToArray();
 
            return Task.FromResult<IReadOnlyList<TagReadModel>>(rows);
        }
@@ -176,25 +163,15 @@ public sealed class InMemoryTagRepository : ITagRepository
            SystemId? viewerSystemId,
            CancellationToken cancellationToken = default)
        {
-           var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store))
+           var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetStore(systemKey, out var store))
                return Array.Empty<TagPublicReadModel>();
 
            var rows = store.Values
                .Where(x => x.SecurityLevel.CanBeViewedBy(friendshipLevel))
                .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
-               .Select(x => new TagPublicReadModel(
-                   x.TagId,
-                   x.Name,
-                   x.Color,
-                   x.Description,
-                   x.ParentTagId,
-                   GetAlters(systemKey, x.TagId),
-                   x.InsertedAt,
-                   x.UpdatedAt,
-                   x.SecurityLevel,
-                   systemId))
+               .Select(x => MapTagPublicReadModel(x, GetAlters(systemKey, x.TagId), systemId))
                .ToArray();
 
            return rows;
@@ -202,21 +179,11 @@ public sealed class InMemoryTagRepository : ITagRepository
 
        public Task<TagReadModel?> GetAsync(SystemId systemId, TagId tagId, CancellationToken cancellationToken = default)
        {
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(tagId, out var tag))
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetTag(systemKey, tagId, out var store, out var tag))
                return Task.FromResult<TagReadModel?>(null);
 
-           return Task.FromResult<TagReadModel?>(new TagReadModel(
-               tag.TagId,
-               tag.Name,
-               tag.Color,
-               tag.Description,
-               tag.ParentTagId,
-               GetAlterIds(systemKey, tag.TagId),
-               tag.InsertedAt,
-               tag.UpdatedAt,
-               tag.SecurityLevel,
-               systemId));
+           return Task.FromResult<TagReadModel?>(MapTagReadModel(tag, GetAlterIds(systemKey, tag.TagId), systemId));
        }
 
        public async Task<TagPublicReadModel?> GetGuardedAsync(
@@ -225,9 +192,9 @@ public sealed class InMemoryTagRepository : ITagRepository
            SystemId? viewerSystemId,
            CancellationToken cancellationToken = default)
        {
-           var friendshipLevel = await ResolveFriendshipLevelAsync(systemId, viewerSystemId, cancellationToken);
-           var systemKey = GetSystemKey(systemId);
-           if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(tagId, out var tag))
+           var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
+           var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+           if (!TryGetTag(systemKey, tagId, out var store, out var tag))
            {
                return null;
            }
@@ -237,22 +204,12 @@ public sealed class InMemoryTagRepository : ITagRepository
                return null;
            }
 
-           return new TagPublicReadModel(
-               tag.TagId,
-               tag.Name,
-               tag.Color,
-               tag.Description,
-               tag.ParentTagId,
-               GetAlters(systemKey, tag.TagId),
-               tag.InsertedAt,
-               tag.UpdatedAt,
-               tag.SecurityLevel,
-               systemId);
+            return MapTagPublicReadModel(tag, GetAlters(systemKey, tag.TagId), systemId);
        }
 
     private IReadOnlyList<AlterId> GetAlterIds(ScopedSystemId systemKey, TagId tagId)
     {
-        if (!_alterMemberships.TryGetValue((systemKey, tagId), out var members))
+        if (!TryGetAlterMembers(systemKey, tagId, out var members))
             return Array.Empty<AlterId>();
 
         return members.Keys.OrderBy(x => x.Id.Value).Select(x => x.Id).ToArray();
@@ -260,16 +217,66 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private IReadOnlyList<BareAlter> GetAlters(ScopedSystemId systemKey, TagId tagId)
     {
-        if (!_alterMemberships.TryGetValue((systemKey, tagId), out var members))
+        if (!TryGetAlterMembers(systemKey, tagId, out var members))
             return Array.Empty<BareAlter>();
 
         return members.Keys.OrderBy(x => x.Id.Value).ToArray();
     }
 
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+    private static TagReadModel MapTagReadModel(TagState tag, IReadOnlyList<AlterId> alterIds, SystemId systemId)
+    {
+        return new TagReadModel(
+            tag.TagId,
+            tag.Name,
+            tag.Color,
+            tag.Description,
+            tag.ParentTagId,
+            alterIds,
+            tag.InsertedAt,
+            tag.UpdatedAt,
+            tag.SecurityLevel,
+            systemId
+        );
+    }
+
+    private static TagPublicReadModel MapTagPublicReadModel(TagState tag, IReadOnlyList<BareAlter> alters, SystemId systemId)
+    {
+        return new TagPublicReadModel(
+            tag.TagId,
+            tag.Name,
+            tag.Color,
+            tag.Description,
+            tag.ParentTagId,
+            alters,
+            tag.InsertedAt,
+            tag.UpdatedAt,
+            tag.SecurityLevel,
+            systemId
+        );
+    }
+
+    private bool TryGetStore(ScopedSystemId systemKey, out ConcurrentDictionary<TagId, TagState> store)
+        => _bySystem.TryGetValue(systemKey, out store!);
+
+    private bool TryGetTag(SystemId systemId, TagId tagId, out ConcurrentDictionary<TagId, TagState> store, out TagState tag)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        return TryGetTag(systemKey, tagId, out store, out tag);
+    }
+
+    private bool TryGetTag(ScopedSystemId systemKey, TagId tagId, out ConcurrentDictionary<TagId, TagState> store, out TagState tag)
+    {
+        if (TryGetStore(systemKey, out store) && store.TryGetValue(tagId, out tag!))
+        {
+            return true;
+        }
+
+        tag = null!;
+        return false;
+    }
+
+    private bool TryGetAlterMembers(ScopedSystemId systemKey, TagId tagId, out ConcurrentDictionary<BareAlter, bool> members)
+        => _alterMemberships.TryGetValue((systemKey, tagId), out members!);
 
     // Delegates to the shared static that also serves the Alter and Fronting repos —
-    // see InMemoryStorageKeys.ResolveFriendshipLevelAsync for the self-check semantics.
-    private Task<FriendshipLevel?> ResolveFriendshipLevelAsync(SystemId systemId, SystemId? viewerSystemId, CancellationToken cancellationToken)
-        => InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
 }

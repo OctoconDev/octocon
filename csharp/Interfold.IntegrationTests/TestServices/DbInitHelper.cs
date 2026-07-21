@@ -59,10 +59,14 @@ internal static class DbInitHelper
     /// timescaledb-tune does an extra restart cycle that can checkpoint to slow backing
     /// storage. Catches every transient driver/socket exception until the deadline.
     /// </summary>
-    public static async Task WaitForPostgresAsync(string initConnectionString, CancellationToken ct)
+    public static async Task WaitForPostgresAsync(
+        string initConnectionString,
+        Interfold.DatabaseBootstrap.PostgresReadinessOptions options,
+        CancellationToken ct)
     {
-        var deadline = DateTime.UtcNow.AddMinutes(6);
+        var deadline = DateTime.UtcNow.Add(options.Timeout);
         var attempt = 0;
+        var consecutiveSuccesses = 0;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
@@ -73,14 +77,22 @@ internal static class DbInitHelper
                 await conn.OpenAsync(ct).ConfigureAwait(false);
                 await using var cmd = new NpgsqlCommand("SELECT 1", conn);
                 var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-                if (result is int one && one == 1) return;
+                if (result is int one && one == 1)
+                {
+                    consecutiveSuccesses++;
+                    if (consecutiveSuccesses >= options.RequiredConsecutiveSuccesses) return;
+                }
+                else if (consecutiveSuccesses > 0)
+                {
+                    consecutiveSuccesses = 0;
+                }
             }
-            catch (NpgsqlException) { /* server not up yet */ }
-            catch (SocketException)  { /* port not bound yet */ }
-            catch (TimeoutException) { /* server tearing down */ }
+            catch (NpgsqlException) { consecutiveSuccesses = 0; /* server not up yet */ }
+            catch (SocketException)  { consecutiveSuccesses = 0; /* port not bound yet */ }
+            catch (TimeoutException) { consecutiveSuccesses = 0; /* server tearing down */ }
             await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
         }
-        throw new TimeoutException($"msg-db did not become ready within 6 minutes ({attempt} probes).");
+        throw new TimeoutException($"msg-db did not become ready within {options.Timeout.TotalMinutes} minutes ({attempt} probes).");
     }
 
     /// <summary>

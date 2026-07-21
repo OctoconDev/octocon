@@ -1,6 +1,7 @@
 using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
+using Interfold.Bootstrapper.IntegrationTests.TestServices;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
@@ -16,18 +17,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class WebHttpsTests(UbuntuDinDFixture dinD)
 {
-    private static string WebHttpsConfigPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.web-https.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task PublishWithWebHttpsEmitsCertAndTemplateBindMounts()
@@ -36,14 +28,10 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         // sources for octocon-web (cert dir + nginx envsubst template) and stamp the NGINX_*
         // env values that drive the template. No `docker compose up` here, so the test runs in
         // single-digit seconds against the shared DinD.
-        var scratch = await dinD.CreateScratchAsync(nameof(PublishWithWebHttpsEmitsCertAndTemplateBindMounts), WebHttpsConfigPath);
-
-        var publish = await dinD.RunBootstrapperAsync(nameof(PublishWithWebHttpsEmitsCertAndTemplateBindMounts),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(PublishWithWebHttpsEmitsCertAndTemplateBindMounts), TestConfigPaths.WebHttpsConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
-        var env = ParseEnv(envBytes);
+        var env = DotEnvParser.ParseEnv(envBytes);
 
         // Every bind-mount-source line in the post-processed .env should resolve to an absolute
         // path. We don't assert the exact key names because Aspire derives them from the service
@@ -108,14 +96,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         // paths we passed in. The healthcheck itself probes https://localhost:443/ with `-kf`
         // from inside the container, so a healthy state implies a successful TLS handshake
         // against the bootstrapper-issued leaf cert.
-        var scratch = await dinD.CreateScratchAsync(nameof(WebContainerServesHttpsAfterComposeUp), WebHttpsConfigPath);
-
-        // `publish` runs config + secrets + certs + compose-publish (no docker compose up). The
-        // certs phase emits /certs/{leaf.crt,leaf.key,leaf.pfx} under the scratch output dir, so
-        // the bind mount we then ask docker compose to consume has real files behind it.
-        var publish = await dinD.RunBootstrapperAsync($"{nameof(WebContainerServesHttpsAfterComposeUp)}-publish",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(WebContainerServesHttpsAfterComposeUp), TestConfigPaths.WebHttpsConfig);
 
         // Bring up only the web service. --no-deps because the compose file networks reference
         // the api network but the web container itself has no service-level depends_on; compose
@@ -229,11 +210,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
         // operator-facing failure mode: a `KEY=` line with a blank RHS in the .env will cause
         // `docker compose up` to error out with "invalid mount source". This test confirms the
         // ApplyReplacementsToEnvFile pass actually populated every web-related entry.
-        var scratch = await dinD.CreateScratchAsync(nameof(PublishWithWebHttpsLeavesEnvFilledWithAbsolutePaths), WebHttpsConfigPath);
-
-        var publish = await dinD.RunBootstrapperAsync(nameof(PublishWithWebHttpsLeavesEnvFilledWithAbsolutePaths),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(PublishWithWebHttpsLeavesEnvFilledWithAbsolutePaths), TestConfigPaths.WebHttpsConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
         var rawText = Encoding.UTF8.GetString(envBytes);
@@ -249,24 +226,7 @@ public class WebHttpsTests(UbuntuDinDFixture dinD)
                 .Because($"octocon-web env line has a blank value (compose up would fail): {trimmed}");
         }
     }
-
-    /// <summary>
-    /// Cheap-and-cheerful .env parser - lines of the form <c>KEY=VALUE</c>, comments stripped,
-    /// blank lines ignored. Mirrors the helper in <see cref="PublishIntegrationTests"/>; the two
-    /// projects don't share a test-only helpers assembly so we keep a one-screen duplicate.
-    /// </summary>
-    private static IDictionary<string, string> ParseEnv(byte[] bytes)
-    {
-        var text = Encoding.UTF8.GetString(bytes);
-        var dict = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var rawLine in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = rawLine.TrimEnd('\r').Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            var eq = line.IndexOf('=');
-            if (eq <= 0) continue;
-            dict[line[..eq]] = line[(eq + 1)..];
-        }
-        return dict;
-    }
 }
+
+
+

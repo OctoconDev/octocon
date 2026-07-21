@@ -1,4 +1,5 @@
 using Interfold.Api.Controllers.Base;
+using Interfold.Api.Filters;
 using Interfold.Api.Models;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
@@ -36,101 +37,68 @@ public sealed class PublicSystemsController : InterfoldControllerBase
     [HttpGet]
     public async Task<Response<PublicSystemReadModel>> Show([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        var profile = await _accounts.GetPublicProfileAsync(systemId, ct);
-        if (profile is null)
+        var model = await _accounts.GetPublicSystemAsync(systemId, ct);
+        if (model is not null)
         {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
+            model = model with { AvatarUrl = QualifyAvatar(model) };
         }
 
-        return new PublicSystemReadModel(
-            Id: profile.SystemId,
-            AvatarUrl: QualifyAvatar(profile.AvatarUrl, profile.AvatarSource),
-            AvatarSource: profile.AvatarSource,
-            Username: profile.Username,
-            Description: profile.Description);
+        return OkOrNotFound(model, "System not found.", ErrorCodes.SystemNotFound);
     }
 
     //TODO: To ensure route works as expected
     [HttpGet("alters")]
+    [SystemMustExist]
     public async Task<Response<IReadOnlyList<BareAlter>>> ListAlters([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var alters = await _alters.ListGuardedAsync(systemId, PrincipalId, ct);
-        foreach (var a in alters) a.AvatarUrl = QualifyAvatar(a.AvatarUrl, a.AvatarSource);
+        foreach (var a in alters) a.AvatarUrl = QualifyAvatar(a);
         return new SuccessResponse<IReadOnlyList<BareAlter>>(alters);
     }
 
     [HttpGet("alters/{alterId:int}")]
+    [SystemMustExist]
     public async Task<Response<BareAlter>> ShowAlter([FromRoute] SystemId systemId, [FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var alter = await _alters.GetGuardedAsync(systemId, alterId, PrincipalId, ct);
         if (alter is not null)
         {
-            alter.AvatarUrl = QualifyAvatar(alter.AvatarUrl, alter.AvatarSource);
+            alter.AvatarUrl = QualifyAvatar(alter);
         }
 
-        return alter is null
-            ? new ErrorResponse("Alter not found.", ErrorCodes.AlterNotFound, System.Net.HttpStatusCode.NotFound)
-            : alter;
+        return OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
     }
 
     //TODO: To ensure route works as expected
     [HttpGet("tags")]
+    [SystemMustExist]
     public async Task<Response<IReadOnlyList<TagPublicReadModel>>> ListTags([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var tags = await _tags.ListGuardedAsync(systemId, PrincipalId, ct);
         return new SuccessResponse<IReadOnlyList<TagPublicReadModel>>(tags);
     }
 
     [HttpGet("tags/{tagId}")]
+    [SystemMustExist]
     public async Task<Response<TagPublicReadModel>> ShowTag([FromRoute] SystemId systemId, [FromRoute] TagId tagId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var tag = await _tags.GetGuardedAsync(systemId, tagId, PrincipalId, ct);
-        return tag is null
-            ? new ErrorResponse("Tag not found.", ErrorCodes.TagNotFound, System.Net.HttpStatusCode.NotFound)
-            : tag;
+        return OkOrNotFound(tag, "Tag not found.", ErrorCodes.TagNotFound);
     }
 
     //TODO: To ensure route works as expected
     [HttpGet("fronting")]
+    [SystemMustExist]
     public async Task<Response<IReadOnlyList<FrontActiveReadModel>>> ListFronting([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var fronts = await _fronting.ListActiveGuardedAsync(systemId, PrincipalId, ct);
         return new SuccessResponse<IReadOnlyList<FrontActiveReadModel>>(fronts);
     }
 
     [HttpGet("batch")]
+    [SystemMustExist]
     public async Task<Response<PublicSystemBatchReadModel>> Batch([FromRoute] SystemId systemId, CancellationToken ct)
     {
-        if (!await SystemExistsAsync(systemId, ct))
-        {
-            return new ErrorResponse("System not found.", ErrorCodes.SystemNotFound, System.Net.HttpStatusCode.NotFound);
-        }
-
         var principalId = PrincipalId;
         // Semantic self-check. RepresentsSameUserAs compares scoped-to-scoped when both
         // sides carry a region prefix, so a cross-region collision (same raw id, different
@@ -150,18 +118,12 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         await Task.WhenAll(altersTask, tagsTask, friendshipTask);
 
         var batchAlters = altersTask.Result;
-        foreach (var a in batchAlters) a.AvatarUrl = QualifyAvatar(a.AvatarUrl, a.AvatarSource);
+        foreach (var a in batchAlters) a.AvatarUrl = QualifyAvatar(a);
 
         var friendship = friendshipTask.Result;
         if (friendship is not null)
         {
-            friendship = friendship with
-            {
-                Friend = friendship.Friend with { AvatarUrl = QualifyAvatar(friendship.Friend.AvatarUrl, friendship.Friend.AvatarSource) },
-                Fronting = friendship.Fronting
-                    .Select(f => f with { Alter = f.Alter with { AvatarUrl = QualifyAvatar(f.Alter.AvatarUrl, f.Alter.AvatarSource) } })
-                    .ToList()
-            };
+            friendship = QualifyFriendship(friendship);
         }
 
         return new PublicSystemBatchReadModel(
@@ -170,9 +132,4 @@ public sealed class PublicSystemsController : InterfoldControllerBase
             Alters: batchAlters);
     }
 
-    private async Task<bool> SystemExistsAsync(SystemId systemId, CancellationToken ct)
-    {
-        var profile = await _accounts.GetPublicProfileAsync(systemId, ct);
-        return profile is not null;
-    }
 }

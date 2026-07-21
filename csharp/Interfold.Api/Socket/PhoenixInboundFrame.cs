@@ -4,6 +4,7 @@ using Interfold.Contracts;
 
 namespace Interfold.Api.Socket;
 
+//TODO: Move to another place?
 /// <summary>
 /// A parsed inbound Phoenix frame — either the array format
 /// (<c>[join_ref, ref, topic, event, payload]</c>) or the object format
@@ -25,6 +26,7 @@ internal sealed record PhoenixInboundFrame(
     string? JoinReference,
     bool ReplyAsArrayFrame)
 {
+	//TODO: To make more simple 
     public static bool TryParse(string frame, [NotNullWhen(true)] out PhoenixInboundFrame? result)
     {
         result = null;

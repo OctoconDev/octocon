@@ -50,21 +50,29 @@ public static class EnumWireExtensions
     /// (the historical default); unknown non-empty values throw so an operator typo doesn't silently
     /// degrade a Primary to an Auxiliary.
     /// </summary>
-    public static NodeGroup ParseNodeGroup(string? raw)
+    public static T ParseWithDefault<T>(string? raw, T defaultValue, Func<string, string> errorProvider) where T : struct, Enum
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return NodeGroup.Auxiliary;
+            return defaultValue;
         }
 
-        if (raw.TryParseWire<NodeGroup>(out var group))
+        if (raw.TryParseWire<T>(out var value))
         {
-            return group;
+            return value;
         }
 
-        throw new InvalidOperationException(
-            $"Unrecognised node group '{raw.Trim()}'. Valid values: primary, auxiliary, sidecar.");
+        throw new InvalidOperationException(errorProvider(raw.Trim()));
     }
+
+    /// <summary>
+    /// Parses a raw <c>OCTOCON_NODE_GROUP</c> / <c>FLY_PROCESS_GROUP</c> env value into a
+    /// <see cref="NodeGroup"/>. Null / empty / whitespace resolves to <see cref="NodeGroup.Auxiliary"/>
+    /// (the historical default); unknown non-empty values throw so an operator typo doesn't silently
+    /// degrade a Primary to an Auxiliary.
+    /// </summary>
+    public static NodeGroup ParseNodeGroup(string? raw)
+        => ParseWithDefault(raw, NodeGroup.Auxiliary, trimmed => $"Unrecognised node group '{trimmed}'. Valid values: primary, auxiliary, sidecar.");
 
     /// <summary>
     /// Parses a raw <c>OCTOCON_SCYLLA_KEYSPACE</c> / <c>databaseMode</c>-preview string into a
@@ -73,20 +81,7 @@ public static class EnumWireExtensions
     /// <see cref="ParseNodeGroup"/>.
     /// </summary>
     public static ScyllaKeyspace ParseScyllaKeyspace(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return ScyllaKeyspace.Nam;
-        }
-
-        if (raw.TryParseWire<ScyllaKeyspace>(out var keyspace))
-        {
-            return keyspace;
-        }
-
-        throw new InvalidOperationException(
-            $"Unrecognised scylla keyspace '{raw.Trim()}'. Valid values: nam, eur, sam, sas, eas, ocn, gdpr.");
-    }
+        => ParseWithDefault(raw, ScyllaKeyspace.Nam, trimmed => $"Unrecognised scylla keyspace '{trimmed}'. Valid values: nam, eur, sam, sas, eas, ocn, gdpr.");
 
     /// <summary>
     /// Parses a raw <c>OCTOCON_PERSISTENCE</c> env value into a <see cref="PersistenceMode"/>.
@@ -95,18 +90,5 @@ public static class EnumWireExtensions
     /// rather than as a silent switch to the wrong backend.
     /// </summary>
     public static PersistenceMode ParsePersistenceMode(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return PersistenceMode.ScyllaPostgres;
-        }
-
-        if (raw.TryParseWire<PersistenceMode>(out var mode))
-        {
-            return mode;
-        }
-
-        throw new InvalidOperationException(
-            $"Unsupported OCTOCON_PERSISTENCE value '{raw.Trim()}'. Expected: scylla-postgres | inmemory.");
-    }
+        => ParseWithDefault(raw, PersistenceMode.ScyllaPostgres, trimmed => $"Unsupported OCTOCON_PERSISTENCE value '{trimmed}'. Expected: scylla-postgres | inmemory.");
 }

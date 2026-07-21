@@ -1,8 +1,6 @@
 using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
+using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -16,40 +14,32 @@ public class TagsControllerTests(IWebFactoryFixture fixture) : BaseEndpointTest
     {
         await RunSoakAsync(fixture.Factory, async (client, key) =>
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/tags")
-            {
-                Content = JsonContent.Create(new { name = "SoakTag" })
-            };
-            req.Headers.Add("X-Interfold-Idempotency-Key", key);
-            return await client.SendAsync(req);
+            return await client.SendAsJsonAsync(
+                HttpMethod.Post, "/api/systems/me/tags",
+                new CreateTagRequest("SoakTag", ParentTagId: null),
+                "soak-default-principal",
+                idempotencyKey: key);
         });
     }
-    
+
     [Test]
     public async Task TagParent_SetAndRemove_Returns204()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-tag-parent";
         var parentTagId = await CreateTagAsync(client, principal, "ParentTag");
         var childTagId = await CreateTagAsync(client, principal, "ChildTag");
 
-        using var setReq = new HttpRequestMessage(HttpMethod.Post, $"/api/systems/me/tags/{childTagId}/parent")
-        {
-            Content = JsonContent.Create(new { parentTagId }, options: new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower })
-        };
-        AttachPrincipalAuth(setReq, client, principal);
-        var setRes = await client.SendAsync(setReq);
+        using var setRes = await client.SendAsJsonAsync(
+            HttpMethod.Post, $"/api/systems/me/tags/{childTagId}/parent",
+            new SetParentRequest(parentTagId),
+            principal);
 
-        using var removeReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/tags/{childTagId}/parent")
-        {
-            Content = JsonContent.Create(new { })
-        };
-        AttachPrincipalAuth(removeReq, client, principal);
-        var removeRes = await client.SendAsync(removeReq);
+        using var removeRes = await client.SendAsJsonAsync(
+            HttpMethod.Delete, $"/api/systems/me/tags/{childTagId}/parent",
+            new SetParentRequest(ParentTagId: null),
+            principal);
 
         using (Assert.Multiple())
         {

@@ -3,14 +3,17 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Web;
 using Interfold.Api.Services;
+using Interfold.Api.SimplyPlural;
 using Interfold.Contracts;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Domain.Abstractions;
+using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
+using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -30,7 +33,7 @@ namespace Interfold.IntegrationTests.SimplyPluralImport;
 /// </summary>
 public sealed class SpImportTests : BaseEndpointTest
 {
-    private static SystemId Uid() => new($"sys-{Guid.NewGuid():N}"[..16]);
+    private static SystemId Uid() => TestIds.NewTypedSystemId("sys", maxLen: 16);
     private static string MemberUuid() => Guid.NewGuid().ToString("N");
 
     // Synthetic timestamps (ms since Unix epoch). The whole point of this test file is to
@@ -1135,7 +1138,7 @@ public sealed class SpImportTests : BaseEndpointTest
             .OnGet($"/v1/polls/{sysId}", pollsJson ?? "[]");
     }
 
-    private static async Task<(SpImportResult Result, IFrontingRepository FrontingRepo, IPollRepository PollRepo, ISettingsFieldRepository FieldRepo, ITagRepository TagRepo, CapturingLogger Logger)> RunImportAsync(
+    private static async Task<(ImportJobOutcome Result, IFrontingRepository FrontingRepo, IPollRepository PollRepo, ISettingsFieldRepository FieldRepo, ITagRepository TagRepo, CapturingLogger Logger)> RunImportAsync(
         TestServices.StubSpHandler stub,
         SystemId systemId)
     {
@@ -1155,11 +1158,16 @@ public sealed class SpImportTests : BaseEndpointTest
 
         services.AddOptions<AuthenticationConfiguration>();
         services.AddSingleton<IAvatarStorage, NullAvatarStorage>();
+        // SimplyPluralImportService takes TimeProvider via ctor injection (R2-C15).
+        services.AddSingleton(TimeProvider.System);
 
         services.AddHttpClient(HttpClientNames.SimplyPlural)
             .ConfigurePrimaryHttpMessageHandler(() => stub);
 
-        services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
+        // -Core overload skips the async IImportJobRunner queue consumer that the full
+        // AddSimplyPluralImport extension registers (Program.cs uses that). Tests drive
+        // ImportAsync directly so the runner would be dead weight.
+        services.AddSimplyPluralImportCore();
 
         await using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();

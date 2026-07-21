@@ -1,4 +1,6 @@
 using System.Net;
+using Interfold.Api.Models;
+using Interfold.Contracts.Enums;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Controllers;
@@ -13,18 +15,13 @@ public class NodeRoleControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     {
         using var client = fixture.Factory.CreateClient();
 
-        var response = await client.GetAsync("/health/node-role");
-
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-
-        var body = await response.Content.ReadAsStringAsync();
-        var role = ReadStringField(body, "role");
-        var ownsSingletons = ReadBoolField(body, "owns_singletons");
+        using var response = await client.GetAsync("/health/node-role");
+        var body = await response.ReadJsonAsync<NodeRoleResponse>(HttpStatusCode.OK);
 
         using (Assert.Multiple())
         {
-            await Assert.That(role).IsEqualTo("auxiliary");
-            await Assert.That(ownsSingletons).IsFalse();
+            await Assert.That(body.Role).IsEqualTo(NodeGroup.Auxiliary);
+            await Assert.That(body.OwnsSingletons).IsFalse();
         }
     }
 
@@ -33,8 +30,7 @@ public class NodeRoleControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
     {
         using var client = fixture.Factory.CreateClient();
 
-        // Un-authenticated request — must not return 401.
-        var response = await client.GetAsync("/health/node-role");
+        using var response = await client.GetAsync("/health/node-role");
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }

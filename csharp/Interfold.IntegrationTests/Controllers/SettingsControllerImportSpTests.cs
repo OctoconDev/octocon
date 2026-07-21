@@ -1,9 +1,11 @@
 using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
+using Interfold.Api.Models;
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -49,31 +51,23 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     [Test]
     public async Task ImportSp_FreshDispatch_Returns202WithOperationId()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var principal = $"sp-import-202-{Guid.NewGuid():N}"[..24];
+        using var client = TestClient.NoRedirect(fixture);
+        var principal = TestIds.NewSystemId("sp-import-202", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/import-sp")
-        {
-            Content = JsonContent.Create(new { token = "synthetic-sp-token" }),
-        };
-        AttachPrincipalAuth(req, client, principal);
-
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/import-sp",
+            new SettingsImportRequest(new ImportToken("synthetic-sp-token")),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<ImportDispatchResponse>(HttpStatusCode.Accepted);
 
         using (Assert.Multiple())
         {
-            await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.Accepted)
-                .Because($"Expected 202 Accepted for the async dispatch (the load-bearing change of Phase 3b), got {(int)res.StatusCode}. Body: {body}");
-
-            var operationId = ReadNestedString(body, "data", "operation_id");
-            var status = ReadNestedString(body, "data", "status");
-            await Assert.That(operationId).IsNotNullOrWhiteSpace()
+            await Assert.That(envelope.Data.OperationId.Value)
+                .IsNotEqualTo(Guid.Empty)
                 .Because("The response body must carry the dispatcher's operation_id; otherwise the correlation handle promised in ImportDispatchResponse never reaches the caller.");
-            await Assert.That(Guid.TryParse(operationId, out _)).IsTrue()
-                .Because($"operation_id must be a parseable GUID (TimeUuid); got '{operationId}'.");
-            await Assert.That(status).IsEqualTo("queued")
+            await Assert.That(envelope.Data.Status)
+                .IsEqualTo(ImportOperationDispatchStatus.Queued)
                 .Because("A fresh dispatch against an empty per-system slot must surface as 'queued'; 'running' would indicate the controller is reporting the wrong claim outcome.");
         }
     }
@@ -86,25 +80,20 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     [Test]
     public async Task ImportPk_FreshDispatch_Returns202WithOperationId()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var principal = $"pk-import-202-{Guid.NewGuid():N}"[..24];
+        using var client = TestClient.NoRedirect(fixture);
+        var principal = TestIds.NewSystemId("pk-import-202", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/import-pk")
-        {
-            Content = JsonContent.Create(new { token = "synthetic-pk-token" }),
-        };
-        AttachPrincipalAuth(req, client, principal);
-
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/import-pk",
+            new SettingsImportRequest(new ImportToken("synthetic-pk-token")),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<ImportDispatchResponse>(HttpStatusCode.Accepted);
 
         using (Assert.Multiple())
         {
-            await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.Accepted)
-                .Because($"PK dispatch must also return 202 — both platforms must share the same async-dispatch contract. Body: {body}");
-            await Assert.That(ReadNestedString(body, "data", "status")).IsEqualTo("queued");
-            await Assert.That(Guid.TryParse(ReadNestedString(body, "data", "operation_id"), out _)).IsTrue();
+            await Assert.That(envelope.Data.Status).IsEqualTo(ImportOperationDispatchStatus.Queued);
+            await Assert.That(envelope.Data.OperationId.Value).IsNotEqualTo(Guid.Empty);
         }
     }
 
@@ -119,8 +108,8 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
     [Test]
     public async Task ImportSp_AfterDispatch_WorkerProcessesAndPublishesFailedEvent(CancellationToken token)
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var principal = $"sp-import-wf-{Guid.NewGuid():N}"[..24];
+        using var client = TestClient.NoRedirect(fixture);
+        var principal = TestIds.NewSystemId("sp-import-wf", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
         // Subscribe BEFORE dispatching so we can't miss the publish.
@@ -130,16 +119,13 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
             .SubscribeAsync<SimplyPluralImportFailedEvent>(subscribeCts.Token)
             .GetAsyncEnumerator(subscribeCts.Token);
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/import-sp")
-        {
-            Content = JsonContent.Create(new { token = "synthetic-sp-token" }),
-        };
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req, token);
-        var body = await res.Content.ReadAsStringAsync(token);
-
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/import-sp",
+            new SettingsImportRequest(new ImportToken("synthetic-sp-token")),
+            principal,
+            ct: token);
         await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.Accepted)
-            .Because($"Setup invariant: this test only proves the worker runs after a successful dispatch. Body: {body}");
+            .Because($"Setup invariant: this test only proves the worker runs after a successful dispatch. Body: {await res.Content.ReadAsStringAsync(token)}");
 
         // Drain the bus until we see a failed event for OUR principal (other parallel
         // tests may share the bus). The worker either gracefully fails or throws — both
@@ -168,33 +154,29 @@ public sealed class SettingsControllerImportSpTests(InMemoryWebFactoryFixture fi
 
     /// <summary>
     /// Empty-token rejection: the handler must reject before claiming a slot, the
-    /// controller must surface a non-202 error response. The exact error shape (4xx +
-    /// JSON error body) is governed by the existing <c>InterfoldControllerBase</c>
-    /// conflict mapping, but the load-bearing contract here is "no 2xx for empty input"
-    /// so a runaway client can't burn LWT slots with garbage requests.
+    /// controller must surface a non-202 error response. The <see cref="ImportToken"/>
+    /// wrapper accepts empty strings at construction (the whole point of the test is
+    /// to see the handler reject them), so we build the record directly with an empty
+    /// token rather than the raw JSON body the pre-sweep test used.
     /// </summary>
     [Test]
     public async Task ImportSp_EmptyToken_ReturnsErrorWithoutAccepting()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var principal = $"sp-import-bad-{Guid.NewGuid():N}"[..24];
+        using var client = TestClient.NoRedirect(fixture);
+        var principal = TestIds.NewSystemId("sp-import-bad", maxLen: 24);
         await EnsureUserExistsAsync(client, principal);
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/import-sp")
-        {
-            Content = JsonContent.Create(new { token = "" }),
-        };
-        AttachPrincipalAuth(req, client, principal);
-
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/import-sp",
+            new SettingsImportRequest(new ImportToken("")),
+            principal);
 
         using (Assert.Multiple())
         {
             await Assert.That(res.StatusCode).IsNotEqualTo(HttpStatusCode.Accepted)
-                .Because($"Empty tokens must not be Accepted — otherwise the handler is silently producing valid dispatches for garbage input. Body: {body}");
+                .Because($"Empty tokens must not be Accepted — otherwise the handler is silently producing valid dispatches for garbage input. Body: {await res.Content.ReadAsStringAsync()}");
             await Assert.That((int)res.StatusCode).IsGreaterThanOrEqualTo(400)
-                .Because($"Empty token is invalid input and must surface as a 4xx error response, got {(int)res.StatusCode}. Body: {body}");
+                .Because($"Empty token is invalid input and must surface as a 4xx error response, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
         }
     }
 }

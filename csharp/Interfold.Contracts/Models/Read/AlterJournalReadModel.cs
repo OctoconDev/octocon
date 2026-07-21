@@ -1,3 +1,4 @@
+using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
 using Interfold.Contracts.Models;
 

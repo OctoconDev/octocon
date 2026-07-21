@@ -10,77 +10,42 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Friendships;
 
-public sealed class SetFriendTrustCommandHandler : ICommandHandler<SetFriendTrustCommand, FriendshipCommandResult>
+public sealed class SetFriendTrustCommandHandler : IdempotentCommandHandler<SetFriendTrustCommand, FriendshipCommandResult>
 {
     private readonly IFriendshipRepository _repository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public SetFriendTrustCommandHandler(
         IFriendshipRepository repository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _repository = repository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<FriendshipCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FriendshipTrust;
+
+protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SetFriendTrustCommand> command,
         CancellationToken cancellationToken = default)
     {
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
 
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-            {
-                return RejectDuplicate(command, EntityRefs.FriendshipTrust);
-            }
-
-            var replay = CommandSerialization.Deserialize<FriendshipCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-            {
-                return CommandExecutionResult<FriendshipCommandResult>.Success(replay with { Replay = true });
-            }
-        }
-
-        var canonicalFriendSystemId = FriendshipIdNormalization.CanonicalizeForPrincipal(
+        var canonicalFriendSystemId = FriendshipCommandNormalization.ComposePeerId(
             command.PrincipalId,
             command.Payload.FriendSystemId);
 
-        var updated = await _repository.SetTrustedAsync(
-            command.PrincipalId,
-            canonicalFriendSystemId,
-            command.Payload.Trusted,
-            cancellationToken);
-
-        if (!updated)
-        {
-            return RejectInvariant(command, EntityRefs.FriendshipNotFound);
-        }
-
-        var result = new FriendshipCommandResult(
-            command.PrincipalId,
-            canonicalFriendSystemId,
-            command.Payload.Trusted ? FriendshipAction.Trusted : FriendshipAction.Untrusted,
-            Replay: false);
-
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken);
+        if (await FriendshipCommandFlow.ExecuteMutationOrRejectAsync(
+                command,
+                ct => _repository.SetTrustedAsync(
+                    command.PrincipalId,
+                    canonicalFriendSystemId,
+                    command.Payload.Trusted,
+                    ct),
+                EntityRefs.FriendshipNotFound,
+                cancellationToken) is { } trustReject)
+            return trustReject;
 
         if (command.Payload.Trusted)
         {
@@ -95,18 +60,10 @@ public sealed class SetFriendTrustCommandHandler : ICommandHandler<SetFriendTrus
                 cancellationToken);
         }
 
-        return CommandExecutionResult<FriendshipCommandResult>.Success(result);
+        return FriendshipCommandFlow.Success(
+            command.PrincipalId,
+            canonicalFriendSystemId,
+            command.Payload.Trusted ? FriendshipAction.Trusted : FriendshipAction.Untrusted);
     }
 
-    private static CommandExecutionResult<FriendshipCommandResult> RejectDuplicate(
-        CommandEnvelope<SetFriendTrustCommand> command,
-        EntityRef entityRef)
-        => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
-
-    private static CommandExecutionResult<FriendshipCommandResult> RejectInvariant(
-        CommandEnvelope<SetFriendTrustCommand> command,
-        EntityRef entityRef)
-        => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

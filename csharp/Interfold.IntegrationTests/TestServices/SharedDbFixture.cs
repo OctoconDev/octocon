@@ -197,7 +197,10 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             $"Host={pgEndpoint.Host};Port={pgEndpoint.Port};" +
             $"Username={DbInitHelper.PostgresInitUser};Password={TestDbCredentials.PostgresInitPassword};" +
             "Database=postgres;SSL Mode=Disable";
-        await DbInitHelper.WaitForPostgresAsync(initConnectionString, cancellationToken);
+        await DbInitHelper.WaitForPostgresAsync(
+            initConnectionString,
+            new Interfold.DatabaseBootstrap.PostgresReadinessOptions(TimeSpan.FromMinutes(6), 3),
+            cancellationToken);
         // The seed writes the *Scylla* contact-point row into internal.secrets. We pass
         // localhost+default-port as a placeholder when neither backend is enabled (an
         // InMemory-only run never instantiates this fixture, so the placeholder only matters

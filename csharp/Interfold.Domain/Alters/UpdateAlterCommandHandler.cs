@@ -9,10 +9,9 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Alters;
 
-public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterCommand, AlterCommandResult>
+public sealed class UpdateAlterCommandHandler : IdempotentCommandHandler<UpdateAlterCommand, AlterCommandResult>
 {
     private readonly IAlterRepository _alterRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public UpdateAlterCommandHandler(
@@ -20,21 +19,21 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus
     )
-    {
+:base(idempotencyStore)    {
         _alterRepository = alterRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<AlterCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.AlterUpdate;
+
+protected override async Task<CommandExecutionResult<AlterCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<UpdateAlterCommand> command,
         CancellationToken cancellationToken = default
     )
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-        {
-            return RejectInvariant(command, EntityRefs.AlterId);
-        }
+        if (AlterCommandFlow.RejectIfInvalidAlterId(command, command.Payload.AlterId, EntityRefs.AlterId) is { } rangeReject)
+            return rangeReject;
 
         if (!HasAnyMutableField(command.Payload))
         {
@@ -49,36 +48,8 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
             return RejectInvariant(command, EntityRefs.AlterAvatarSourceRequired);
         }
 
-        //We have to ignore UpdatedAt in the payload when calculating the hash, since it is generated upon the endpoint being called.
-        var payloadJson = CommandSerialization.Serialize(command.Payload with { UpdatedAt = default });
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken
-        );
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-            {
-                return RejectDuplicate(command, EntityRefs.AlterUpdate);
-            }
-
-            var replay = CommandSerialization.Deserialize<AlterCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-            {
-                return CommandExecutionResult<AlterCommandResult>.Success(replay with { Replay = true });
-            }
-        }
-
-        var exists = await _alterRepository.ExistsAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
-        if (!exists)
-        {
-            return RejectInvariant(command, EntityRefs.AlterNotFound);
-        }
+        if (await AlterCommandFlow.RejectIfAlterNotFoundAsync(command, _alterRepository, command.Payload.AlterId, EntityRefs.AlterNotFound, cancellationToken) is { } notFoundReject)
+            return notFoundReject;
 
         if (!string.IsNullOrWhiteSpace(command.Payload.Alias))
         {
@@ -95,29 +66,13 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
             }
         }
 
-        var updated = await _alterRepository.UpdateAsync(command.PrincipalId, command.Payload, cancellationToken);
-        if (!updated)
-        {
-            return RejectInvariant(command, EntityRefs.AlterUpdateFailed);
-        }
-
-        var result = new AlterCommandResult(command.PrincipalId, command.Payload.AlterId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken
-        );
-
-        await _eventBus.PublishAsync(
-            new AlterUpdatedEvent(command.PrincipalId, command.Payload.AlterId),
+        return await AlterCommandFlow.ExecuteMutationAsync(
+            command,
+            command.Payload.AlterId,
+            ct => _alterRepository.UpdateAsync(command.PrincipalId, command.Payload, ct),
+            EntityRefs.AlterUpdateFailed,
+            ct => _eventBus.PublishAsync(new AlterUpdatedEvent(command.PrincipalId, command.Payload.AlterId), ct),
             cancellationToken);
-
-        return CommandExecutionResult<AlterCommandResult>.Success(result);
     }
 
     private static bool HasAnyMutableField(UpdateAlterCommand payload) =>
@@ -136,29 +91,4 @@ public sealed class UpdateAlterCommandHandler : ICommandHandler<UpdateAlterComma
         payload.Archived is not null ||
         payload.Pinned is not null;
 
-    private static CommandExecutionResult<AlterCommandResult> RejectDuplicate(
-        CommandEnvelope<UpdateAlterCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<AlterCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictDuplicate,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.NoRetry
-            )
-        );
-
-    private static CommandExecutionResult<AlterCommandResult> RejectInvariant(
-        CommandEnvelope<UpdateAlterCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<AlterCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictInvariant,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.ManualMergeRequired
-            )
-        );
 }

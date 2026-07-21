@@ -29,13 +29,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 public class UbuntuPrereqsPhaseTests(UbuntuBarePrereqsDinDFixture dinD)
 {
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx, teardown: false);
 
     [Test]
     [NotInParallel("ubuntu-bare-prereqs")]
@@ -123,13 +117,7 @@ public class UbuntuPrereqsPhaseTests(UbuntuBarePrereqsDinDFixture dinD)
 public class FedoraPrereqsPhaseTests(FedoraBarePrereqsDinDFixture dinD)
 {
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx, teardown: false);
 
     [Test]
     [NotInParallel("fedora-bare-prereqs")]
@@ -148,3 +136,5 @@ public class FedoraPrereqsPhaseTests(FedoraBarePrereqsDinDFixture dinD)
             .Because($"docker must be on PATH after PrerequisitesPhase on Fedora; stdout={postPath.Stdout}, stderr={postPath.Stderr}");
     }
 }
+
+

@@ -20,18 +20,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class LaunchPhaseTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
-    private static string BadImageConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.bad-image.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task UpCommandLaunchesPrePublishedStack()
@@ -39,11 +30,7 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
         // Stage the stack via `publish` first (no DB init, no launch), then run `up` standalone.
         // This is the supported workflow for operators who want to inspect the compose file
         // before turning the lights on.
-        var scratch = await dinD.CreateScratchAsync(nameof(UpCommandLaunchesPrePublishedStack), TestConfigJsonPath);
-
-        var publish = await dinD.RunBootstrapperAsync($"{nameof(UpCommandLaunchesPrePublishedStack)}-publish",
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(UpCommandLaunchesPrePublishedStack), TestConfigPaths.DefaultConfig);
 
         // `up` doesn't run db-init by default (the Orchestrator routes only Bootstrap/Rotate to it),
         // so the API would fail health checks because the postgres admin user wouldn't exist yet.
@@ -51,15 +38,16 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
         // then `up` brings them back. To keep this test simple and still exercise the `up` code
         // path, we drive a full bootstrap once and then a follow-up `up` against the same scratch
         // - this confirms `up` correctly finds the pre-published compose file and re-launches it.
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(UpCommandLaunchesPrePublishedStack)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
+        var bootstrap = await dinD.RunOnScratchAsync(scratch, $"{nameof(UpCommandLaunchesPrePublishedStack)}-bootstrap", "bootstrap",
+            "--skip-prereqs");
         await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because(bootstrap.Stderr);
 
         // Stop the stack (compose down keeps volumes around) so we can verify `up` re-launches it.
         await dinD.ExecAsync(
             ["docker", "compose", "-f", $"{scratch.OutputDir}/docker-compose.yaml", "stop"]);
 
+        // `up` deliberately omits --config (it operates on the pre-published output dir only),
+        // so we can't use RunOnScratchAsync here — spell out the arg list by hand.
         var up = await dinD.RunBootstrapperAsync($"{nameof(UpCommandLaunchesPrePublishedStack)}-up",
             ["up", "--output-dir", scratch.OutputDir, "--non-interactive"]);
         await Assert.That(up.ExitCode).IsEqualTo(0)
@@ -74,11 +62,10 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
         // surfaces that via logger.Error → captured stderr. We don't drive the
         // WaitForApiHealthyAsync timeout directly (it's 5 minutes and would blow the test budget),
         // but this test still pins the "bad image -> non-zero exit + diagnostic output" contract.
-        var scratch = await dinD.CreateScratchAsync(nameof(HealthTimeoutDumpsComposeLogs), BadImageConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(HealthTimeoutDumpsComposeLogs), TestConfigPaths.BadImageConfig);
 
-        var result = await dinD.RunBootstrapperAsync(nameof(HealthTimeoutDumpsComposeLogs),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(HealthTimeoutDumpsComposeLogs), "bootstrap",
+            "--skip-prereqs");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("bootstrap with a non-pullable apiImage must exit non-zero");
@@ -102,11 +89,10 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
         // explicit canary: LaunchPhase must emit a polling line for the allocator's port
         // specifically, so a future refactor that hard-codes 5000 / 4200 / 9042 in the
         // launch path is caught directly.
-        var scratch = await dinD.CreateScratchAsync(nameof(RespectsCustomApiHttpPort), TestConfigJsonPath);
+        var scratch = await dinD.CreateScratchAsync(nameof(RespectsCustomApiHttpPort), TestConfigPaths.DefaultConfig);
 
-        var result = await dinD.RunBootstrapperAsync(nameof(RespectsCustomApiHttpPort),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(RespectsCustomApiHttpPort), "bootstrap",
+            "--skip-prereqs");
 
         // The test passes whether or not the API ultimately reached healthy state — what we're
         // pinning is that the launch phase polled the allocated port. If the API doesn't come up
@@ -117,3 +103,6 @@ public class LaunchPhaseTests(UbuntuDinDFixture dinD)
             .Because($"LaunchPhase should poll the allocated apiHttp port ({expectedUrl}): {result.Stderr}");
     }
 }
+
+
+

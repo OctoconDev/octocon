@@ -10,34 +10,28 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class RelocateFieldCommandHandler : ICommandHandler<RelocateFieldCommand, SettingsCommandResult>
+public sealed class RelocateFieldCommandHandler : IdempotentCommandHandler<RelocateFieldCommand, SettingsCommandResult>
 {
     private readonly ISettingsFieldRepository _fieldRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public RelocateFieldCommandHandler(ISettingsFieldRepository fieldRepository, IIdempotencyStore idempotencyStore, IClusterEventBus eventBus)
+        : base(idempotencyStore)
     {
         _fieldRepository = fieldRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<RelocateFieldCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsFieldRelocate;
+
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<RelocateFieldCommand> command,
+        CancellationToken cancellationToken)
+        => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
-            SettingsAction.FieldRelocated,
-            EntityRefs.SettingsFieldRelocate,
-            _idempotencyStore,
             ct => _fieldRepository.RelocateAsync(command.PrincipalId, command.Payload.FieldId, command.Payload.Index, ct),
+            EntityRefs.SettingsActionFailed(SettingsAction.FieldRelocated),
+            SettingsAction.FieldRelocated,
+            ct => _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), ct),
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
 }

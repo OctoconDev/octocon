@@ -35,8 +35,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<IReadOnlyList<PollReadModel>> ListAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
             return Task.FromResult<IReadOnlyList<PollReadModel>>(Array.Empty<PollReadModel>());
 
         // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
@@ -51,8 +50,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<PollReadModel?> GetAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(pollId, out var poll))
+        if (!TryGetPoll(systemId, pollId, out var poll))
             return Task.FromResult<PollReadModel?>(null);
 
         return Task.FromResult<PollReadModel?>(ToReadModel(poll));
@@ -60,7 +58,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<PollId?> CreateAsync(SystemId systemId, CreatePollCommand command, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<PollId, PollState>());
         PollId id = new(Guid.NewGuid());
 
@@ -81,15 +79,13 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<bool> ExistsAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
-        var exists = _bySystem.TryGetValue(systemKey, out var store) && store.ContainsKey(pollId);
+        var exists = TryGetStore(systemId, out var store) && store.ContainsKey(pollId);
         return Task.FromResult(exists);
     }
 
     public Task<bool> UpdateAsync(SystemId systemId, UpdatePollCommand command, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store) || !store.TryGetValue(command.Id, out var poll))
+        if (!TryGetPoll(systemId, command.Id, out var poll))
             return Task.FromResult(false);
 
         if (command.Title is not null) poll.Title = command.Title;
@@ -103,8 +99,7 @@ public sealed class InMemoryPollRepository : IPollRepository
 
     public Task<bool> DeleteAsync(SystemId systemId, PollId pollId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
             return Task.FromResult(false);
 
         return Task.FromResult(store.TryRemove(pollId, out _));
@@ -115,8 +110,7 @@ public sealed class InMemoryPollRepository : IPollRepository
     // filters those entries while leaving every other member untouched.
     public Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
-        var systemKey = GetSystemKey(systemId);
-        if (!_bySystem.TryGetValue(systemKey, out var store))
+        if (!TryGetStore(systemId, out var store))
             return Task.CompletedTask;
 
         foreach (var poll in store.Values)
@@ -131,6 +125,23 @@ public sealed class InMemoryPollRepository : IPollRepository
         return Task.CompletedTask;
     }
 
+    private bool TryGetStore(SystemId systemId, out ConcurrentDictionary<PollId, PollState> store)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+        return _bySystem.TryGetValue(systemKey, out store!);
+    }
+
+    private bool TryGetPoll(SystemId systemId, PollId pollId, out PollState poll)
+    {
+        if (TryGetStore(systemId, out var store) && store.TryGetValue(pollId, out poll!))
+        {
+            return true;
+        }
+
+        poll = null!;
+        return false;
+    }
+
     private static PollReadModel ToReadModel(PollState state)
         => new(
             state.PollId,
@@ -143,6 +154,5 @@ public sealed class InMemoryPollRepository : IPollRepository
             state.InsertedAt,
             state.UpdatedAt
         );
-
-    private ScopedSystemId GetSystemKey(SystemId systemId) => InMemoryStorageKeys.ForSystem(_regionContext, systemId);
 }
+

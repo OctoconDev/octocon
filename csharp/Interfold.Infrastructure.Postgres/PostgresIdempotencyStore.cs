@@ -22,36 +22,11 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
         _options = options.Value;
     }
 
-    public Task<IdempotencyMatch?> FindAsync(
+    public async Task<IdempotencyMatch?> FindAsync(
         SystemId principalId,
         OperationId operationId,
         IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken = default
-    ) => FindCoreAsync(principalId, operationId, idempotencyKey, cancellationToken);
-
-    public Task SaveAsync(
-        SystemId principalId,
-        OperationId operationId,
-        IdempotencyKey idempotencyKey,
-        string payloadHash,
-        string outcomeHash,
-        string? outcomePayload,
-        CancellationToken cancellationToken = default
-    ) => SaveCoreAsync(
-        principalId,
-        operationId,
-        idempotencyKey,
-        payloadHash,
-        outcomeHash,
-        outcomePayload,
-        cancellationToken
-    );
-
-    private async Task<IdempotencyMatch?> FindCoreAsync(
-        SystemId principalId,
-        OperationId operationId,
-        IdempotencyKey idempotencyKey,
-        CancellationToken cancellationToken
     )
     {
         return await DatabaseTransientRetry.ExecutePostgresAsync(async () =>
@@ -82,14 +57,14 @@ public sealed class PostgresIdempotencyStore : IIdempotencyStore
         }, _options, cancellationToken);
     }
 
-    private async Task SaveCoreAsync(
+    public async Task SaveAsync(
         SystemId principalId,
         OperationId operationId,
         IdempotencyKey idempotencyKey,
         string payloadHash,
         string outcomeHash,
         string? outcomePayload,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken = default
     )
     {
         await DatabaseTransientRetry.ExecutePostgresAsync(async () =>

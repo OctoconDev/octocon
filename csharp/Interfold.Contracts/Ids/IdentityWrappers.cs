@@ -78,13 +78,10 @@ public readonly record struct DiscordId
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class DiscordIdJsonConverter : JsonConverter<DiscordId>
+internal sealed class DiscordIdJsonConverter : StringBackedJsonConverter<DiscordId>
 {
-    public override DiscordId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, DiscordId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override DiscordId Create(string value) => new(value);
+    protected override string GetValue(DiscordId value) => value.Value;
 }
 
 /// <summary>
@@ -111,13 +108,10 @@ public readonly record struct Email
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class EmailJsonConverter : JsonConverter<Email>
+internal sealed class EmailJsonConverter : StringBackedJsonConverter<Email>
 {
-    public override Email Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, Email value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override Email Create(string value) => new(value);
+    protected override string GetValue(Email value) => value.Value;
 }
 
 /// <summary>
@@ -145,11 +139,8 @@ public readonly record struct AppleId
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class AppleIdJsonConverter : JsonConverter<AppleId>
+internal sealed class AppleIdJsonConverter : StringBackedJsonConverter<AppleId>
 {
-    public override AppleId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, AppleId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override AppleId Create(string value) => new(value);
+    protected override string GetValue(AppleId value) => value.Value;
 }

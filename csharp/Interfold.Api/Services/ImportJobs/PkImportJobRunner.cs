@@ -23,6 +23,7 @@ public sealed class PkImportJobRunner : IImportJobRunner
 
     public Task<ImportJobOutcome> RunAsync(ImportJobItem item, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(new ImportJobOutcome(Success: true, AlterCount: 0));
+        return Task.FromResult(new ImportJobOutcome(Success: false, AlterCount: 0,
+            ErrorCode: ImportErrorCode.Unimplemented));
     }
 }

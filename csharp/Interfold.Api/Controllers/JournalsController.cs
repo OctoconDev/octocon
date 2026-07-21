@@ -54,138 +54,62 @@ public sealed class JournalsController : InterfoldControllerBase
     public async Task<Response<JournalReadModel>> Show(EntryId id, CancellationToken ct)
     {
         var entry = await _journalRepository.GetGlobalAsync(PrincipalId, id, ct);
-        return entry is null
-            ? new ErrorResponse("Journal entry not found.", ErrorCodes.JournalEntryNotFound, System.Net.HttpStatusCode.NotFound)
-            : entry;
+        return OkOrNotFound(entry, "Journal entry not found.", ErrorCodes.JournalEntryNotFound);
     }
 
     [HttpPost]
     public async Task<Response<JournalReadModel>> Create([FromBody] CreateGlobalJournalRequest req, CancellationToken ct)
     {
         var principal = PrincipalId;
-        var envelope = new CommandEnvelope<CreateGlobalJournalEntryCommand>(
+        return await DispatchCreatedAsync(
+            _create,
             OperationIds.JournalGlobalCreate,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreateGlobalJournalEntryCommand(req.Title)
-        );
-
-        var execution = await _create.HandleAsync(envelope, ct);
-        if (!execution.Accepted)
-        {
-            return ConflictToError(execution.Conflict!);
-        }
-
-        var entry = await _journalRepository.GetGlobalAsync(principal, execution.Result!.EntryId, ct);
-        if (entry is null)
-            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
-
-        return new SuccessResponse<JournalReadModel>(entry, System.Net.HttpStatusCode.Created, execution.Result.Replay);
+            new CreateGlobalJournalEntryCommand(req.Title),
+            async (res) => await _journalRepository.GetGlobalAsync(principal, res.EntryId, ct),
+            ct);
     }
 
     [HttpPatch("{id}")]
     public async Task<Response> Update(EntryId id, [FromBody] UpdateGlobalJournalRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<UpdateGlobalJournalEntryCommand>(
-            OperationIds.JournalGlobalUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdateGlobalJournalEntryCommand(id, req.Title, req.Content, req.Color)
-        );
-
-        return CommandNoContent(await _update.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_update, OperationIds.JournalGlobalUpdate, new UpdateGlobalJournalEntryCommand(id, req.Title, req.Content, req.Color)
+        , ct);
     }
 
     [HttpDelete("{id}")]
     public async Task<Response> Delete(EntryId id, [FromBody] DeleteGlobalJournalRequest? req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeleteGlobalJournalEntryCommand>(
-            OperationIds.JournalGlobalDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeleteGlobalJournalEntryCommand(id)
-        );
-
-        return CommandNoContent(await _delete.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_delete, OperationIds.JournalGlobalDelete, new DeleteGlobalJournalEntryCommand(id)
+        , ct);
     }
 
     [HttpPost("{id}/lock")]
-    public async Task<Response> Lock(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
-        => await SetLockedInternal(id, true, OperationIds.JournalGlobalLock, req, ct);
+    public Task<Response> Lock(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
+        => DispatchNoContentAsync(_setLocked, OperationIds.JournalGlobalLock, new SetGlobalJournalLockedCommand(id, true), ct);
 
     [HttpPost("{id}/unlock")]
-    public async Task<Response> Unlock(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
-        => await SetLockedInternal(id, false, OperationIds.JournalGlobalUnlock, req, ct);
+    public Task<Response> Unlock(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
+        => DispatchNoContentAsync(_setLocked, OperationIds.JournalGlobalUnlock, new SetGlobalJournalLockedCommand(id, false), ct);
 
     [HttpPost("{id}/pin")]
-    public async Task<Response> Pin(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
-        => await SetPinnedInternal(id, true, OperationIds.JournalGlobalPin, req, ct);
+    public Task<Response> Pin(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
+        => DispatchNoContentAsync(_setPinned, OperationIds.JournalGlobalPin, new SetGlobalJournalPinnedCommand(id, true), ct);
 
     [HttpPost("{id}/unpin")]
-    public async Task<Response> Unpin(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
-        => await SetPinnedInternal(id, false, OperationIds.JournalGlobalUnpin, req, ct);
+    public Task<Response> Unpin(EntryId id, [FromBody] JournalActionRequest? req, CancellationToken ct)
+        => DispatchNoContentAsync(_setPinned, OperationIds.JournalGlobalUnpin, new SetGlobalJournalPinnedCommand(id, false), ct);
 
     [HttpPost("{id}/alter")]
     public async Task<Response> AttachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<AttachAlterToGlobalJournalCommand>(
-            OperationIds.JournalGlobalAttachAlter,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AttachAlterToGlobalJournalCommand(id, req.AlterId)
-        );
-
-        return CommandNoContent(await _attachAlter.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_attachAlter, OperationIds.JournalGlobalAttachAlter, new AttachAlterToGlobalJournalCommand(id, req.AlterId)
+        , ct);
     }
 
     [HttpDelete("{id}/alter")]
     public async Task<Response> DetachAlter(EntryId id, [FromBody] JournalAlterRequest req, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DetachAlterFromGlobalJournalCommand>(
-            OperationIds.JournalGlobalDetachAlter,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DetachAlterFromGlobalJournalCommand(id, req.AlterId)
-        );
-
-        return CommandNoContent(await _detachAlter.HandleAsync(envelope, ct));
-    }
-
-    private async Task<Response> SetLockedInternal(EntryId id, bool locked, OperationId operationId, JournalActionRequest? req, CancellationToken ct)
-    {
-        var envelope = new CommandEnvelope<SetGlobalJournalLockedCommand>(
-            operationId,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetGlobalJournalLockedCommand(id, locked)
-        );
-
-        return CommandNoContent(await _setLocked.HandleAsync(envelope, ct));
-    }
-
-    private async Task<Response> SetPinnedInternal(EntryId id, bool pinned, OperationId operationId, JournalActionRequest? req, CancellationToken ct)
-    {
-        var envelope = new CommandEnvelope<SetGlobalJournalPinnedCommand>(
-            operationId,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SetGlobalJournalPinnedCommand(id, pinned)
-        );
-
-        return CommandNoContent(await _setPinned.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_detachAlter, OperationIds.JournalGlobalDetachAlter, new DetachAlterFromGlobalJournalCommand(id, req.AlterId)
+        , ct);
     }
 }

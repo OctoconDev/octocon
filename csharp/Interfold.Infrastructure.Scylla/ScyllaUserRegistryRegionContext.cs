@@ -182,6 +182,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
                 { Kind: UserRegistryLookupKind.Discord } h => (UserRegistryLookupColumn.DiscordId, h.RawId),
                 { Kind: UserRegistryLookupKind.Region } h => (UserRegistryLookupColumn.UserId, h.RawId),
                 { Kind: UserRegistryLookupKind.Id } h => (UserRegistryLookupColumn.UserId, h.RawId),
+                // Only fires when handle is null (TryParse rejected). Routes bare id through user_id per UserRegistryLookup's opaque-bare-id contract — a new UserRegistryLookupKind must add an explicit branch above.
                 _ => (UserRegistryLookupColumn.UserId, originalInput),
             };
 
@@ -230,8 +231,7 @@ public sealed class ScyllaUserRegistryRegionContext : IRegionContext
             // same user_registry row).
             UserRegistryLookupKind.Region => parsed.RawId,
             UserRegistryLookupKind.Id => parsed.RawId,
-            // Username / Discord handles keep their prefix in the cache key so a username
-            // "abcdefg" doesn't spuriously alias the bare id "abcdefg".
+            // Only Username and Discord land here — both must keep their prefix in the cache key so a username can't alias a bare id. A new UserRegistryLookupKind must add an explicit branch above.
             _ => parsed.OriginalValue,
         };
 

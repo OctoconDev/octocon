@@ -134,87 +134,111 @@ internal static class PublishPhase
                 $"Unhandled databaseMode '{databaseMode}'. Expected: single | multi | cassandra."),
         };
 
+    /// <summary>
+    /// Single source of truth for every operator-tunable Aspire parameter that has to appear in
+    /// BOTH places the publish pipeline reads: (1) the <c>.env</c> replacement dictionary built by
+    /// <see cref="BuildEnvReplacements"/>, and (2) the <c>Parameters:*</c> injection dictionary
+    /// built by <c>PublishInProcessAsync</c>. Each entry returns the paired keys and the value:
+    /// <list type="bullet">
+    ///   <item><c>ConfigKey</c> — the <c>Parameters:*</c> IConfiguration key, i.e. the value
+    ///         <see cref="AppHostParameterKeys"/> exposes; consumed by
+    ///         <c>InterfoldAppHost.Configure</c> via <c>AddParameter</c> calls.</item>
+    ///   <item><c>EnvKey</c> — the upper-snake-cased <c>.env</c> spelling Aspire emits for that
+    ///         parameter (e.g. <c>Parameters:postgres-user</c> ↔ <c>POSTGRES_USER</c>). Kept
+    ///         explicit rather than derived so a future Aspire rename can be handled with a
+    ///         one-line edit here instead of a scattered code hunt; the round-trip is asserted
+    ///         in <c>PublishSharedAspireParametersTests</c>.</item>
+    ///   <item><c>Value</c> — the concrete secret/config value that both dictionaries need.
+    ///         Nullable operator inputs (avatar paths, OTLP endpoint, socket-batch threshold)
+    ///         collapse to <see cref="string.Empty"/> here to reproduce the "env var unset" branch
+    ///         the API side takes on read (see <c>ApplyStorage</c> / <c>ApplyObservability</c> /
+    ///         <c>TryParseInt</c>).</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>Deliberately absent</b> from this enumerator:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><c>ClusterName</c>, <c>IncludeScylla</c>, <c>IncludeCassandra</c>, <c>ScyllaTopology</c>,
+    ///         <c>ApiImage</c>, <c>IncludeDashboard</c>, <c>IncludeWeb</c>, <c>WebTls</c>,
+    ///         <c>WebServerName</c>, and every <c>Ports:*</c> key — graph-only knobs consumed at
+    ///         <c>InterfoldAppHost.Configure</c> time; they don't round-trip through <c>.env</c>
+    ///         and therefore have no matching upper-snake key.</item>
+    ///   <item><c>CASSANDRA_IMAGE</c> — env-only artefact; the value flows in through
+    ///         <see cref="CassandraImagePhase"/>, not <see cref="BootstrapConfig"/>.</item>
+    /// </list>
+    /// </summary>
+    internal static IEnumerable<(string ConfigKey, string EnvKey, string Value)>
+        EnumerateSharedAspireParameters(BootstrapConfig config, GeneratedSecrets secrets)
+    {
+        // Postgres credentials + database name. POSTGRES_INIT_PASSWORD deliberately carries the
+        // *initial* value (matches what initdb sets on a fresh db_init role) so operators who nuke
+        // pgdata can rerun the bootstrap; DatabaseInitPhase scrambles it again in-cluster after use.
+        yield return (AppHostParameterKeys.PostgresUser, "POSTGRES_USER", secrets.PostgresUser);
+        yield return (AppHostParameterKeys.PostgresPassword, "POSTGRES_PASSWORD", secrets.PostgresPassword);
+        yield return (AppHostParameterKeys.PostgresDb, "POSTGRES_DB", config.PostgresDatabase);
+        yield return (AppHostParameterKeys.PostgresInitPassword, "POSTGRES_INIT_PASSWORD", secrets.PostgresInitPassword);
+
+        // Scylla app-role credentials. SCYLLA_ADMIN_PASSWORD is intentionally absent — the admin
+        // role is created by DatabaseInitPhase with a fresh random password that lives only in
+        // internal.secrets, never in the compose .env.
+        yield return (AppHostParameterKeys.ScyllaUser, "SCYLLA_USER", secrets.ScyllaUser);
+        yield return (AppHostParameterKeys.ScyllaPassword, "SCYLLA_PASSWORD", secrets.ScyllaPassword);
+
+        // Encryption bootstrapping key material. The encryption pepper, OAuth client secrets, JWT
+        // signing keys, deep-link HMAC secret, and leaf PFX password all live in internal.secrets
+        // exclusively (seeded by DatabaseInitPhase) — the API reads them through
+        // SecretsBootstrapService / a one-shot Npgsql query at startup, not from .env.
+        yield return (AppHostParameterKeys.EncryptionPrivateKey, "ENCRYPTION_PRIVATE_KEY", secrets.EncryptionPrivateKeyB64);
+
+        // OAuth client IDs — public per-provider identifiers (NOT secrets) that end up in each
+        // scheme's authorize redirect URL and are paired with the matching client secrets that
+        // live in internal.secrets. Empty is a valid "I'm not using this provider" signal (the
+        // API's scheme registrar skips empty IDs).
+        yield return (AppHostParameterKeys.GoogleOAuthClientId, "GOOGLE_OAUTH_CLIENT_ID", config.OAuth.GoogleClientId ?? string.Empty);
+        yield return (AppHostParameterKeys.DiscordOAuthClientId, "DISCORD_OAUTH_CLIENT_ID", config.OAuth.DiscordClientId ?? string.Empty);
+        yield return (AppHostParameterKeys.AppleOAuthClientId, "APPLE_OAUTH_CLIENT_ID", config.OAuth.AppleClientId ?? string.Empty);
+
+        // API runtime config. All five are non-secret plain-text values the API container consumes
+        // as OCTOCON_* env vars. ConfigPhase.ResolveDerivedDefaults fills empties before Validate
+        // runs, so by publish time every value here is guaranteed non-empty (CORS list joined with
+        // commas to match OCTOCON_CORS_ALLOWED_ORIGINS' wire format).
+        yield return (AppHostParameterKeys.ScyllaKeyspace, "SCYLLA_KEYSPACE", config.ScyllaKeyspace.ToWire());
+        yield return (AppHostParameterKeys.OAuthCallbackBaseUrl, "OAUTH_CALLBACK_BASE_URL", config.ApiRuntime.CallbackBaseUrl);
+        yield return (AppHostParameterKeys.JwtAuthority, "JWT_AUTHORITY", config.ApiRuntime.JwtAuthority);
+        yield return (AppHostParameterKeys.JwtAudience, "JWT_AUDIENCE", config.ApiRuntime.JwtAudience);
+        yield return (AppHostParameterKeys.CorsAllowedOrigins, "CORS_ALLOWED_ORIGINS", string.Join(",", config.ApiRuntime.CorsAllowedOrigins));
+
+        // Operator tuning knobs (cluster / storage / observability / socket / persistence). All
+        // nine are non-secret. The four nullable / disabled-when-empty fields (AvatarStorageRoot,
+        // AvatarPublicBase, OtlpEndpoint, BatchBytesThreshold) serialise empty/null as the empty
+        // string — the API's ApplyStorage / ApplyObservability binders and TryParseInt all
+        // normalise empty → null, reproducing the "env var unset" behaviour 1:1.
+        yield return (AppHostParameterKeys.NodeGroup, "NODE_GROUP", config.Cluster.NodeGroup.ToWire());
+        yield return (AppHostParameterKeys.AvatarStorageRoot, "AVATAR_STORAGE_ROOT", config.Storage.AvatarStorageRoot ?? string.Empty);
+        yield return (AppHostParameterKeys.AvatarPublicBase, "AVATAR_PUBLIC_BASE", config.Storage.AvatarPublicBase ?? string.Empty);
+        yield return (AppHostParameterKeys.OtlpEndpoint, "OTLP_ENDPOINT", config.Observability.OtlpEndpoint ?? string.Empty);
+        yield return (AppHostParameterKeys.SocketBatchBytesThreshold, "SOCKET_BATCH_BYTES_THRESHOLD", config.Socket.BatchBytesThreshold?.ToString() ?? string.Empty);
+        yield return (AppHostParameterKeys.DbRetryAttempts, "DB_RETRY_ATTEMPTS", config.Persistence.DbRetryAttempts.ToString());
+        yield return (AppHostParameterKeys.DbRetryInitialDelayMs, "DB_RETRY_INITIAL_DELAY_MS", config.Persistence.DbRetryInitialDelayMs.ToString());
+        yield return (AppHostParameterKeys.DbRetryMaxDelayMs, "DB_RETRY_MAX_DELAY_MS", config.Persistence.DbRetryMaxDelayMs.ToString());
+        yield return (AppHostParameterKeys.HydrationMaxConcurrency, "HYDRATION_MAX_CONCURRENCY", config.Persistence.HydrationMaxConcurrency.ToString());
+    }
+
     internal static EnvReplacements BuildEnvReplacements(
         BootstrapConfig config,
         GeneratedSecrets secrets,
         string baseDir,
         string outputDir)
     {
-        var parameters = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            // Parameter values - match keys to the parameter names declared in
-            // InterfoldAppHost.Configure() (Aspire upper-snake-cases the parameter name).
-            ["POSTGRES_USER"] = secrets.PostgresUser,
-            ["POSTGRES_PASSWORD"] = secrets.PostgresPassword,
-            // Plain-text application database name (not a secret). Sourced from
-            // BootstrapConfig.PostgresDatabase; defaults to `interfold`. Lands in the API's
-            // OCTOCON_POSTGRES_CONNECTION Database= field via the AppHost graph and in
-            // DatabaseInitPhase's CREATE DATABASE call via PostgresSeedOptions.DefaultDatabase.
-            ["POSTGRES_DB"] = config.PostgresDatabase,
-            // Init credential consumed exactly once by DatabaseInitPhase. We deliberately ship
-            // the *initial* value here (not the scrambled post-init value) so that operators who
-            // nuke their pgdata volume and rerun the bootstrap have a working bootstrap path:
-            // the value matches what initdb will set on the recreated db_init role, the
-            // bootstrapper uses it once, then scrambles it again in-cluster.
-            ["POSTGRES_INIT_PASSWORD"] = secrets.PostgresInitPassword,
-            ["SCYLLA_USER"] = secrets.ScyllaUser,
-            ["SCYLLA_PASSWORD"] = secrets.ScyllaPassword,
-            // SCYLLA_ADMIN_PASSWORD is intentionally absent - the admin role is created by the
-            // bootstrapper's DatabaseInitPhase with a fresh random password that lives only in
-            // internal.secrets, never in the compose .env.
-            ["ENCRYPTION_PRIVATE_KEY"] = secrets.EncryptionPrivateKeyB64,
-            // The encryption pepper, OAuth client secrets, JWT signing keys, deep-link HMAC
-            // secret, and leaf PFX password all live in internal.secrets exclusively (seeded
-            // by DatabaseInitPhase). They are not surfaced as compose env vars and the API
-            // reads them through SecretsBootstrapService / a one-shot Npgsql query at
-            // startup.
-
-            // OAuth client IDs are public per-provider identifiers (NOT secrets) — they end up
-            // in each scheme's authorize redirect URL and are paired with the matching client
-            // secrets that live in internal.secrets. Surface them here so the bootstrapper
-            // rewrites the Aspire-emitted blank entries with the operator's BootstrapConfig
-            // values; an empty string for a provider is a valid "I'm not using this one"
-            // signal (the API's scheme registrar skips schemes with empty IDs). The names
-            // match the upper-snake-cased Aspire parameter keys declared in
-            // InterfoldAppHost.Configure (google-oauth-client-id, etc.).
-            ["GOOGLE_OAUTH_CLIENT_ID"] = config.OAuth.GoogleClientId ?? string.Empty,
-            ["DISCORD_OAUTH_CLIENT_ID"] = config.OAuth.DiscordClientId ?? string.Empty,
-            ["APPLE_OAUTH_CLIENT_ID"] = config.OAuth.AppleClientId ?? string.Empty,
-
-            // API runtime config. All five are non-secret plain-text values the API container
-            // consumes as OCTOCON_* env vars. ConfigPhase.ResolveDerivedDefaults fills empties
-            // before Validate runs, so by the time PublishPhase sees the config every value
-            // here is guaranteed non-empty (the CORS list is joined into a comma-separated
-            // string to match OCTOCON_CORS_ALLOWED_ORIGINS' wire format). Parameter names
-            // match InterfoldAppHost.Configure's AddParameter calls (scylla-keyspace,
-            // oauth-callback-base-url, jwt-authority, jwt-audience, cors-allowed-origins) and
-            // Aspire upper-snake-cases each into the matching .env key.
-            ["SCYLLA_KEYSPACE"] = config.ScyllaKeyspace.ToWire(),
-            ["OAUTH_CALLBACK_BASE_URL"] = config.ApiRuntime.CallbackBaseUrl,
-            ["JWT_AUTHORITY"] = config.ApiRuntime.JwtAuthority,
-            ["JWT_AUDIENCE"] = config.ApiRuntime.JwtAudience,
-            ["CORS_ALLOWED_ORIGINS"] = string.Join(",", config.ApiRuntime.CorsAllowedOrigins),
-
-            // Operator tuning knobs (cluster / storage / observability / socket /
-            // persistence). All nine are non-secret Aspire parameters; the four nullable
-            // / disabled-when-empty fields (AvatarStorageRoot, AvatarPublicBase,
-            // OtlpEndpoint, BatchBytesThreshold) serialise empty/null as the empty
-            // string. The API's ApplyStorage / ApplyObservability binders normalise
-            // empty → null and TryParseInt treats empty as null, so a blank value here
-            // reproduces the "env var unset" behaviour 1:1. Parameter names match
-            // InterfoldAppHost.Configure's AddParameter calls (node-group,
-            // avatar-storage-root, …) and Aspire upper-snake-cases each into the
-            // matching .env key.
-            ["NODE_GROUP"] = config.Cluster.NodeGroup.ToWire(),
-            ["AVATAR_STORAGE_ROOT"] = config.Storage.AvatarStorageRoot ?? string.Empty,
-            ["AVATAR_PUBLIC_BASE"] = config.Storage.AvatarPublicBase ?? string.Empty,
-            ["OTLP_ENDPOINT"] = config.Observability.OtlpEndpoint ?? string.Empty,
-            ["SOCKET_BATCH_BYTES_THRESHOLD"] = config.Socket.BatchBytesThreshold?.ToString() ?? string.Empty,
-            ["DB_RETRY_ATTEMPTS"] = config.Persistence.DbRetryAttempts.ToString(),
-            ["DB_RETRY_INITIAL_DELAY_MS"] = config.Persistence.DbRetryInitialDelayMs.ToString(),
-            ["DB_RETRY_MAX_DELAY_MS"] = config.Persistence.DbRetryMaxDelayMs.ToString(),
-            ["HYDRATION_MAX_CONCURRENCY"] = config.Persistence.HydrationMaxConcurrency.ToString(),
-        };
+        // Seed from the shared enumerator so every operator-tunable parameter is emitted here
+        // AND injected as an AppHost Parameter (see PublishInProcessAsync) from a single source
+        // of truth. See EnumerateSharedAspireParameters for the full docstring covering:
+        //   - why postgres-init-password / oauth-client-id / cluster-name each land where they do
+        //   - the kebab-case ↔ upper-snake-case pairing (EnvKey is the Aspire-derived .env spelling)
+        //   - the nullable-tunable ??  string.Empty carve-outs
+        var parameters = EnumerateSharedAspireParameters(config, secrets)
+            .ToDictionary(p => p.EnvKey, p => p.Value, StringComparer.Ordinal);
 
         if (CassandraImagePhase.IsCassandraDeployment(config))
         {
@@ -464,100 +488,54 @@ internal static class PublishPhase
         // Inject all Parameters:* into the in-memory config layer. The graph's AddParameter() calls and
         // default-password guards read from IConfiguration; once published, Aspire writes secret parameter
         // values into the sibling .env file rather than embedding them in the compose YAML.
-        var injected = new Dictionary<string, string?>
-        {
-            [AppHostParameterKeys.PostgresUser] = secrets.PostgresUser,
-            [AppHostParameterKeys.PostgresPassword] = secrets.PostgresPassword,
-            [AppHostParameterKeys.PostgresInitPassword] = secrets.PostgresInitPassword,
-            // Pushes the operator's database-name choice into the AppHost graph; the matching
-            // AddParameter("postgres-db", "interfold", publishValueAsDefault: true) in
-            // InterfoldAppHost picks this up via IConfiguration and Aspire writes it through
-            // to .env as POSTGRES_DB= (filled in by BuildEnvReplacements above).
-            [AppHostParameterKeys.PostgresDb] = config.PostgresDatabase,
-            // ClusterName is read directly from IConfiguration in InterfoldAppHost (matching
-            // the include-scylla / scylla-topology pattern) rather than as an Aspire parameter
-            // resource, because the value also has to land on Scylla's WithArgs list and that
-            // overload takes plain strings. The value gets baked into the compose YAML at
-            // publish time as both CASSANDRA_CLUSTER_NAME and --cluster-name; no .env round
-            // trip needed.
-            [AppHostParameterKeys.ClusterName] = config.ClusterName,
-            [AppHostParameterKeys.ScyllaUser] = secrets.ScyllaUser,
-            [AppHostParameterKeys.ScyllaPassword] = secrets.ScyllaPassword,
-            [AppHostParameterKeys.EncryptionPrivateKey] = secrets.EncryptionPrivateKeyB64,
-            // The encryption pepper and OAuth client secrets used to be Aspire parameters
-            // too, but the API now reads them from internal.secrets exclusively (see
-            // SeedKeys / SecretsBootstrapService), so we no longer inject them into the
-            // AppHost's in-memory config.
-            // OAuth client IDs ARE Aspire parameters (declared as non-secret with
-            // publishValueAsDefault:true and an empty default in InterfoldAppHost). Injecting
-            // them here pushes the operator-supplied values from BootstrapConfig through to
-            // the .env entry that ConfigureApiSelfHostEnv's WithEnvironment("OCTOCON_*_OAUTH_CLIENT_ID")
-            // references — see BuildEnvReplacements above for the matching .env rewrite.
-            [AppHostParameterKeys.GoogleOAuthClientId] = config.OAuth.GoogleClientId ?? string.Empty,
-            [AppHostParameterKeys.DiscordOAuthClientId] = config.OAuth.DiscordClientId ?? string.Empty,
-            [AppHostParameterKeys.AppleOAuthClientId] = config.OAuth.AppleClientId ?? string.Empty,
-            // API runtime config: ScyllaKeyspace + ApiRuntimeSection (CallbackBaseUrl,
-            // JwtAuthority, JwtAudience, CorsAllowedOrigins). All five are non-secret Aspire
-            // parameters declared in InterfoldAppHost.Configure. ConfigPhase has already run
-            // ResolveDerivedDefaults + Validate by this point, so every value is guaranteed
-            // non-empty (the .env rewrite in BuildEnvReplacements above writes the same five
-            // keys onto the matching SCYLLA_KEYSPACE / OAUTH_CALLBACK_BASE_URL / ... entries
-            // Aspire emits unfilled in publish mode).
-            [AppHostParameterKeys.ScyllaKeyspace] = config.ScyllaKeyspace.ToWire(),
-            [AppHostParameterKeys.OAuthCallbackBaseUrl] = config.ApiRuntime.CallbackBaseUrl,
-            [AppHostParameterKeys.JwtAuthority] = config.ApiRuntime.JwtAuthority,
-            [AppHostParameterKeys.JwtAudience] = config.ApiRuntime.JwtAudience,
-            [AppHostParameterKeys.CorsAllowedOrigins] = string.Join(",", config.ApiRuntime.CorsAllowedOrigins),
-            // Operator tuning parameters — see BuildEnvReplacements above for the
-            // wire-side documentation. The four optional fields serialise empty/null
-            // as the empty string; ApplyStorage / ApplyObservability / TryParseInt
-            // normalise to null on read so the API's not-configured branches still
-            // fire. Parameter names match InterfoldAppHost.Configure's AddParameter
-            // calls; injecting them through IConfiguration here lets the AppHost graph
-            // (and any future code path that reads Parameters:*) pick them up.
-            [AppHostParameterKeys.NodeGroup] = config.Cluster.NodeGroup.ToWire(),
-            [AppHostParameterKeys.AvatarStorageRoot] = config.Storage.AvatarStorageRoot ?? string.Empty,
-            [AppHostParameterKeys.AvatarPublicBase] = config.Storage.AvatarPublicBase ?? string.Empty,
-            [AppHostParameterKeys.OtlpEndpoint] = config.Observability.OtlpEndpoint ?? string.Empty,
-            [AppHostParameterKeys.SocketBatchBytesThreshold] = config.Socket.BatchBytesThreshold?.ToString() ?? string.Empty,
-            [AppHostParameterKeys.DbRetryAttempts] = config.Persistence.DbRetryAttempts.ToString(),
-            [AppHostParameterKeys.DbRetryInitialDelayMs] = config.Persistence.DbRetryInitialDelayMs.ToString(),
-            [AppHostParameterKeys.DbRetryMaxDelayMs] = config.Persistence.DbRetryMaxDelayMs.ToString(),
-            [AppHostParameterKeys.HydrationMaxConcurrency] = config.Persistence.HydrationMaxConcurrency.ToString(),
-            [AppHostParameterKeys.IncludeScylla] = BoolWire.ToWireValue(includeScylla),
-            [AppHostParameterKeys.IncludeCassandra] = BoolWire.ToWireValue(includeCassandra),
-            [AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue(),
-            // The bootstrapper never builds the API from source — point Aspire at the pre-built image
-            // so it emits a compose service referencing that tag directly. See InterfoldAppHost.Configure
-            // for how this switches off the AddProject<> code path.
-            [AppHostParameterKeys.ApiImage] = config.ApiImage,
-            // Self-hosting stacks don't need the Aspire dev dashboard - it would pull an MCR-nightly
-            // image at compose-up time which is inappropriate for production deployments.
-            [AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue,
-            // The web container is opt-in via either of two independent toggles:
-            //   * `deployment.includeWeb=true` → ship the octocon-web container HTTP-only.
-            //   * `deployment.webHttps=true` → ship the container AND terminate TLS at it.
-            // The second implies the first (cert wiring is useless without the container that
-            // reads it), so we OR the two flags into Parameters:include-web. Parameters:web-tls
-            // remains driven by webHttps alone — operators who only flip includeWeb get an
-            // HTTP-only octocon-web for debugging / external-TLS-proxy stacks.
-            [AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb || config.Deployment.WebHttps),
-            [AppHostParameterKeys.WebTls] = BoolWire.ToWireValue(config.Deployment.WebHttps),
-            // Server name baked into the rendered nginx config. nginx accepts DNS names and bare
-            // IP literals as server_name but does NOT accept CIDR notation, so we use the first
-            // non-CIDR host (the same "primary host" rule ConfigPhase.ResolveDerivedDefaults uses
-            // for callback URL derivation). ConfigPhase.Validate guarantees at least one
-            // leaf-eligible entry exists; the `_` catch-all fallback only kicks in for the
-            // bypass-validation dev path that goes straight to InterfoldAppHost.Configure without
-            // running the bootstrapper.
-            [AppHostParameterKeys.WebServerName] = PickServerName(config.Deployment.Hosts),
-            [AppHostParameterKeys.PortsPostgres] = config.Ports.Postgres.ToString(),
-            [AppHostParameterKeys.PortsScylla] = config.Ports.Scylla.ToString(),
-            [AppHostParameterKeys.PortsApiHttp] = config.Ports.ApiHttp.ToString(),
-            [AppHostParameterKeys.PortsApiHttps] = config.Ports.ApiHttps.ToString(),
-            [AppHostParameterKeys.PortsWebHttp] = config.Ports.WebHttp.ToString(),
-            [AppHostParameterKeys.PortsWebHttps] = config.Ports.WebHttps.ToString(),
-        };
+        //
+        // Seed from the shared enumerator — every operator-tunable value that appears BOTH here and in
+        // BuildEnvReplacements lives in EnumerateSharedAspireParameters. The extras appended below are
+        // graph-only knobs that never round-trip through .env (topology toggles, image tag, port
+        // mappings, cluster name) and therefore don't have a matching upper-snake key.
+        var injected = EnumerateSharedAspireParameters(config, secrets)
+            .ToDictionary(p => p.ConfigKey, p => (string?)p.Value, StringComparer.Ordinal);
+
+        // ClusterName is read directly from IConfiguration in InterfoldAppHost (matching the
+        // include-scylla / scylla-topology pattern) rather than as an Aspire parameter resource,
+        // because the value also has to land on Scylla's WithArgs list and that overload takes
+        // plain strings. The value gets baked into the compose YAML at publish time as both
+        // CASSANDRA_CLUSTER_NAME and --cluster-name; no .env round trip needed.
+        injected[AppHostParameterKeys.ClusterName] = config.ClusterName;
+        injected[AppHostParameterKeys.IncludeScylla] = BoolWire.ToWireValue(includeScylla);
+        injected[AppHostParameterKeys.IncludeCassandra] = BoolWire.ToWireValue(includeCassandra);
+        injected[AppHostParameterKeys.ScyllaTopology] = scyllaTopology.ToWireValue();
+        // The bootstrapper never builds the API from source — point Aspire at the pre-built image
+        // so it emits a compose service referencing that tag directly. See InterfoldAppHost.Configure
+        // for how this switches off the AddProject<> code path.
+        injected[AppHostParameterKeys.ApiImage] = config.ApiImage;
+        // Self-hosting stacks don't need the Aspire dev dashboard - it would pull an MCR-nightly
+        // image at compose-up time which is inappropriate for production deployments.
+        injected[AppHostParameterKeys.IncludeDashboard] = BoolWire.FalseValue;
+        // The web container is opt-in via either of two independent toggles:
+        //   * `deployment.includeWeb=true` → ship the octocon-web container HTTP-only.
+        //   * `deployment.webHttps=true` → ship the container AND terminate TLS at it.
+        // The second implies the first (cert wiring is useless without the container that
+        // reads it), so we OR the two flags into Parameters:include-web. Parameters:web-tls
+        // remains driven by webHttps alone — operators who only flip includeWeb get an
+        // HTTP-only octocon-web for debugging / external-TLS-proxy stacks.
+        injected[AppHostParameterKeys.IncludeWeb] = BoolWire.ToWireValue(config.Deployment.IncludeWeb || config.Deployment.WebHttps);
+        injected[AppHostParameterKeys.WebTls] = BoolWire.ToWireValue(config.Deployment.WebHttps);
+        // Server name baked into the rendered nginx config. nginx accepts DNS names and bare
+        // IP literals as server_name but does NOT accept CIDR notation, so we use the first
+        // non-CIDR host (the same "primary host" rule ConfigPhase.ResolveDerivedDefaults uses
+        // for callback URL derivation). ConfigPhase.Validate guarantees at least one
+        // leaf-eligible entry exists; the `_` catch-all fallback only kicks in for the
+        // bypass-validation dev path that goes straight to InterfoldAppHost.Configure without
+        // running the bootstrapper.
+        injected[AppHostParameterKeys.WebServerName] = PickServerName(config.Deployment.Hosts);
+        injected[AppHostParameterKeys.PortsPostgres] = config.Ports.Postgres.ToString();
+        injected[AppHostParameterKeys.PortsScylla] = config.Ports.Scylla.ToString();
+        injected[AppHostParameterKeys.PortsApiHttp] = config.Ports.ApiHttp.ToString();
+        injected[AppHostParameterKeys.PortsApiHttps] = config.Ports.ApiHttps.ToString();
+        injected[AppHostParameterKeys.PortsWebHttp] = config.Ports.WebHttp.ToString();
+        injected[AppHostParameterKeys.PortsWebHttps] = config.Ports.WebHttps.ToString();
+
         builder.Configuration.AddInMemoryCollection(injected);
 
         InterfoldAppHost.Configure(builder);

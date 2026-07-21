@@ -185,136 +185,14 @@ public class WebSocketThreadStarvationTests(IWebFactoryFixture fixture) : BaseEn
         var senderSystemId = WebSocketTests.UniqueId("sys-starve-sender");
         var recipientSystemId = WebSocketTests.UniqueId("sys-starve-recipient");
 
-        var wsClientFactory = fixture.Factory.Server.CreateWebSocketClient();
-        string senderSocketToken = await CreateRandomToken(fixture.Factory, senderSystemId);
-        string recipientSocketToken = await CreateRandomToken(fixture.Factory, recipientSystemId);
+        var pair = await WebSocketHarness.ConnectPairAndJoinAsync(fixture, senderSystemId, recipientSystemId, token);
+        using var senderWs = pair.FirstWs;
+        using var recipientWs = pair.SecondWs;
 
-        var senderSocketUri = new Uri(
-            WebSocketTests.WebSocketBasePath(fixture.Factory.Server),
-            $"api/socket/websocket?token={senderSocketToken}");
-        var recipientSocketUri = new Uri(
-            WebSocketTests.WebSocketBasePath(fixture.Factory.Server),
-            $"api/socket/websocket?token={recipientSocketToken}");
+        await FriendTrustUntrustFlow.RunAsync(
+            senderWs, senderSystemId, recipientWs, recipientSystemId, token,
+            contextSuffix: "under thread starvation");
 
-        using var senderWs = await wsClientFactory.ConnectAsync(senderSocketUri, token);
-        using var recipientWs = await wsClientFactory.ConnectAsync(recipientSocketUri, token);
-
-        await WebSocketTests.JoinTopicAsync(senderWs, $"system:{senderSystemId}", senderSocketToken, token);
-        await WebSocketTests.JoinTopicAsync(recipientWs, $"system:{recipientSystemId}", recipientSocketToken, token);
-
-        // Send friend request — the original regression dropped friend_request_received here.
-        var sendRequestFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "PUT",
-                Path = "/api/friend-requests/" + recipientSystemId,
-                Body = new object()
-            },
-            Ref = "2",
-            JoinRef = "1",
-        }.ToBytes();
-
-        await senderWs.SendAsync(sendRequestFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.RequestSent);
-
-        var recipientReceived = await ReceivedPhxFrame.ReceiveEventFrameAsync(
-            recipientWs, token, SocketEventNames.Friendships.RequestReceived, maxFrames: 3);
-        await Assert.That(recipientReceived).IsNotNull()
-            .Because("Expected friend_request_received before accept (under thread starvation).");
-
-        // Accept friend request
-        var acceptFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + recipientSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friend-requests/" + senderSystemId + "/accept",
-                Body = new object()
-            },
-            Ref = "3",
-            JoinRef = "1",
-        }.ToBytes();
-
-        await recipientWs.SendAsync(acceptFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        _ = await ReceivedPhxFrame.ReceiveEventFrameAsync(recipientWs, token, SocketEventNames.Friendships.Added);
-        _ = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(senderWs, token, SocketEventNames.Friendships.Added);
-
-        // Trust friend — the action that emits the push the CI failure was missing.
-        var trustFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friends/" + recipientSystemId + "/trust",
-                Body = new object()
-            },
-            Ref = "4",
-            JoinRef = "1",
-        }.ToBytes();
-
-        await senderWs.SendAsync(trustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (trustAck, trustPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.Trusted);
-
-        using (Assert.Multiple())
-        {
-            await Assert.That(trustAck).IsNotNull()
-                .Because("Expected endpoint ack on sender socket for trust under thread starvation.");
-            await Assert.That(trustPush).IsNotNull()
-                .Because("Expected friend_trusted push on sender socket after trust under thread starvation.");
-        }
-
-        if (trustPush is not null)
-        {
-            await Assert.That(trustPush.Event).IsEqualTo(SocketEventNames.Friendships.Trusted)
-                .Because("Expected friend_trusted event on sender socket under thread starvation.");
-        }
-
-        // Untrust friend — second push that the original CI failure also lost.
-        var untrustFrame = new PhxFrame<PhxEndpointPayload>
-        {
-            Topic = "system:" + senderSystemId,
-            Event = "endpoint",
-            Payload = new PhxEndpointPayload
-            {
-                Method = "POST",
-                Path = "/api/friends/" + recipientSystemId + "/untrust",
-                Body = new object()
-            },
-            Ref = "5",
-            JoinRef = "1",
-        }.ToBytes();
-
-        await senderWs.SendAsync(untrustFrame, WebSocketMessageType.Text, endOfMessage: true, token);
-
-        var (untrustAck, untrustPush) = await ReceivedPhxFrame.ReceiveReplyAndPushAsync(
-            senderWs, token, SocketEventNames.Friendships.Untrusted);
-
-        using (Assert.Multiple())
-        {
-            await Assert.That(untrustAck).IsNotNull()
-                .Because("Expected endpoint ack on sender socket for untrust under thread starvation.");
-            await Assert.That(untrustPush).IsNotNull()
-                .Because("Expected friend_untrusted push on sender socket after untrust under thread starvation.");
-        }
-
-        if (untrustPush is not null)
-        {
-            await Assert.That(untrustPush.Event).IsEqualTo(SocketEventNames.Friendships.Untrusted)
-                .Because("Expected friend_untrusted event on sender socket under thread starvation.");
-        }
-
-        await senderWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
-        await recipientWs.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", token);
+        await WebSocketExtensions.CloseTestDoneAsync(senderWs, recipientWs, token);
     }
 }

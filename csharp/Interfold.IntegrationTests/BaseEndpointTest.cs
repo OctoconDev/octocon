@@ -1,11 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Interfold.Api.Models;
 using Interfold.Contracts.Configuration;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models;
+using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure;
 using Interfold.IntegrationTests.TestServices;
@@ -66,53 +68,12 @@ public class BaseEndpointTest
     public static void Probe_AfterTestSession()
         => LifecycleProbe.Log("After(TestSession)");
 
-    internal static bool ReadBoolField(string json, string fieldName)
-    {
-        using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.GetProperty(fieldName).GetBoolean();
-    }
-    
-    internal static string ReadStringField(string json, string fieldName)
-    {
-        using var doc = JsonDocument.Parse(json);
-        return ReadStringField(doc.RootElement, fieldName);
-    }
-
-    internal static string ReadStringField(JsonElement root, string fieldName)
-    {
-        foreach (var prop in root.EnumerateObject())
-        {
-            if (!prop.Name.Equals(fieldName, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (prop.Value.ValueKind == JsonValueKind.String)
-                return prop.Value.GetString() ?? string.Empty;
-
-            throw new InvalidOperationException(
-                $"Expected string field '{fieldName}', got {prop.Value.ValueKind}.");
-        }
-
-        throw new InvalidOperationException($"Field '{fieldName}' not found.");
-    }
-
-    internal static string? ReadNullableStringField(JsonElement root, string fieldName)
-    {
-        foreach (var prop in root.EnumerateObject())
-        {
-            if (!prop.Name.Equals(fieldName, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            return prop.Value.ValueKind switch
-            {
-                JsonValueKind.Null => null,
-                JsonValueKind.String => prop.Value.GetString(),
-                _ => throw new InvalidOperationException(
-                    $"Expected nullable string field '{fieldName}', got {prop.Value.ValueKind}.")
-            };
-        }
-
-        return null;
-    }
+    // -----------------------------------------------------------------------
+    // Wire-shape-agnostic helpers (kept)
+    //
+    // These helpers do not assume anything about the JSON envelope shape or the
+    // typed contract records, so they stay useful even after the sweep.
+    // -----------------------------------------------------------------------
 
     internal static byte[] Base64UrlDecodeBytes(string base64Url)
     {
@@ -125,72 +86,6 @@ public class BaseEndpointTest
         };
         return Convert.FromBase64String(padded);
     }
-    
-    internal static string ReadNestedStringField(string json, string parentField, string childField)
-    {
-        using var doc = JsonDocument.Parse(json);
-
-        foreach (var prop in doc.RootElement.EnumerateObject())
-        {
-            if (!prop.Name.Equals(parentField, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (prop.Value.ValueKind != JsonValueKind.Object)
-                throw new InvalidOperationException($"Expected object for field '{parentField}'.");
-
-            foreach (var child in prop.Value.EnumerateObject())
-            {
-                if (!child.Name.Equals(childField, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                return child.Value.ValueKind == JsonValueKind.String
-                    ? child.Value.GetString() ?? string.Empty
-                    : string.Empty;
-            }
-        }
-
-        return string.Empty;
-    }
-    
-    internal static string FindStringContaining(string json, string expectedSubstring)
-    {
-        using var doc = JsonDocument.Parse(json);
-        return FindStringContaining(doc.RootElement, expectedSubstring) ?? string.Empty;
-    }
-
-    private static string? FindStringContaining(JsonElement element, string expectedSubstring)
-    {
-        if (element.ValueKind == JsonValueKind.String)
-        {
-            var value = element.GetString();
-            if (!string.IsNullOrWhiteSpace(value) && value.Contains(expectedSubstring, StringComparison.Ordinal))
-                return value;
-
-            return null;
-        }
-
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in element.EnumerateObject())
-            {
-                var found = FindStringContaining(property.Value, expectedSubstring);
-                if (found is not null)
-                    return found;
-            }
-        }
-
-        if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-            {
-                var found = FindStringContaining(item, expectedSubstring);
-                if (found is not null)
-                    return found;
-            }
-        }
-
-        return null;
-    }
 
     internal static bool UrlPathStartsWith(string? url, string expectedPrefix)
     {
@@ -202,7 +97,7 @@ public class BaseEndpointTest
 
         return url.StartsWith(expectedPrefix, StringComparison.Ordinal);
     }
-    
+
     internal static HttpRequestMessage BuildMultipartUploadRequest(HttpClient client, string path, string principalId, string fileName, string contentType)
     {
         var request = new HttpRequestMessage(HttpMethod.Put, path);
@@ -221,6 +116,13 @@ public class BaseEndpointTest
         return request;
     }
 
+    /// <summary>
+    /// Parses the trailing integer segment from a <c>Location</c> header. The alter-create
+    /// controller stamps a URL like <c>/api/systems/me/alters/{alterId}</c> and callers
+    /// often need the raw int (e.g. to feed it into a subsequent multipart upload path).
+    /// Prefer <see cref="ReadTrailingAlterIdFromLocation"/> when the caller wants the
+    /// wrapper type.
+    /// </summary>
     internal static int ReadTrailingIntFromLocation(HttpResponseMessage response)
     {
         var location = response.Headers.Location?.ToString();
@@ -233,36 +135,279 @@ public class BaseEndpointTest
 
         return id;
     }
-    
-    internal static string ReadNestedString(string json, string parentKey, string childKey)
-    {
-        using var doc = JsonDocument.Parse(json);
-        foreach (var prop in doc.RootElement.EnumerateObject())
-        {
-            if (!prop.Name.Equals(parentKey, StringComparison.OrdinalIgnoreCase) ||
-                prop.Value.ValueKind != JsonValueKind.Object) continue;
 
-            foreach (var child in prop.Value.EnumerateObject())
-            {
-                if (child.Name.Equals(childKey, StringComparison.OrdinalIgnoreCase) &&
-                    child.Value.ValueKind == JsonValueKind.String)
-                    return child.Value.GetString() ?? string.Empty;
-            }
-        }
-        return string.Empty;
+    /// <summary>Same as <see cref="ReadTrailingIntFromLocation"/> but returns the typed wrapper.</summary>
+    internal static AlterId ReadTrailingAlterIdFromLocation(HttpResponseMessage response)
+        => new((short)ReadTrailingIntFromLocation(response));
+
+    // -----------------------------------------------------------------------
+    // Typed request helpers (Step 2 of the strong-typing sweep)
+    //
+    // Every helper below constructs a real request record from
+    // Interfold.Contracts.Models.Read and unpacks a SuccessResponse<T> from the
+    // response, so a wire-field typo (missing property, wrong wrapper struct)
+    // fails to compile rather than silently returning a bogus body downstream.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Seeds the four-viewer visibility quartet used by every "public read gated by relationship"
+    /// integration test (`AltersController` field-visibility, `PublicSystemsController` alter/tag/
+    /// fronting visibility, etc.). Every quartet-shaped test previously hand-rolled the same
+    /// eight setup lines with slight drift:
+    /// <list type="bullet">
+    ///   <item>3 × <see cref="CreateAlterAsync"/> for the three viewer principals (a seed alter
+    ///         per viewer forces the row into existence — without it, `_alters.ListGuardedAsync`
+    ///         short-circuits before the relationship gate ever runs).</item>
+    ///   <item>4 × <see cref="EnsureUserExistsAsync"/> so every principal has a public profile
+    ///         and the friend-request / trust flow has both ends of the edge to point at.</item>
+    /// </list>
+    /// <para>
+    /// Deliberately unifies to the "seed all four" shape rather than the previous
+    /// <c>AltersControllerTests</c> shape (which only seeded the owner). Skipping the viewer
+    /// user-exists seeds masks a class of test-side race where the friend-request accept below
+    /// tries to resolve a viewer id that has no profile row yet.
+    /// </para>
+    /// </summary>
+    /// <param name="client">Authed HTTP client (typically <c>TestClient.NoRedirect(fixture)</c>).</param>
+    /// <param name="prefix">Short slug baked into every principal id and username so parallel
+    /// tests don't collide (e.g. <c>"alters-visibility"</c> → <c>alters-visibility-owner</c>,
+    /// <c>alters-visibility-nonfriend</c>, …).</param>
+    /// <returns>The four principal ids: <c>Owner</c>, <c>NonFriend</c>, <c>Friend</c>, <c>Trusted</c>.</returns>
+    internal static async Task<(string Owner, string NonFriend, string Friend, string Trusted)>
+        SeedVisibilityQuartetAsync(HttpClient client, string prefix)
+    {
+        var owner = $"{prefix}-owner";
+        var nonFriend = $"{prefix}-nonfriend";
+        var friend = $"{prefix}-friend";
+        var trusted = $"{prefix}-trusted";
+
+        _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
+        _ = await CreateAlterAsync(client, friend, "SeedFriend");
+        _ = await CreateAlterAsync(client, trusted, "SeedTrusted");
+        await EnsureUserExistsAsync(client, owner);
+        await EnsureUserExistsAsync(client, nonFriend);
+        await EnsureUserExistsAsync(client, friend);
+        await EnsureUserExistsAsync(client, trusted);
+
+        return (owner, nonFriend, friend, trusted);
     }
 
-    internal static bool ReadBool(string json, string key)
+    /// <summary>
+    /// Ensures a public profile exists for <paramref name="principal"/> by issuing a username
+    /// update. Required for endpoints that gate access on <c>GetPublicProfileAsync</c>
+    /// returning non-null. Sends <see cref="SettingsUsernameRequest"/>; the API accepts
+    /// either 204 (fresh insert) or 409 (already set) as success.
+    /// </summary>
+    internal static async Task EnsureUserExistsAsync(HttpClient client, string principal, string? username = null)
     {
-        using var doc = JsonDocument.Parse(json);
-        foreach (var prop in doc.RootElement.EnumerateObject())
-        {
-            if (!prop.Name.Equals(key, StringComparison.OrdinalIgnoreCase)) continue;
-            return prop.Value.ValueKind == JsonValueKind.True;
-        }
-        throw new InvalidOperationException($"Field '{key}' not found in: {json}");
+        var body = new SettingsUsernameRequest(new Username(username ?? principal));
+        using var res = await client.SendAsJsonAsync(HttpMethod.Post, "/api/settings/username", body, principal);
+        await Assert.That(res.IsSuccessStatusCode || res.StatusCode == HttpStatusCode.Conflict)
+            .IsTrue().Because($"EnsureUserExistsAsync failed for '{principal}': {(int)res.StatusCode}");
     }
-    
+
+    /// <summary>
+    /// Creates an alter and returns its typed <see cref="AlterId"/>. Reads the response as
+    /// <see cref="SuccessResponse{T}"/> over <see cref="AlterReadModel"/> — the same shape
+    /// <c>AltersController.Create</c> serialises, so the test picks up any read-model
+    /// contract drift at deserialisation time.
+    /// </summary>
+    internal static async Task<AlterId> CreateAlterAsync(HttpClient client, string principal, string name, VisibilityLevel visibility = VisibilityLevel.Public)
+    {
+        await EnsureUserExistsAsync(client, principal);
+
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/alters",
+            new CreateAlterRequest(name),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<AlterReadModel>(HttpStatusCode.Created);
+        
+        if (visibility != VisibilityLevel.Private)
+        {
+            await SetAlterSecurityLevelAsync(client, principal, envelope.Data.Id, visibility);
+        }
+        
+        return envelope.Data.Id;
+    }
+
+    internal static async Task<AlterId> CreateAlterAsync(HttpClient client, string principal, string name, string username, VisibilityLevel visibility = VisibilityLevel.Public)
+    {
+        await EnsureUserExistsAsync(client, principal, username);
+
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/alters",
+            new CreateAlterRequest(name),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<AlterReadModel>(HttpStatusCode.Created);
+        
+        if (visibility != VisibilityLevel.Private)
+        {
+            await SetAlterSecurityLevelAsync(client, principal, envelope.Data.Id, visibility);
+        }
+        
+        return envelope.Data.Id;
+    }
+
+    /// <summary>
+    /// Generic PATCH helper against <c>/api/systems/me/alters/{id}</c>. Callers that only
+    /// need one field flip through <see cref="SetAlterSecurityLevelAsync"/> /
+    /// <see cref="UpdateAlterFieldsAsync"/>; anything more elaborate constructs its own
+    /// <see cref="UpdateAlterRequest"/> and calls this directly.
+    /// </summary>
+    internal static async Task PatchAlterAsync(HttpClient client, string principal, AlterId alterId, UpdateAlterRequest request)
+    {
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Patch, $"/api/systems/me/alters/{alterId}",
+            request,
+            principal);
+        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.NoContent)
+            .Because($"Expected alter update 204, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
+    }
+
+    /// <summary>
+    /// Patches the alter's custom-field values. Replaces the pre-sweep <c>dynamic[] fields</c>
+    /// with a typed <see cref="UpdateAlterFieldRequest"/> list so a field id typo (or a
+    /// name/value shape drift) fails to compile.
+    /// </summary>
+    internal static Task UpdateAlterFieldsAsync(HttpClient client, string principal, AlterId alterId, IReadOnlyList<UpdateAlterFieldRequest> fields)
+        => PatchAlterAsync(client, principal, alterId, new UpdateAlterRequest(Fields: fields));
+
+    /// <summary>
+    /// Sets the alter's <see cref="VisibilityLevel"/> via PATCH. Takes the typed enum so
+    /// the wire spelling (public / friends_only / trusted_only / private) is decided by
+    /// the converter, not by test-side string literals.
+    /// </summary>
+    internal static Task SetAlterSecurityLevelAsync(HttpClient client, string principal, AlterId alterId, VisibilityLevel securityLevel)
+        => PatchAlterAsync(client, principal, alterId, new UpdateAlterRequest(SecurityLevel: securityLevel));
+
+    /// <summary>
+    /// Creates a tag and returns its typed <see cref="TagId"/>. Reads the response as
+    /// <see cref="SuccessResponse{T}"/> over <see cref="TagReadModel"/>.
+    /// </summary>
+    internal static async Task<TagId> CreateTagAsync(HttpClient client, string principal, string name)
+    {
+        await EnsureUserExistsAsync(client, principal);
+
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/tags",
+            new CreateTagRequest(name, ParentTagId: null),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<TagReadModel>(HttpStatusCode.Created);
+        return envelope.Data.Id;
+    }
+
+    /// <summary>Sets a tag's <see cref="VisibilityLevel"/> via PATCH.</summary>
+    internal static async Task SetTagSecurityLevelAsync(HttpClient client, string principal, TagId tagId, VisibilityLevel securityLevel)
+    {
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Patch, $"/api/systems/me/tags/{tagId}",
+            new UpdateTagRequest(SecurityLevel: securityLevel),
+            principal);
+        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.NoContent)
+            .Because($"Expected tag security update 204, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
+    }
+
+    /// <summary>
+    /// POSTs to <c>/api/systems/me/front/start</c> with a typed <see cref="FrontStartRequest"/>
+    /// and asserts a 201. Returns the fresh <see cref="FrontId"/> from
+    /// <see cref="FrontStartedResponse"/>.
+    /// </summary>
+    internal static async Task<FrontId> StartFrontAsync(HttpClient client, string principal, AlterId alterId)
+    {
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/front/start",
+            new FrontStartRequest(alterId),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<FrontStartedResponse>(HttpStatusCode.Created);
+        return envelope.Data.FrontId;
+    }
+
+    /// <summary>
+    /// Sends the front-start request without asserting the status, so tests can inspect
+    /// both the code and the (typed) body. Callers dispose the returned response and use
+    /// <c>ReadEnvelopeAsync&lt;FrontStartedResponse&gt;</c> when they need the id.
+    /// </summary>
+    internal static Task<HttpResponseMessage> SendFrontStartAsync(
+        HttpClient client,
+        AlterId alterId,
+        string? comment,
+        string principal = "fronting-default-principal")
+        => client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/front/start",
+            new FrontStartRequest(alterId, comment),
+            principal,
+            idempotencyKey: Guid.NewGuid().ToString("N"));
+
+    internal static Task<HttpResponseMessage> SendFrontEndAsync(
+        HttpClient client,
+        AlterId alterId,
+        string principal = "fronting-default-principal")
+        => client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/front/end",
+            new FrontEndRequest(alterId),
+            principal,
+            idempotencyKey: Guid.NewGuid().ToString("N"));
+
+    internal static Task<HttpResponseMessage> SendFrontSetAsync(
+        HttpClient client,
+        AlterId alterId,
+        string principal,
+        string? comment = null)
+        => client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/systems/me/front/set",
+            new FrontSetRequest(alterId, comment),
+            principal,
+            idempotencyKey: Guid.NewGuid().ToString("N"));
+
+    internal static async Task SendFriendRequestAndAcceptAsync(HttpClient client, string sender, string recipient)
+    {
+        using var sendRes = await client.SendAsJsonAsync(
+            HttpMethod.Put, $"/api/friend-requests/{recipient}",
+            new object(),
+            sender);
+        await Assert.That(sendRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent)
+            .Because($"Expected friend-request send 204, got {(int)sendRes.StatusCode}. Body: {await sendRes.Content.ReadAsStringAsync()}");
+
+        using var acceptRes = await client.SendAsJsonAsync(
+            HttpMethod.Post, $"/api/friend-requests/{sender}/accept",
+            new object(),
+            recipient);
+        await Assert.That(acceptRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent)
+            .Because($"Expected friend-request accept 204, got {(int)acceptRes.StatusCode}. Body: {await acceptRes.Content.ReadAsStringAsync()}");
+    }
+
+    internal static async Task SetFriendTrustAsync(HttpClient client, string principal, string friendId)
+    {
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, $"/api/friends/{friendId}/trust",
+            new object(),
+            principal);
+        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.NoContent)
+            .Because($"Expected trust set 204, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
+    }
+
+    /// <summary>
+    /// Creates a settings field and returns its typed <see cref="FieldId"/>. Takes typed
+    /// <see cref="FieldType"/> / <see cref="VisibilityLevel"/> parameters — the wire enums
+    /// are decided by the converter, not by test-side string literals.
+    /// </summary>
+    internal static async Task<FieldId> CreateSettingsFieldAsync(HttpClient client, string principal, string fieldName, FieldType type, VisibilityLevel securityLevel)
+    {
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Post, "/api/settings/fields",
+            new SettingsCreateFieldRequest(fieldName, type, securityLevel, Locked: null),
+            principal);
+        var envelope = await res.ReadEnvelopeAsync<FieldCreatedResponse>(HttpStatusCode.Created);
+        return envelope.Data.Id;
+    }
+
+    /// <summary>
+    /// Loops <see cref="SoakRepeatCount"/> calls against the same idempotency key,
+    /// asserting that iteration 0 sees <c>replay=false</c> and every subsequent iteration
+    /// sees <c>replay=true</c>. Non-empty bodies are deserialised through
+    /// <see cref="SuccessResponse{T}"/> over <see cref="JsonElement"/> so the assertion
+    /// runs against the typed envelope, not a hand-rolled JSON navigator.
+    /// </summary>
     internal static async Task RunSoakAsync(InterfoldWebApplicationFactory factory,
         Func<HttpClient, string, Task<HttpResponseMessage>> requestFactory)
     {
@@ -283,326 +428,25 @@ public class BaseEndpointTest
 
             await Assert.That(response.IsSuccessStatusCode).IsTrue().Because($"Soak call #{i + 1}: expected 2xx, got {(int)response.StatusCode}. Body: {body}");
 
-            if (!string.IsNullOrEmpty(body))
-            {
-                var replay = ReadBoolField(body, "replay");
+            if (string.IsNullOrEmpty(body))
+                continue;
 
-                if (i == 0)
-                {
-                    await Assert.That(!replay).IsTrue().Because($"Soak call #1: expected replay=false on first invocation. Body: {body}");
-                }
-                else
-                {
-                    await Assert.That(replay).IsTrue().Because($"Soak call #{i + 1}: expected replay=true after first invocation. Body: {body}");
-                }
+            var envelope = JsonSerializer.Deserialize<TestEnvelope<JsonElement>>(body, TestJson.Options)
+                           ?? throw new InvalidOperationException($"Soak call #{i + 1}: failed to deserialise TestEnvelope. Body: {body}");
+
+            var replay = envelope.Replay ?? false;
+
+            if (i == 0)
+            {
+                await Assert.That(!replay).IsTrue().Because($"Soak call #1: expected replay=false on first invocation. Body: {body}");
+            }
+            else
+            {
+                await Assert.That(replay).IsTrue().Because($"Soak call #{i + 1}: expected replay=true after first invocation. Body: {body}");
             }
         }
     }
-    
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
 
-    internal static async Task UpdateAlterFieldsAsync(HttpClient client, string principal, int alterId, dynamic[] fields)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Patch, $"/api/systems/me/alters/{alterId}");
-        req.Content = JsonContent.Create(new { fields });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-
-        await Assert.That(res.StatusCode).IsEqualTo(HttpStatusCode.NoContent).Because($"Expected alter field update 204, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
-    }
-    
-    /// <summary>
-    /// Ensures a public profile exists for <paramref name="principal"/> by issuing a username update.
-    /// Required for endpoints that gate access on <c>GetPublicProfileAsync</c> returning non-null.
-    /// </summary>
-    internal static async Task EnsureUserExistsAsync(HttpClient client, string principal, string? username = null)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username");
-        req.Content = JsonContent.Create(new { username = username ?? principal });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        // 204 = accepted, 409 = already set — both are fine.
-        await Assert.That(res.IsSuccessStatusCode || res.StatusCode == HttpStatusCode.Conflict)
-            .IsTrue().Because($"EnsureUserExistsAsync failed for '{principal}': {(int)res.StatusCode}");
-    }
-
-    internal static async Task<int> CreateAlterAsync(HttpClient client, string principal, string name)
-    {
-        await EnsureUserExistsAsync(client, principal);
-
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/alters");
-        req.Content = JsonContent.Create(new { name });
-        AttachPrincipalAuth(req, client, principal);
-
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
-
-        await Assert.That(res.StatusCode == HttpStatusCode.Created).IsTrue().Because($"Helper CreateAlterAsync: expected 201, got {(int)res.StatusCode}. Body: {body}");
-
-        using var doc = JsonDocument.Parse(body);
-        foreach (var prop in doc.RootElement.EnumerateObject())
-        {
-            if (!prop.Name.Equals("data", StringComparison.OrdinalIgnoreCase) ||
-                prop.Value.ValueKind != JsonValueKind.Object) continue;
-
-            foreach (var child in prop.Value.EnumerateObject())
-            {
-                if ((child.Name.Equals("alterId", StringComparison.OrdinalIgnoreCase) ||
-                     child.Name.Equals("id", StringComparison.OrdinalIgnoreCase)) &&
-                    child.Value.TryGetInt32(out var id))
-                    return id;
-            }
-        }
-
-        throw new InvalidOperationException($"Could not parse alterId from create response. Body: {body}");
-    }
-
-    internal static async Task<string> CreateTagAsync(HttpClient client, string principal, string name)
-    {
-        await EnsureUserExistsAsync(client, principal);
-
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/tags");
-        req.Content = JsonContent.Create(new { name });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
-
-        await Assert.That(res.StatusCode == HttpStatusCode.Created).IsTrue().Because($"Helper CreateTagAsync: expected 201, got {(int)res.StatusCode}. Body: {body}");
-
-        var id = ReadNestedString(body, "data", "tagId");
-        if (string.IsNullOrWhiteSpace(id))
-            id = ReadNestedString(body, "data", "id");
-
-        if (string.IsNullOrWhiteSpace(id))
-            throw new InvalidOperationException($"Could not parse tag ID from create response. Body: {body}");
-
-        return id;
-    }
-
-    internal static async Task SetAlterSecurityLevelAsync(HttpClient client, string principal, int alterId, string securityLevel)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Patch, $"/api/systems/me/alters/{alterId}");
-        req.Content = JsonContent.Create(new { security_level = securityLevel });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        await Assert.That(res.StatusCode == HttpStatusCode.NoContent).IsTrue().Because($"Expected alter security update 204, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
-    }
-
-    internal static async Task SetTagSecurityLevelAsync(HttpClient client, string principal, string tagId, string securityLevel)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Patch, $"/api/systems/me/tags/{tagId}");
-        req.Content = JsonContent.Create(new { security_level = securityLevel });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        await Assert.That(res.StatusCode == HttpStatusCode.NoContent).IsTrue().Because($"Expected tag security update 204, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
-    }
-
-    internal static async Task StartFrontAsync(HttpClient client, string principal, int alterId)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/start");
-        req.Content = JsonContent.Create(new { id = alterId });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        await Assert.That(res.StatusCode == HttpStatusCode.Created).IsTrue().Because($"Expected front start 201, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
-    }
-
-    internal static async Task SendFriendRequestAndAcceptAsync(HttpClient client, string sender, string recipient)
-    {
-        using var sendReq = new HttpRequestMessage(HttpMethod.Put, $"/api/friend-requests/{recipient}");
-        sendReq.Content = JsonContent.Create(new { });
-        AttachPrincipalAuth(sendReq, client, sender);
-        var sendRes = await client.SendAsync(sendReq);
-        await Assert.That(sendRes.StatusCode == HttpStatusCode.NoContent).IsTrue().Because($"Expected friend-request send 204, got {(int)sendRes.StatusCode}. Body: {await sendRes.Content.ReadAsStringAsync()}");
-
-        using var acceptReq = new HttpRequestMessage(HttpMethod.Post, $"/api/friend-requests/{sender}/accept");
-        acceptReq.Content = JsonContent.Create(new { });
-        AttachPrincipalAuth(acceptReq, client, recipient);
-        var acceptRes = await client.SendAsync(acceptReq);
-        await Assert.That(acceptRes.StatusCode == HttpStatusCode.NoContent).IsTrue().Because($"Expected friend-request accept 204, got {(int)acceptRes.StatusCode}. Body: {await acceptRes.Content.ReadAsStringAsync()}");
-    }
-
-    internal static async Task SetFriendTrustAsync(HttpClient client, string principal, string friendId)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/friends/{friendId}/trust");
-        req.Content = JsonContent.Create(new { });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        await Assert.That(res.StatusCode == HttpStatusCode.NoContent).IsTrue().Because($"Expected trust set 204, got {(int)res.StatusCode}. Body: {await res.Content.ReadAsStringAsync()}");
-    }
-
-    internal static async Task<(HttpStatusCode StatusCode, string Body)> SendFrontStartAsync(
-        HttpClient client,
-        int alterId,
-        string? comment,
-        string principal = "fronting-default-principal")
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/start");
-        request.Content = JsonContent.Create(new
-        {
-            id = alterId,
-            comment,
-            idempotencyKey = Guid.NewGuid().ToString("N")
-        }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
-        AttachPrincipalAuth(request, client, principal);
-
-        var response = await client.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-
-        return (response.StatusCode, body);
-    }
-
-    internal static async Task<(HttpStatusCode StatusCode, string Body)> SendFrontEndAsync(
-        HttpClient client,
-        int alterId,
-        string principal = "fronting-default-principal")
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/end");
-        request.Content = JsonContent.Create(new
-        {
-            id = alterId,
-            idempotencyKey = Guid.NewGuid().ToString("N")
-        }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
-        AttachPrincipalAuth(request, client, principal);
-
-        var response = await client.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-
-        return (response.StatusCode, body);
-    }
-
-    internal static async Task<(HttpStatusCode StatusCode, string Body)> SendFrontSetAsync(
-        HttpClient client,
-        int alterId,
-        string principal,
-        string? comment = null)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/systems/me/front/set");
-        request.Content = JsonContent.Create(new
-        {
-            id = alterId,
-            comment,
-            idempotencyKey = Guid.NewGuid().ToString("N")
-        }, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
-        AttachPrincipalAuth(request, client, principal);
-
-        var response = await client.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-
-        return (response.StatusCode, body);
-    }
-    
-    internal static async Task AssertContainsAsync(
-        HttpClient client,
-        string path,
-        string? principal,
-        string needle,
-        bool expectedPresent,
-        HttpStatusCode expectedStatus = HttpStatusCode.OK)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Get, path);
-        if (!string.IsNullOrWhiteSpace(principal))
-        {
-            AttachPrincipalAuth(req, client, principal);
-        }
-
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
-        var hasNeedle = ContainsNeedle(body, needle);
-
-        using IDisposable _ = Assert.Multiple();
-        await Assert.That(res.StatusCode).IsEqualTo(expectedStatus).Because($"Expected {path} to return {(int)expectedStatus}, got {(int)res.StatusCode}. Body: {body}");
-        await Assert.That(hasNeedle).IsEquivalentTo(expectedPresent).Because($"Expected body {(expectedPresent ? "to contain" : "not to contain")} '{needle}' for {path}. Body: {body}");
-    }
-
-    private static bool ContainsNeedle(string body, string needle)
-    {
-        if (string.IsNullOrWhiteSpace(body) || string.IsNullOrWhiteSpace(needle))
-            return false;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            return JsonContainsNeedle(doc.RootElement, needle);
-        }
-        catch (JsonException)
-        {
-            // Fallback for non-JSON payloads.
-            return body.Contains(needle, StringComparison.OrdinalIgnoreCase);
-        }
-    }
-
-    private static bool JsonContainsNeedle(JsonElement element, string needle)
-    {
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Object:
-                foreach (var property in element.EnumerateObject())
-                {
-                    if (JsonContainsNeedle(property.Value, needle))
-                        return true;
-                }
-                return false;
-
-            case JsonValueKind.Array:
-                foreach (var item in element.EnumerateArray())
-                {
-                    if (JsonContainsNeedle(item, needle))
-                        return true;
-                }
-                return false;
-
-            case JsonValueKind.String:
-                return string.Equals(element.GetString(), needle, StringComparison.OrdinalIgnoreCase);
-
-            case JsonValueKind.Number:
-                return NumberEqualsNeedle(element, needle);
-
-            case JsonValueKind.True:
-            case JsonValueKind.False:
-                return bool.TryParse(needle, out var boolNeedle) && element.GetBoolean() == boolNeedle;
-
-            default:
-                return false;
-        }
-    }
-
-    private static bool NumberEqualsNeedle(JsonElement numberElement, string needle)
-    {
-        if (int.TryParse(needle, out var intNeedle) && numberElement.TryGetInt32(out var intValue))
-            return intValue == intNeedle;
-
-        if (long.TryParse(needle, out var longNeedle) && numberElement.TryGetInt64(out var longValue))
-            return longValue == longNeedle;
-
-        if (decimal.TryParse(needle, out var decimalNeedle) && numberElement.TryGetDecimal(out var decimalValue))
-            return decimalValue == decimalNeedle;
-
-        return false;
-    }
-
-    internal static async Task<string> CreateSettingsFieldAsync(HttpClient client, string principal, string fieldName, string type, string securityLevel)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/settings/fields");
-        req.Content = JsonContent.Create(new { name = fieldName, type, security_level = securityLevel });
-        AttachPrincipalAuth(req, client, principal);
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
-
-        await Assert.That(res.StatusCode == HttpStatusCode.Created).IsTrue().Because($"Expected settings field create 201, got {(int)res.StatusCode}. Body: {body}");
-
-        // Extract field ID from response.
-        using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
-        if (root.TryGetProperty("data", out var data) && data.TryGetProperty("id", out var idProp))
-        {
-            return idProp.GetString() ?? throw new InvalidOperationException("Field ID is null");
-        }
-
-        throw new InvalidOperationException($"Cannot extract field ID from response body: {body}");
-    }
-    
     internal static async Task<string> CreateRandomToken(InterfoldWebApplicationFactory factory, string systemId)
     {
         var rev = factory.Services.GetRequiredService<IAuthTokenRevocationRepository>();

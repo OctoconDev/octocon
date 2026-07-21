@@ -53,27 +53,28 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
 
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
 
     public ScyllaAccountRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options
     )
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
     }
 
     public async Task<bool> UpdateUsernameAsync(SystemId systemId, Username username, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Read old username to maintain lookup table
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
@@ -130,16 +131,14 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(batch);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateDescriptionAsync(SystemId systemId, string description, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET description = ?, updated_at = toTimestamp(now()) WHERE id = ?",
@@ -149,16 +148,14 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(statement);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpdateAvatarAsync(SystemId systemId, AvatarUrl avatarUrl, AvatarSource source, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var statement = new SimpleStatement(
                 $"UPDATE {keyspace}.users SET avatar_url = ?, avatar_source = ?, updated_at = toTimestamp(now()) WHERE id = ?",
@@ -169,16 +166,14 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(statement);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> ClearAvatarAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Null both columns together so observers can never see a half-cleared state.
             var statement = new SimpleStatement(
@@ -190,7 +185,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             await session.ExecuteAsync(statement);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public Task<LinkToken> GetOrCreateLinkTokenAsync(SystemId systemId, CancellationToken cancellationToken = default)
@@ -314,22 +309,16 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     // internal helpers, so the pattern-match lives once here rather than being duplicated
     // across AuthController and AuthLinkController.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
-        => identity switch
-        {
-            { Discord: { } discordId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
-            { Google: { } email } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken),
-            { Apple: { } appleId } => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken),
-            _ => Task.FromResult<SystemId?>(null),
-        };
+        => identity.MatchOrThrow(
+            discordId => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
+            email => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Email, email.Value, cancellationToken),
+            appleId => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Apple, appleId.Value, cancellationToken));
 
     public Task<AccountLinkResult> LinkIdentityToUserAsync(SystemId systemId, ProviderIdentity identity, CancellationToken cancellationToken = default)
-        => identity switch
-        {
-            { Discord: { } discordId } => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken),
-            { Google: { } email } => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken),
-            { Apple: { } appleId } => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken),
-            _ => Task.FromResult(AccountLinkResult.UserNotFound),
-        };
+        => identity.MatchOrThrow(
+            discordId => LinkIdentityAsync(systemId, ProviderColumn.Discord, discordId.Value, cancellationToken),
+            email => LinkIdentityAsync(systemId, ProviderColumn.Email, email.Value, cancellationToken),
+            appleId => LinkIdentityAsync(systemId, ProviderColumn.Apple, appleId.Value, cancellationToken));
 
     public Task<bool> UnlinkDiscordAsync(SystemId systemId, CancellationToken cancellationToken = default)
         => UnlinkIdentityAsync(systemId, ProviderColumn.Discord, cancellationToken);
@@ -342,11 +331,9 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
     public async Task<bool> DeleteAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Fetch identity fields to clean up lookup tables
             var userRow = (await session.ExecuteAsync(new SimpleStatement(
@@ -377,16 +364,14 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             await session.ExecuteAsync(deleteBatch);
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<AccountPublicProfileReadModel?> GetPublicProfileAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             var profileQuery = new SimpleStatement(
                 $"SELECT username, avatar_url, avatar_source, description, discord_id, email, apple_id FROM {keyspace}.users WHERE id = ? LIMIT 1",
@@ -404,11 +389,39 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
                 profile.GetValue<string?>("description"),
                 AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
-                profile.GetValue<short?>("avatar_source").TryFromCode<AvatarSource>(out var src) ? src : null,
+                profile.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
                 profile.GetValue<string?>("discord_id") is { } discordId ? new DiscordId(discordId) : null,
                 profile.GetValue<string?>("email") is { } email ? new Email(email) : null,
                 profile.GetValue<string?>("apple_id") is { } appleId ? new AppleId(appleId) : null);
-        }, _options, cancellationToken);
+        }, cancellationToken);
+    }
+
+    public async Task<PublicSystemReadModel?> GetPublicSystemAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        {
+            var (session, keyspace, normalizedSystemId) = scope;
+
+            // Narrower SELECT than GetPublicProfileAsync — no discord/email/apple columns,
+            // since the public wire projection intentionally drops them.
+            var profileQuery = new SimpleStatement(
+                $"SELECT username, avatar_url, avatar_source, description FROM {keyspace}.users WHERE id = ? LIMIT 1",
+                normalizedSystemId
+            );
+
+            var profile = (await session.ExecuteAsync(profileQuery)).FirstOrDefault();
+            if (profile is null)
+            {
+                return null;
+            }
+
+            return new PublicSystemReadModel(
+                Id: new SystemId(normalizedSystemId),
+                AvatarUrl: AvatarUrl.FromNullable(profile.GetValue<string?>("avatar_url")),
+                AvatarSource: profile.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
+                Username: profile.GetValue<string?>("username") is { } username ? new Username(username) : null,
+                Description: profile.GetValue<string?>("description"));
+        }, cancellationToken);
     }
 
     // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — in-process

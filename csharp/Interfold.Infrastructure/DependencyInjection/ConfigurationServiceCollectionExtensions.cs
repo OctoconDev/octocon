@@ -172,58 +172,7 @@ public static class ConfigurationServiceCollectionExtensions
 
     // --- Bind helpers (thin wrappers used by CLI and other non-DI callers) ---
 
-    /// <summary>
-    /// Binds environment variables to ClusterConfiguration.
-    /// Maps FLY_PROCESS_GROUP and OCTOCON_NODE_GROUP to the NodeGroup property.
-    /// </summary>
-    public static ClusterConfiguration BindClusterConfiguration(this IConfiguration config)
-    {
-        var opts = new ClusterConfiguration();
-        ApplyCluster(opts, config);
-        return opts;
-    }
 
-    /// <summary>
-    /// Binds environment variables to PersistenceConfiguration.
-    /// Maps OCTOCON_* variables to properties with camelCase names.
-    /// </summary>
-    public static PersistenceConfiguration BindPersistenceConfiguration(this IConfiguration config)
-    {
-        var opts = new PersistenceConfiguration();
-        ApplyPersistence(opts, config);
-        return opts;
-    }
-
-    /// <summary>
-    /// Binds environment variables to AuthenticationConfiguration.
-    /// Maps OCTOCON_AUTH_* and GUARDIAN_* variables to properties.
-    /// </summary>
-    public static AuthenticationConfiguration BindAuthenticationConfiguration(this IConfiguration config)
-    {
-        var opts = new AuthenticationConfiguration();
-        ApplyAuthentication(opts, config);
-        return opts;
-    }
-
-    /// <summary>
-    /// Binds environment variables to TestingConfiguration.
-    /// Maps OCTOCON_RUN_*, OCTOCON_TEST_* variables.
-    /// </summary>
-    public static TestingConfiguration BindTestingConfiguration(this IConfiguration config)
-    {
-        var runApi = bool.TryParse(config[OctoconEnvKeys.RunApiIntegration], out var resultApi) && resultApi;
-        var runLive = bool.TryParse(config[OctoconEnvKeys.RunLiveIntegration], out var resultLive) && resultLive;
-
-        return new TestingConfiguration
-        {
-            RunApiIntegration = runApi,
-            RunLiveIntegration = runLive,
-            TestScyllaContactPoints = config[OctoconEnvKeys.TestScyllaContactPoints] ?? "127.0.0.1",
-            TestScyllaUsername = config[OctoconEnvKeys.TestScyllaUsername] ?? "cassandra",
-            TestScyllaPassword = config[OctoconEnvKeys.TestScyllaPassword] ?? "cassandra",
-            TestRegion = config[OctoconEnvKeys.TestRegion] ?? "nam",
-        };
-    }
 
     // --- Apply methods: single source of truth for each configuration mapping ---
 

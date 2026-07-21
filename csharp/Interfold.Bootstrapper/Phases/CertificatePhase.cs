@@ -81,11 +81,11 @@ internal static partial class CertificatePhase
         // 0644. The PFX is password-protected; rootCA.key never leaves the host and is locked
         // down to 0600 below as defence-in-depth against an API-side path-traversal regression
         // (TrustController only serves the public artefacts by explicit allowlist).
-        ChmodReadable(leafPfxPath, logger);
-        ChmodReadable(leafCrtPath, logger);
-        ChmodReadable(rootCrtPath, logger);
-        ChmodReadable(rootFingerprintPath, logger);
-        ChmodOwnerOnly(rootKeyPath, logger);
+        UnixFilePermissions.SetWorldReadable(leafPfxPath, logger, "cert file");
+        UnixFilePermissions.SetWorldReadable(leafCrtPath, logger, "cert file");
+        UnixFilePermissions.SetWorldReadable(rootCrtPath, logger, "cert file");
+        UnixFilePermissions.SetWorldReadable(rootFingerprintPath, logger, "cert file");
+        UnixFilePermissions.SetOwnerOnly(rootKeyPath, logger, "key file");
 
         rootCert.Dispose();
         leafCert.Dispose();
@@ -251,50 +251,6 @@ internal static partial class CertificatePhase
         await File.WriteAllBytesAsync(leafPfxPath, pfxBytes, ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// 0644 - readable by any UID, writable only by owner. Mirrors <c>SecretsPhase.ChmodReadable</c>.
-    /// Used for cert files that are bind-mounted into the API container, which runs as a
-    /// non-root user and cannot read the bootstrapper's default 0600 files.
-    /// </summary>
-    private static void ChmodReadable(string path, PhaseLogger logger)
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            !RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            return;
-        }
-
-        const int s_644 = 0x1A4; // 0o644
-        var rc = NativeMethods.chmod(path, s_644);
-        if (rc != 0)
-        {
-            var err = Marshal.GetLastPInvokeError();
-            logger.Warn($"chmod({path}, 0644) failed: errno={err} (cert file written but permissions not adjusted)");
-        }
-    }
-
-    /// <summary>
-    /// 0600 - readable / writable only by the file owner. Applied to <c>rootCA.key</c> so a
-    /// shell user other than the bootstrapper invoker (and the non-root API container UID
-    /// 64198 that bind-mounts the same directory read-only) cannot read the CA private key.
-    /// The host umask typically lands at 0644 which is too permissive for signing material.
-    /// </summary>
-    internal static void ChmodOwnerOnly(string path, PhaseLogger logger)
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            !RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            return;
-        }
-
-        const int s_600 = 0x180; // 0o600
-        var rc = NativeMethods.chmod(path, s_600);
-        if (rc != 0)
-        {
-            var err = Marshal.GetLastPInvokeError();
-            logger.Warn($"chmod({path}, 0600) failed: errno={err} (key file written but permissions not adjusted)");
-        }
-    }
 
     /// <summary>
     /// Encodes an X.509 v3 Name Constraints extension (OID 2.5.29.30, critical) with one
@@ -462,20 +418,14 @@ internal static partial class CertificatePhase
         {
             using var cert = X509CertificateLoader.LoadCertificateFromFile(rootCrtPath);
             WriteFingerprintFile(rootFingerprintPath, cert);
-            ChmodReadable(rootFingerprintPath, logger);
+            UnixFilePermissions.SetWorldReadable(rootFingerprintPath, logger, "cert file");
             logger.Info($"    fingerprint backfilled at {rootFingerprintPath}");
         }
 
         if (File.Exists(rootKeyPath))
         {
-            ChmodOwnerOnly(rootKeyPath, logger);
+            UnixFilePermissions.SetOwnerOnly(rootKeyPath, logger, "key file");
         }
-    }
-
-    private static partial class NativeMethods
-    {
-        [System.Runtime.InteropServices.LibraryImport("libc", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
-        internal static partial int chmod(string path, int mode);
     }
 
     private static async Task InstallToTrustStoreAsync(string rootCrtPath, PhaseLogger logger, CancellationToken ct)

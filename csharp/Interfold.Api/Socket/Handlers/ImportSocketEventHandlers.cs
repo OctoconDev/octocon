@@ -20,21 +20,11 @@ public static class ImportSocketEventHandlers
 
     private static async Task SendCompletedAsync(SystemId systemId, string eventName, int alterCount, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new ImportCompletedSocketPayload(alterCount));
+        await context.SendIfJoinedAsync(systemId, eventName, new ImportCompletedSocketPayload(alterCount));
     }
 
     private static async Task SendFailedAsync(SystemId systemId, string eventName, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new EmptyPayload());
+        await context.SendIfJoinedAsync(systemId, eventName, new EmptyPayload());
     }
 }

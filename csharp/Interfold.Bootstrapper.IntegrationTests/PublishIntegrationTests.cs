@@ -1,6 +1,7 @@
 using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
+using Interfold.Bootstrapper.IntegrationTests.TestServices;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
@@ -20,7 +21,6 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class PublishIntegrationTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     /// <summary>
     /// Documented set of keys we expect <c>PublishPhase.BuildEnvReplacements</c> to fill in the
@@ -40,26 +40,15 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
     ];
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task BindMountPathsResolveAbsoluteInComposeEnv()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(BindMountPathsResolveAbsoluteInComposeEnv), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(BindMountPathsResolveAbsoluteInComposeEnv),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(BindMountPathsResolveAbsoluteInComposeEnv), TestConfigPaths.DefaultConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
-        var env = ParseEnv(envBytes);
+        var env = DotEnvParser.ParseEnv(envBytes);
 
         // The compose graph emits one bind-mount key per service+target pair; Aspire names them
         // <SERVICE>_BINDMOUNTS__<N>. Single-mode scylla emits one rackdc mount + the api gets
@@ -86,11 +75,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
         // from the production default `ghcr.io/azyyyyyy/interfold-api:latest`. The compose YAML
         // must reference the override - if not, the rest of the pipeline would silently pull
         // from the public registry.
-        var scratch = await dinD.CreateScratchAsync(nameof(CustomApiImageAppearsInGeneratedCompose), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(CustomApiImageAppearsInGeneratedCompose),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(CustomApiImageAppearsInGeneratedCompose), TestConfigPaths.DefaultConfig);
 
         var composeBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/docker-compose.yaml");
         var compose = Encoding.UTF8.GetString(composeBytes);
@@ -105,14 +90,10 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
     [Test]
     public async Task EnvFileContainsAllRequiredKeys()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(EnvFileContainsAllRequiredKeys), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(EnvFileContainsAllRequiredKeys),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(EnvFileContainsAllRequiredKeys), TestConfigPaths.DefaultConfig);
 
         var envBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/.env");
-        var env = ParseEnv(envBytes);
+        var env = DotEnvParser.ParseEnv(envBytes);
 
         foreach (var key in ExpectedEnvParameterKeys)
         {
@@ -139,24 +120,7 @@ public class PublishIntegrationTests(UbuntuDinDFixture dinD)
             .Because("scylla admin credential must live in internal.secrets, not the .env");
     }
 
-    /// <summary>
-    /// Cheap-and-cheerful .env parser - lines of the form <c>KEY=VALUE</c>, comments stripped,
-    /// blank lines ignored. We don't bother handling quoted values because the bootstrapper's
-    /// emitter doesn't produce any (every value is either a known-safe alphabet password or an
-    /// absolute path).
-    /// </summary>
-    private static IDictionary<string, string> ParseEnv(byte[] bytes)
-    {
-        var text = Encoding.UTF8.GetString(bytes);
-        var dict = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var rawLine in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = rawLine.TrimEnd('\r').Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            var eq = line.IndexOf('=');
-            if (eq <= 0) continue;
-            dict[line[..eq]] = line[(eq + 1)..];
-        }
-        return dict;
-    }
 }
+
+
+

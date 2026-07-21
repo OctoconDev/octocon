@@ -1,6 +1,5 @@
 using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
+using Interfold.Api.Models;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Friendships;
@@ -164,52 +163,32 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
 
     // ---------------- Helpers ----------------------------------------------
 
-    private static string UniqueId(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
+    private static string UniqueId(string prefix) => TestIds.NewSystemId(prefix, maxLen: 24);
 
     private static async Task<HttpStatusCode> SendFriendRequestAsync(
         HttpClient client, string sender, string recipientHandle)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Put, $"/api/friend-requests/{recipientHandle}");
-        req.Content = JsonContent.Create(new { });
-        AttachPrincipalAuth(req, client, sender);
-        var res = await client.SendAsync(req);
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Put, $"/api/friend-requests/{recipientHandle}",
+            new object(),
+            sender);
         return res.StatusCode;
     }
 
     private static async Task<(HttpStatusCode Status, string? EntityRef)> SendFriendRequestWithEntityRefAsync(
         HttpClient client, string sender, string recipientHandle)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Put, $"/api/friend-requests/{recipientHandle}");
-        req.Content = JsonContent.Create(new { });
-        AttachPrincipalAuth(req, client, sender);
-        var res = await client.SendAsync(req);
-        var body = await res.Content.ReadAsStringAsync();
+        using var res = await client.SendAsJsonAsync(
+            HttpMethod.Put, $"/api/friend-requests/{recipientHandle}",
+            new object(),
+            sender);
 
-        if (res.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+        if (res.IsSuccessStatusCode)
         {
             return (res.StatusCode, null);
         }
 
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            // ErrorResponse serialises entityRef under any of: entity_ref / entityRef.
-            // The exact casing depends on the JsonSerializerOptions the API is configured
-            // with; scan case-insensitively so the test stays resilient to policy tweaks.
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                if (prop.Name.Equals("entity_ref", StringComparison.OrdinalIgnoreCase) ||
-                    prop.Name.Equals("entityRef", StringComparison.OrdinalIgnoreCase))
-                {
-                    return (res.StatusCode, prop.Value.GetString());
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // Non-JSON body (some error paths return plain text); fall through and return null.
-        }
-
-        return (res.StatusCode, null);
+        var error = await res.ReadErrorAsync(res.StatusCode);
+        return (res.StatusCode, error.EntityRef);
     }
 }

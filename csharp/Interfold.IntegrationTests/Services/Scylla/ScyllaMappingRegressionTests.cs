@@ -26,31 +26,50 @@ public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
     }
 
     [Test]
-    public async Task PollTypeMapping_HandlesKnownAndBoundaryValues()
+    public async Task PollTypeMapping_KnownCodesMapExactly_UnknownCodesThrow()
     {
+        // Pins the Option D 2026-07-17 strict-throw flip: every repo call site now uses
+        // the fallback-less `.FromCode<PollType>()` overload, so unknown on-disk shorts
+        // must surface as ArgumentOutOfRangeException instead of silently coercing to Vote.
+        // The pre-flip lenient version of this test asserted `.IsEqualTo(PollType.Vote)`
+        // for MinValue/MaxValue — that behaviour is intentionally dead.
         using (Assert.Multiple())
         {
             await Assert.That((short)PollType.Vote).IsEqualTo((short)0);
             await Assert.That((short)PollType.Choice).IsEqualTo((short)1);
             await Assert.That((short)PollType.Approval).IsEqualTo((short)2);
 
-            await Assert.That(((short)0).FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
-            await Assert.That(((short)1).FromCode(PollType.Vote)).IsEqualTo(PollType.Choice);
-            await Assert.That(((short)2).FromCode(PollType.Vote)).IsEqualTo(PollType.Approval);
-            await Assert.That(short.MinValue.FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
-            await Assert.That(short.MaxValue.FromCode(PollType.Vote)).IsEqualTo(PollType.Vote);
+            await Assert.That(((short)0).FromCode<PollType>()).IsEqualTo(PollType.Vote);
+            await Assert.That(((short)1).FromCode<PollType>()).IsEqualTo(PollType.Choice);
+            await Assert.That(((short)2).FromCode<PollType>()).IsEqualTo(PollType.Approval);
+
+            await Assert.That(() => short.MinValue.FromCode<PollType>())
+                .Throws<ArgumentOutOfRangeException>()
+                .Because("Unknown on-disk PollType shorts must fail loud so corrupt/stale rows surface at the read site.");
+            await Assert.That(() => short.MaxValue.FromCode<PollType>())
+                .Throws<ArgumentOutOfRangeException>()
+                .Because("Same strict contract as MinValue — no silent coercion to the default enum member.");
         }
     }
 
     [Test]
-    public async Task FriendshipLevelMapping_HandlesKnownAndBoundaryValues()
+    public async Task FriendshipLevelMapping_KnownCodesMapExactly_UnknownCodesThrow()
     {
+        // Same strict-throw contract as PollType. Silently downgrading a corrupt
+        // trusted_friend row to Friend was the previous fallback — that hides a
+        // security-relevant miscoercion from operators, so the strict flip is the
+        // right default.
         using (Assert.Multiple())
         {
-            await Assert.That(((short)0).FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
-            await Assert.That(((short)1).FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.TrustedFriend);
-            await Assert.That(short.MinValue.FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
-            await Assert.That(short.MaxValue.FromCode(FriendshipLevel.Friend)).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(((short)0).FromCode<FriendshipLevel>()).IsEqualTo(FriendshipLevel.Friend);
+            await Assert.That(((short)1).FromCode<FriendshipLevel>()).IsEqualTo(FriendshipLevel.TrustedFriend);
+
+            await Assert.That(() => short.MinValue.FromCode<FriendshipLevel>())
+                .Throws<ArgumentOutOfRangeException>()
+                .Because("Unknown on-disk FriendshipLevel shorts must fail loud rather than downgrading to Friend.");
+            await Assert.That(() => short.MaxValue.FromCode<FriendshipLevel>())
+                .Throws<ArgumentOutOfRangeException>()
+                .Because("Same strict contract as MinValue.");
         }
     }
 

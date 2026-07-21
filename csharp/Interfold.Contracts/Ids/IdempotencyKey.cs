@@ -56,11 +56,8 @@ public readonly record struct IdempotencyKey : IParsable<IdempotencyKey>
     }
 }
 
-internal sealed class IdempotencyKeyJsonConverter : JsonConverter<IdempotencyKey>
+internal sealed class IdempotencyKeyJsonConverter : StringBackedJsonConverter<IdempotencyKey>
 {
-    public override IdempotencyKey Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, IdempotencyKey value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override IdempotencyKey Create(string value) => new(value);
+    protected override string GetValue(IdempotencyKey value) => value.Value;
 }

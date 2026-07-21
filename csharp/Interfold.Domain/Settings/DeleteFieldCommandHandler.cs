@@ -10,34 +10,28 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class DeleteFieldCommandHandler : ICommandHandler<DeleteFieldCommand, SettingsCommandResult>
+public sealed class DeleteFieldCommandHandler : IdempotentCommandHandler<DeleteFieldCommand, SettingsCommandResult>
 {
     private readonly ISettingsFieldRepository _fieldRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public DeleteFieldCommandHandler(ISettingsFieldRepository fieldRepository, IIdempotencyStore idempotencyStore, IClusterEventBus eventBus)
+        : base(idempotencyStore)
     {
         _fieldRepository = fieldRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<DeleteFieldCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsFieldDelete;
+
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<DeleteFieldCommand> command,
+        CancellationToken cancellationToken)
+        => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
-            SettingsAction.FieldDeleted,
-            EntityRefs.SettingsFieldDelete,
-            _idempotencyStore,
             ct => _fieldRepository.DeleteAsync(command.PrincipalId, command.Payload.FieldId, ct),
+            EntityRefs.SettingsActionFailed(SettingsAction.FieldDeleted),
+            SettingsAction.FieldDeleted,
+            ct => _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), ct),
             cancellationToken);
-
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), cancellationToken);
-        }
-
-        return result;
-    }
 }

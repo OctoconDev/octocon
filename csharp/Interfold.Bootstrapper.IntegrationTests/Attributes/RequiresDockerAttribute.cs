@@ -40,3 +40,4 @@ public sealed class RequiresDockerAttribute() : SkipAttribute("Docker daemon not
     public override async Task<bool> ShouldSkip(TestRegisteredContext context)
         => !await DockerAvailable.Value;
 }
+

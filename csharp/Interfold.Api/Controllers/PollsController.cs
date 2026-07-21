@@ -44,9 +44,7 @@ public sealed class PollsController : InterfoldControllerBase
     public async Task<Response<PollReadModel>> Show(PollId id, CancellationToken ct)
     {
         var poll = await _pollRepository.GetAsync(PrincipalId, id, ct);
-        return poll is null
-            ? new ErrorResponse("Poll not found.", ErrorCodes.PollNotFound, System.Net.HttpStatusCode.NotFound)
-            : poll;
+        return OkOrNotFound(poll, "Poll not found.", ErrorCodes.PollNotFound);
     }
 
     [HttpPost]
@@ -58,26 +56,12 @@ public sealed class PollsController : InterfoldControllerBase
         // here keeps the hashed payload stable across retries with the same idempotency key
         // (otherwise every call would stamp a fresh DateTime.UtcNow and look like a
         // different request, triggering ConflictDuplicate on every replay).
-        var envelope = new CommandEnvelope<CreatePollCommand>(
+        return await DispatchCreatedAsync(
+            _create,
             OperationIds.PollCreate,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default)
-        );
-
-        var execution = await _create.HandleAsync(envelope, ct);
-        if (!execution.Accepted)
-        {
-            return ConflictToError(execution.Conflict!);
-        }
-
-        var poll = await _pollRepository.GetAsync(principal, execution.Result!.PollId, ct);
-        if (poll is null)
-            return new ErrorResponse("An unknown error occurred.", ErrorCodes.UnknownError, System.Net.HttpStatusCode.InternalServerError);
-
-        return new SuccessResponse<PollReadModel>(poll, System.Net.HttpStatusCode.Created, execution.Result.Replay);
+            new CreatePollCommand(req.Title, req.Description, req.Type ?? PollType.Vote, req.TimeEnd, InsertedAtUtc: default),
+            async (res) => await _pollRepository.GetAsync(principal, res.PollId, ct),
+            ct);
     }
 
     [HttpPatch("{id}")]
@@ -93,30 +77,14 @@ public sealed class PollsController : InterfoldControllerBase
 
         DateTime? resolvedTimeEnd = req.TimeEnd.State == PatchValueState.Value ? req.TimeEnd.Value : null;
 
-        var envelope = new CommandEnvelope<UpdatePollCommand>(
-            OperationIds.PollUpdate,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.TimeEnd.IsSet, req.Data)
-        );
-
-        return CommandNoContent(await _update.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_update, OperationIds.PollUpdate, new UpdatePollCommand(id, req.Title, req.Description, resolvedTimeEnd, req.TimeEnd.IsSet, req.Data)
+        , ct);
     }
 
     [HttpDelete("{id}")]
     public async Task<Response> Delete(PollId id, CancellationToken ct)
     {
-        var envelope = new CommandEnvelope<DeletePollCommand>(
-            OperationIds.PollDelete,
-            Guid.NewGuid(),
-            PrincipalId: PrincipalId,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new DeletePollCommand(id)
-        );
-
-        return CommandNoContent(await _delete.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_delete, OperationIds.PollDelete, new DeletePollCommand(id)
+        , ct);
     }
 }

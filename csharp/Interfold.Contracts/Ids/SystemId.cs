@@ -78,11 +78,8 @@ public readonly record struct SystemId : IParsable<SystemId>
     }
 }
 
-internal sealed class SystemIdJsonConverter : JsonConverter<SystemId>
+internal sealed class SystemIdJsonConverter : StringBackedJsonConverter<SystemId>
 {
-    public override SystemId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, SystemId value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override SystemId Create(string value) => new(value);
+    protected override string GetValue(SystemId value) => value.Value;
 }

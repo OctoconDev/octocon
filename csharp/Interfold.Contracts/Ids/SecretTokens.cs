@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Interfold.Contracts.Ids;
@@ -8,6 +7,13 @@ namespace Interfold.Contracts.Ids;
 /// these types intentionally does NOT return the raw value — accidental logging or string
 /// interpolation yields a redacted form (first 4 chars + "…"). Use <c>Value</c> explicitly
 /// at serialization/DB/HTTP boundaries.
+///
+/// <para>
+/// The JSON converters for these structs use <see cref="StringBackedJsonConverter{T}"/>
+/// (same as the non-secret wrappers) — the wire body IS the raw string in both families,
+/// so a single shared converter shape is enough; the "secret" behaviour lives on each
+/// struct's own <c>ToString()</c> override below.
+/// </para>
 /// </summary>
 internal static class SecretRedaction
 {
@@ -51,13 +57,10 @@ public readonly record struct LinkToken
         => string.IsNullOrWhiteSpace(value) ? null : new LinkToken(value);
 }
 
-internal sealed class LinkTokenJsonConverter : JsonConverter<LinkToken>
+internal sealed class LinkTokenJsonConverter : StringBackedJsonConverter<LinkToken>
 {
-    public override LinkToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, LinkToken value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override LinkToken Create(string value) => new(value);
+    protected override string GetValue(LinkToken value) => value.Value;
 }
 
 /// <summary>
@@ -86,13 +89,10 @@ public readonly record struct PushToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class PushTokenJsonConverter : JsonConverter<PushToken>
+internal sealed class PushTokenJsonConverter : StringBackedJsonConverter<PushToken>
 {
-    public override PushToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, PushToken value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override PushToken Create(string value) => new(value);
+    protected override string GetValue(PushToken value) => value.Value;
 }
 
 /// <summary>
@@ -120,13 +120,10 @@ public readonly record struct ImportToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class ImportTokenJsonConverter : JsonConverter<ImportToken>
+internal sealed class ImportTokenJsonConverter : StringBackedJsonConverter<ImportToken>
 {
-    public override ImportToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, ImportToken value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override ImportToken Create(string value) => new(value);
+    protected override string GetValue(ImportToken value) => value.Value;
 }
 
 /// <summary>
@@ -154,13 +151,10 @@ public readonly record struct RecoveryCode
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class RecoveryCodeJsonConverter : JsonConverter<RecoveryCode>
+internal sealed class RecoveryCodeJsonConverter : StringBackedJsonConverter<RecoveryCode>
 {
-    public override RecoveryCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, RecoveryCode value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override RecoveryCode Create(string value) => new(value);
+    protected override string GetValue(RecoveryCode value) => value.Value;
 }
 
 /// <summary>
@@ -205,13 +199,10 @@ public readonly record struct Jti
     public static Jti NewJti() => new(Guid.NewGuid().ToString("N"));
 }
 
-internal sealed class JtiJsonConverter : JsonConverter<Jti>
+internal sealed class JtiJsonConverter : StringBackedJsonConverter<Jti>
 {
-    public override Jti Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, Jti value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override Jti Create(string value) => new(value);
+    protected override string GetValue(Jti value) => value.Value;
 }
 
 /// <summary>
@@ -239,11 +230,8 @@ public readonly record struct SocketToken
     public override string ToString() => SecretRedaction.Redact(Value);
 }
 
-internal sealed class SocketTokenJsonConverter : JsonConverter<SocketToken>
+internal sealed class SocketTokenJsonConverter : StringBackedJsonConverter<SocketToken>
 {
-    public override SocketToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(Utf8JsonWriter writer, SocketToken value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override SocketToken Create(string value) => new(value);
+    protected override string GetValue(SocketToken value) => value.Value;
 }

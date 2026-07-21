@@ -9,130 +9,57 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Fronting;
 
-public sealed class StartFrontCommandHandler : ICommandHandler<StartFrontCommand, FrontCommandResult>
+public sealed class StartFrontCommandHandler : IdempotentCommandHandler<StartFrontCommand, FrontCommandResult>
 {
     private readonly IFrontingRepository _frontingRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
+    private readonly TimeProvider _timeProvider;
 
     public StartFrontCommandHandler(
         IFrontingRepository frontingRepository,
         IIdempotencyStore idempotencyStore,
-        IClusterEventBus eventBus
-    )
+        IClusterEventBus eventBus,
+        TimeProvider timeProvider) : base(idempotencyStore)
     {
         _frontingRepository = frontingRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
+        _timeProvider = timeProvider;
     }
 
-    public async Task<CommandExecutionResult<FrontCommandResult>> HandleAsync(
-        CommandEnvelope<StartFrontCommand> command,
-        CancellationToken cancellationToken = default
-    )
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FrontingStart;
+
+
+    protected override async Task<CommandExecutionResult<FrontCommandResult>> ExecuteCoreAsync(
+            CommandEnvelope<StartFrontCommand> command,
+            CancellationToken cancellationToken = default
+        )
     {
-        if (command.Payload.AlterId.Value is < 1 or > 32_767)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingInvalidAlterId);
-        }
+        if (FrontingCommandFlow.RejectIfInvalidAlterId(command, command.Payload.AlterId) is { } rangeReject)
+            return rangeReject;
 
-        if ((command.Payload.Comment?.Length ?? 0) > 50)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingInvalidComment);
-        }
+        if (FrontingCommandFlow.RejectIfInvalidComment(command, command.Payload.Comment) is { } invalidCommentReject)
+            return invalidCommentReject;
 
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            cancellationToken
-        );
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-            {
-                return RejectDuplicate(command, EntityRefs.FrontingStart);
-            }
-
-            var replay = CommandSerialization.Deserialize<FrontCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-            {
-                return CommandExecutionResult<FrontCommandResult>.Success(replay with { Replay = true });
-            }
-        }
-
-        var alreadyFronting = await _frontingRepository.IsFrontingAsync(
-            command.PrincipalId,
-            command.Payload.AlterId,
-            cancellationToken
-        );
-
-        if (alreadyFronting)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingAlreadyFronting);
-        }
+        if (await FrontingCommandFlow.RejectIfAlreadyFrontingAsync(command, _frontingRepository, command.Payload.AlterId, cancellationToken) is { } alreadyFrontingReject)
+            return alreadyFrontingReject;
 
         var frontId = await _frontingRepository.StartAsync(
             command.PrincipalId,
             command.Payload.AlterId,
             command.Payload.Comment,
-            DateTimeOffset.UtcNow,
+            _timeProvider.GetUtcNow(),
             cancellationToken
         );
 
-        if (frontId is null)
-        {
-            return RejectInvariant(command, EntityRefs.FrontingStartFailed);
-        }
-
-        var result = new FrontCommandResult(command.PrincipalId, command.Payload.AlterId, frontId, Replay: false);
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken
-        );
-
-        await _eventBus.PublishAsync(new FrontingStateChangedEvent(command.PrincipalId), cancellationToken);
+        var (startedFrontId, startedFrontRejection) = FrontingCommandFlow.GetStartedFrontIdOrReject(command, frontId);
+        if (startedFrontRejection is not null)
+            return startedFrontRejection;
 
         // Emit granular event for socket layer to handle fronting_started
-        await _eventBus.PublishAsync(new FrontingStartedEvent(command.PrincipalId, frontId.Value), cancellationToken);
+        await _eventBus.PublishStateChangedAndStartedAsync(command.PrincipalId, startedFrontId!.Value, cancellationToken);
 
-        return CommandExecutionResult<FrontCommandResult>.Success(result);
+        return FrontingCommandFlow.Success(command.PrincipalId, command.Payload.AlterId, startedFrontId);
     }
 
-    private static CommandExecutionResult<FrontCommandResult> RejectDuplicate(
-        CommandEnvelope<StartFrontCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictDuplicate,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.NoRetry
-            )
-        );
-
-    private static CommandExecutionResult<FrontCommandResult> RejectInvariant(
-        CommandEnvelope<StartFrontCommand> command,
-        EntityRef entityRef
-    ) =>
-        CommandExecutionResult<FrontCommandResult>.Rejected(
-            new ConflictResult(
-                ConflictCode.ConflictInvariant,
-                command.OperationId,
-                entityRef,
-                ResolutionHint.ManualMergeRequired
-            )
-        );
 }

@@ -17,7 +17,7 @@ public static partial class ServiceCollectionExtensions
     /// Call this after <see cref="AddInterfoldPersistence"/> in <c>Program.cs</c>.
     /// </summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="role">The resolved node group; pass <see cref="NodeGroupResolver.Resolve()"/>.</param>
+    /// <param name="role">The resolved node group.</param>
     public static IServiceCollection AddInterfoldCluster(
         this IServiceCollection services,
         NodeGroup role)

@@ -2,19 +2,18 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
-using Interfold.Domain.Abstractions;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Operations;
 using Interfold.Api.Services;
 using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Events;
 using Interfold.Contracts.Models.Read;
-using Interfold.Domain.Abstractions.Repository;
 using Interfold.Api.Controllers.Base;
 using Interfold.Api.Models;
 using Interfold.Contracts;
 using Interfold.Contracts.Ids;
 using Interfold.Api.Auth;
+using Interfold.Domain.Auth;
+using Interfold.Contracts.Models.Commands;
 
 namespace Interfold.Api.Controllers;
 
@@ -25,21 +24,18 @@ public sealed class AuthLinkController : OAuthControllerBase
     private const string LinkTokenCookieName = InterfoldCookieNames.LinkToken;
     private const string RedirectUriCookieName = InterfoldCookieNames.LinkRedirectUri;
 
-    private readonly IAccountRepository _accounts;
-    private readonly IClusterEventBus _eventBus;
+    private readonly LinkOAuthIdentityCommandHandler _linkHandler;
 
     public AuthLinkController(
-        IAccountRepository accounts,
+        LinkOAuthIdentityCommandHandler linkHandler,
         IOptionsMonitor<AuthenticationConfiguration> authOptions,
         IAuthenticationSchemeProvider schemeProvider,
         GoogleOAuthService googleOAuth,
         DiscordOAuthService discordOAuth,
-        AppleOAuthService appleOAuth,
-        IClusterEventBus eventBus)
+        AppleOAuthService appleOAuth)
         : base(authOptions, schemeProvider, googleOAuth, discordOAuth, appleOAuth)
     {
-        _accounts = accounts;
-        _eventBus = eventBus;
+        _linkHandler = linkHandler;
     }
 
     protected override string CallbackRoutePrefix => "auth/link";
@@ -49,6 +45,24 @@ public sealed class AuthLinkController : OAuthControllerBase
     {
         if (!provider.TryParseWire<OAuthProvider>(out var oauthProvider))
             return UnsupportedProviderResponse(provider);
+
+        // Fail-fast: the client is contractually required to pass redirect_uri on Begin so
+        // the callback (which reads it back from the octocon_link_redirect_uri cookie) can
+        // route the user home after the OAuth round-trip. Detecting it upfront avoids the
+        // full challenge round-trip landing in the 400 branch of RedirectToClient — the
+        // client sees the same error code, just before the browser leaves for the provider.
+        // Sibling AuthController.Begin has the same contract; the check lives here as a
+        // per-endpoint guard rather than base-class middleware because only the Begin shape
+        // carries the redirect_uri query param.
+        var redirectUri = Request.Query[OAuthQueryKeys.RedirectUri].ToString();
+        if (string.IsNullOrWhiteSpace(redirectUri))
+        {
+            Response.Headers[InterfoldHeaders.OperationId] = OperationIds.QueryAuthLinkRequest.Value;
+            return BadRequest(new ErrorResponse(
+                "Missing client-supplied redirect_uri.",
+                ErrorCodes.MissingRedirectUri,
+                detail: "Pass redirect_uri on GET /auth/link/{provider} so the link callback knows where to send the result."));
+        }
 
         StoreQueryCookie(LinkTokenCookieName, OAuthQueryKeys.LinkToken);
         StoreRedirectUriCookie(RedirectUriCookieName);
@@ -87,44 +101,37 @@ public sealed class AuthLinkController : OAuthControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
         }
 
-        var resolvedSystemId = await _accounts.ResolveSystemIdByLinkTokenAsync(linkToken.Value, HttpContext.RequestAborted);
-        if (string.IsNullOrWhiteSpace(resolvedSystemId?.Value))
-        {
-            Response.Cookies.Delete(LinkTokenCookieName);
-            return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
-        }
-
-        // The link-token map stores scoped ids on write; TryParseScoped enforces the
-        // invariant at the read boundary so a legacy row that lost its prefix surfaces
-        // here rather than as a bad event target three hops downstream.
-        if (!ScopedSystemId.TryParseScoped(resolvedSystemId.Value, out var systemId))
-        {
-            Response.Cookies.Delete(LinkTokenCookieName);
-            return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
-        }
-
-        await _accounts.ClearLinkTokenAsync(systemId, HttpContext.RequestAborted);
-        Response.Cookies.Delete(LinkTokenCookieName);
-
-        var redirectUri = Request.Cookies[RedirectUriCookieName];
-        Response.Cookies.Delete(RedirectUriCookieName);
-
-        // ExtractProviderIdentityAsync returns a ProviderIdentity? that the account repo
-        // dispatches on directly — dispatch happens off the typed shape rather than an
-        // enum + side-band raw string that would need to be re-wrapped at every hop.
         var identity = await ExtractProviderIdentityAsync(oauthProvider);
         if (identity is not { } typedIdentity)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Failed to authenticate. Did you reload the page or copy-paste the URL?");
         }
 
-        var result = await _accounts.LinkIdentityToUserAsync(systemId, typedIdentity, HttpContext.RequestAborted);
+        // [AllowAnonymous] endpoint: the middleware doesn't populate the principal, but
+        // BuildEnvelope stamps the synthetic AnonymousPrincipalId in that case. The link
+        // handler resolves the real system id off the link token itself
+        // (ResolveSystemIdByLinkTokenAsync), so command.PrincipalId is never read.
+        var envelope = BuildEnvelope(OperationIds.AuthLinkCallback, new LinkOAuthIdentityCommand(linkToken.Value, typedIdentity));
+        var commandResult = await _linkHandler.HandleAsync(envelope, HttpContext.RequestAborted);
+        if (!commandResult.Accepted || commandResult.Result is null)
+        {
+            Response.Cookies.Delete(LinkTokenCookieName);
+            return StatusCode(StatusCodes.Status403Forbidden, "This link token is invalid or has expired.");
+        }
+
+        var result = commandResult.Result.Result;
+        var systemId = commandResult.Result.SystemId;
+
+        Response.Cookies.Delete(LinkTokenCookieName);
+
+        var redirectUri = Request.Cookies[RedirectUriCookieName];
+        Response.Cookies.Delete(RedirectUriCookieName);
 
         Response.Headers[InterfoldHeaders.OperationId] = OperationIds.AuthLinkCallback.Value;
 
         return result switch
         {
-            AccountLinkResult.Success => await RedirectWithSocketEventAsync(systemId, typedIdentity, redirectUri),
+            AccountLinkResult.Success when systemId != null => RedirectToClient(redirectUri),
             AccountLinkResult.AlreadyLinked => StatusCode(StatusCodes.Status403Forbidden, new ErrorMessageResponse(
                 oauthProvider switch
                 {
@@ -145,29 +152,8 @@ public sealed class AuthLinkController : OAuthControllerBase
         };
     }
 
-    private async Task<IActionResult> RedirectWithSocketEventAsync(ScopedSystemId systemId, ProviderIdentity identity, string? redirectUri)
+    private IActionResult RedirectToClient(string? redirectUri)
     {
-        // Dispatch on the ProviderIdentity union so each PublishAsync gets its concrete
-        // event type; subscriber routing continues to dispatch by TEvent.
-        switch (identity)
-        {
-            case { Discord: { } discordId }:
-                await _eventBus.PublishAsync(
-                    new SettingsDiscordAccountLinkedEvent(systemId, discordId),
-                    HttpContext.RequestAborted);
-                break;
-            case { Google: { } email }:
-                await _eventBus.PublishAsync(
-                    new SettingsGoogleAccountLinkedEvent(systemId, email),
-                    HttpContext.RequestAborted);
-                break;
-            case { Apple: { } appleId }:
-                await _eventBus.PublishAsync(
-                    new SettingsAppleAccountLinkedEvent(systemId, appleId),
-                    HttpContext.RequestAborted);
-                break;
-        }
-
         // The client is responsible for supplying its own redirect_uri on the initial
         // GET /auth/link/{provider}?redirect_uri=... call; the cookie threads it through
         // to here. Absence means the client never set it — surface that loudly rather

@@ -38,18 +38,8 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     public async Task<Response<FriendRequestIndexReadModel>> Index(CancellationToken ct)
     {
         var requests = await _repository.GetFriendRequestsAsync(PrincipalId, ct);
-        var incoming = requests.Incoming
-            .Select(x => x with
-            {
-                System = x.System with { AvatarUrl = QualifyAvatar(x.System.AvatarUrl, x.System.AvatarSource) }
-            })
-            .ToArray();
-        var outgoing = requests.Outgoing
-            .Select(x => x with
-            {
-                System = x.System with { AvatarUrl = QualifyAvatar(x.System.AvatarUrl, x.System.AvatarSource) }
-            })
-            .ToArray();
+        var incoming = requests.Incoming.Select(QualifyFriendRequest).ToArray();
+        var outgoing = requests.Outgoing.Select(QualifyFriendRequest).ToArray();
 
         // Same wire shape as the previous anonymous object: {"data":{"incoming":[…],"outgoing":[…]}}.
         return new SuccessResponse<FriendRequestIndexReadModel>(new FriendRequestIndexReadModel(incoming, outgoing));
@@ -64,103 +54,45 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     [HttpPut("{id}")]
     public async Task<Response> Send(FriendLookup id, CancellationToken ct)
     {
-        var principal = PrincipalId;
         // Semantic self-check via the FriendLookup overload — catches the "client
         // sent their own id" fast-path case without a repository hop. The overload
         // fires for both Kind.Id (delegates to the SystemId primitive so raw and
         // same-region-scoped inputs both self-reject) and Kind.Username (trivially
         // returns false — deciding "is alice me?" requires a registry lookup, so
         // SendFriendRequestCommandHandler's post-resolution guard takes over).
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot send a friend request to yourself.",
-                ErrorCodes.CannotSendSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot send a friend request to yourself.", ErrorCodes.CannotSendSelf) is { } reject)
+            return reject;
 
-        var envelope = new CommandEnvelope<SendFriendRequestCommand>(
-            OperationIds.FriendRequestSend,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new SendFriendRequestCommand(id));
-
-        return CommandNoContent(await _send.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_send, OperationIds.FriendRequestSend, new SendFriendRequestCommand(id), ct);
     }
 
     [HttpDelete("{id}")]
     public async Task<Response> Cancel(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
         // Semantic self-check — CancelFriendRequestCommandHandler has no downstream
         // self-guard, so a bare byte compare would let a raw-id self-cancel return the
         // generic friend_request:not_requested error instead of cannot_cancel_self.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot cancel a friend request to yourself.",
-                ErrorCodes.CannotCancelSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot cancel a friend request to yourself.", ErrorCodes.CannotCancelSelf) is { } reject)
+            return reject;
 
-        var envelope = new CommandEnvelope<CancelFriendRequestCommand>(
-            OperationIds.FriendRequestCancel,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new CancelFriendRequestCommand(id));
-
-        return CommandNoContent(await _cancel.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_cancel, OperationIds.FriendRequestCancel, new CancelFriendRequestCommand(id), ct);
     }
 
     [HttpPost("{id}/accept")]
     public async Task<Response> Accept(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
-        // Semantic self-check — see Cancel handler for the same rationale.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot accept a friend request from yourself.",
-                ErrorCodes.CannotAcceptSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot accept a friend request from yourself.", ErrorCodes.CannotAcceptSelf) is { } reject)
+            return reject;
 
-        var envelope = new CommandEnvelope<AcceptFriendRequestCommand>(
-            OperationIds.FriendRequestAccept,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new AcceptFriendRequestCommand(id));
-
-        return CommandNoContent(await _accept.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_accept, OperationIds.FriendRequestAccept, new AcceptFriendRequestCommand(id), ct);
     }
 
     [HttpPost("{id}/reject")]
     public async Task<Response> Reject(SystemId id, CancellationToken ct)
     {
-        var principal = PrincipalId;
-        // Semantic self-check — see Cancel handler for the same rationale.
-        if (principal.RepresentsSameUserAs(id))
-        {
-            return new ErrorResponse(
-                "You cannot reject a friend request from yourself.",
-                ErrorCodes.CannotRejectSelf,
-                System.Net.HttpStatusCode.BadRequest);
-        }
+        if (RejectIfSelf(id, "You cannot reject a friend request from yourself.", ErrorCodes.CannotRejectSelf) is { } reject)
+            return reject;
 
-        var envelope = new CommandEnvelope<RejectFriendRequestCommand>(
-            OperationIds.FriendRequestReject,
-            Guid.NewGuid(),
-            PrincipalId: principal,
-            IdempotencyKey: GetIdempotencyKey(),
-            OccurredAt: DateTimeOffset.UtcNow,
-            Payload: new RejectFriendRequestCommand(id));
-
-        return CommandNoContent(await _reject.HandleAsync(envelope, ct));
+        return await DispatchNoContentAsync(_reject, OperationIds.FriendRequestReject, new RejectFriendRequestCommand(id), ct);
     }
 }

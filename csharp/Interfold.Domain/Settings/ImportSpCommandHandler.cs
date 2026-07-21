@@ -19,14 +19,13 @@ namespace Interfold.Domain.Settings;
 /// for the loopback HttpClient to time out on).
 ///
 /// <para>
-/// <b>Why the old code path is gone.</b> Synchronously calling
-/// <c>SettingsCommandHelper.ExecuteAsync</c> wrapped the importer in a per-command
-/// idempotency dedupe that fired once on the request-level key. The duplicate-SP-import
-/// bug bypassed that dedupe by minting a fresh idempotency key per Polly retry (see
-/// <c>GetIdempotencyKey</c>'s fallback). Replacing the dedupe with the per-system LWT
-/// mutex (<c>active_import_by_system</c>) means every dispatch — original or retried,
-/// from any client — collapses onto the same in-flight operation, regardless of what
-/// the idempotency key looks like.
+/// <b>Why the old code path is gone.</b> Synchronously running the importer inside a
+/// per-command idempotency helper fired the dedupe on the request-level key only. The
+/// duplicate-SP-import bug bypassed that dedupe by minting a fresh idempotency key per
+/// Polly retry (see <c>GetIdempotencyKey</c>'s fallback). Replacing the dedupe with the
+/// per-system LWT mutex (<c>active_import_by_system</c>) means every dispatch — original
+/// or retried, from any client — collapses onto the same in-flight operation, regardless
+/// of what the idempotency key looks like.
 /// </para>
 /// </summary>
 public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, ImportDispatchCommandResult>
@@ -44,15 +43,8 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         CommandEnvelope<ImportSpCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
-        {
-            return CommandExecutionResult<ImportDispatchCommandResult>.Rejected(
-                new ConflictResult(
-                    ConflictCode.ConflictInvariant,
-                    command.OperationId,
-                    EntityRefs.SettingsImportSpInvalid,
-                    ResolutionHint.ManualMergeRequired));
-        }
+        if (CommandHandler.RejectIfBlank<ImportDispatchCommandResult>(command.OperationId, command.Payload.Token.Value, EntityRefs.SettingsImportSpInvalid) is { } blankReject)
+            return blankReject;
 
         var claim = await _operations.TryClaimAsync(
             command.PrincipalId,
@@ -77,8 +69,8 @@ public sealed class ImportSpCommandHandler : ICommandHandler<ImportSpCommand, Im
         // layer (we never enqueue), but the caller still gets back a real operation_id
         // so any client log / debugger sees the same correlation handle as the
         // originating click. Replay is wired to false because async dispatch doesn't have
-        // the "exact same result available on replay" semantics SettingsCommandHelper
-        // gave the synchronous path — the WebSocket frame is the authoritative outcome.
+        // the "exact same result available on replay" semantics the old synchronous
+        // helper gave — the WebSocket frame is the authoritative outcome.
         var result = new ImportDispatchCommandResult(
             command.PrincipalId,
             claim.OperationId,

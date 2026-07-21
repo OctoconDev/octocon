@@ -13,3 +13,4 @@ public sealed class UnsupportedDistroDinDFixture : DinDFixtureBase
     // No Docker daemon to wait for, no API image to load, no images to pre-pull.
     protected override bool PreloadImages => false;
 }
+

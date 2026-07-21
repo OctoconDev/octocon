@@ -42,18 +42,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuCassandraDinDFixture>(Shared = SharedType.PerTestSession)]
 public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
 {
-    private static string TestConfigJsonPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.cassandra.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task PublishInCassandraModeStampsPullPolicyOnComposeYaml()
@@ -63,12 +54,7 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         // carries `pull_policy: never`. Fast — no health check, no image pull, no compose up.
         // Locks down PublishPhase.StampCassandraPullPolicyNever's happy-path contract in a
         // real end-to-end publish, not just the unit test's synthetic YAML.
-        var scratch = await dinD.CreateScratchAsync(nameof(PublishInCassandraModeStampsPullPolicyOnComposeYaml), TestConfigJsonPath);
-
-        var publish = await dinD.RunBootstrapperAsync(nameof(PublishInCassandraModeStampsPullPolicyOnComposeYaml),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because($"publish failed: {publish.Stderr}");
+        var (scratch, composeFile) = await dinD.PublishAsync(nameof(PublishInCassandraModeStampsPullPolicyOnComposeYaml), TestConfigPaths.CassandraConfig, "--skip-prereqs");
 
         // grep -A 1 pulls the line after each `${CASSANDRA_IMAGE}` match; we assert the
         // policy shows up in that immediate neighbourhood. Portable across compose-yaml
@@ -100,12 +86,7 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         // `docker compose pull` to exit non-zero with "pull access denied" before the
         // cassandra pull-skip evidence could land. See the class remarks on
         // UpdateImagesPhaseTests for the general "locally-built API image" caveat.
-        var scratch = await dinD.CreateScratchAsync(nameof(UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage), TestConfigPaths.CassandraConfig);
 
         // Sanity: the local image was built by bootstrap. `docker images -q` returns
         // the image ID (non-empty) if the tag exists locally.
@@ -113,10 +94,9 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         await Assert.That(imgBefore.Stdout.Trim().Length).IsGreaterThan(0)
             .Because("bootstrap should have built interfold-cassandra:local via CassandraImagePhase.EnsureBuiltAsync");
 
-        var update = await dinD.RunBootstrapperAsync(nameof(UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--service", "msg-db", "--service", "cassandra",
-             "--skip-pre-update-backup", "--non-interactive"]);
+        var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage), "update-images",
+            "--service", "msg-db", "--service", "cassandra",
+            "--skip-pre-update-backup");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         var combined = update.Stdout + update.Stderr;
@@ -147,17 +127,11 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         // The scoping guard: narrowing an update with `--service msg-db` in cassandra mode
         // must NOT trigger an unrelated Cassandra rebuild. Locks down ShouldRebuildCassandra's
         // "whitelist excludes cassandra" branch in a real invocation.
-        var scratch = await dinD.CreateScratchAsync(nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild), TestConfigJsonPath);
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild), TestConfigPaths.CassandraConfig);
 
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
-
-        var update = await dinD.RunBootstrapperAsync(nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild),
-            ["update-images", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--service", "msg-db",
-             "--skip-pre-update-backup", "--non-interactive"]);
+        var update = await dinD.RunOnScratchAsync(scratch, nameof(UpdateInCassandraModeWithMsgDbWhitelistSkipsRebuild), "update-images",
+            "--service", "msg-db",
+            "--skip-pre-update-backup");
         await Assert.That(update.ExitCode).IsEqualTo(0).Because($"update-images failed: {update.Stderr}");
 
         var combined = update.Stdout + update.Stderr;
@@ -165,3 +139,7 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
             .Because("--service msg-db must not trigger a cassandra rebuild");
     }
 }
+
+
+
+

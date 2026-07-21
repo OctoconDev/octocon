@@ -1,4 +1,3 @@
-using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 using TUnit.Core;
@@ -29,17 +28,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class RestorePhaseTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task RestorePostgresFromDumpRoundTripsMarkerTable()
@@ -47,65 +38,57 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // 1. Bootstrap → live stack. 2. Create a marker table + row via psql (using the
         // admin credentials from secrets.json). 3. Take a backup. 4. DROP the table.
         // 5. Restore --restore-postgres --force. 6. Assert the marker table + row are back.
-        var scratch = await dinD.CreateScratchAsync(nameof(RestorePostgresFromDumpRoundTripsMarkerTable), TestConfigJsonPath);
-        var composeFile = $"{scratch.OutputDir}/docker-compose.yaml";
+        var (scratch, composeFile) = await dinD.BootstrapAsync(nameof(RestorePostgresFromDumpRoundTripsMarkerTable), TestConfigPaths.DefaultConfig);
 
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(RestorePostgresFromDumpRoundTripsMarkerTable)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        // Extract the admin password once from secrets.json — every psql probe below reuses it.
+        // ReadSecretsFieldAsync copies the file out of the container and parses it in-process,
+        // which is byte-exact against `grep {field} | sed …` on any well-formed JSON but stays
+        // resilient to whitespace, ordering, or escape variations the shell regex would miss.
+        var adminPass = await dinD.ReadSecretsFieldAsync(scratch, "postgresAdminPassword");
+        await Assert.That(adminPass).IsNotEmpty()
+            .Because("postgresAdminPassword must be present in secrets.json after bootstrap");
 
-        // Seed a marker table into the test DB using the admin role from secrets.json.
-        // Extracting the admin password from the JSON via `grep + sed` — keeps the test
-        // self-contained without needing to parse secrets.json in the test process.
-        var seed = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -c " +
-            "\"CREATE TABLE restore_marker(id int primary key); INSERT INTO restore_marker(id) VALUES (42);\""]);
+        var seed = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"CREATE TABLE restore_marker(id int primary key); INSERT INTO restore_marker(id) VALUES (42);\"",
+            password: adminPass, psqlFlags: "-c", host: null);
         await Assert.That(seed.ExitCode).IsEqualTo(0L)
             .Because($"seeding marker table failed: {seed.Stderr}");
 
         // Take the backup that we'll restore from.
-        var backup = await dinD.RunBootstrapperAsync($"{nameof(RestorePostgresFromDumpRoundTripsMarkerTable)}-backup",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var backup = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestorePostgresFromDumpRoundTripsMarkerTable)}-backup", "backup",
+            "--component", "postgres");
         await Assert.That(backup.ExitCode).IsEqualTo(0).Because($"backup failed: {backup.Stderr}");
 
         // Drop the marker table so the restore path has something concrete to bring back.
-        var drop = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -c \"DROP TABLE restore_marker;\""]);
+        var drop = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"DROP TABLE restore_marker;\"",
+            password: adminPass, psqlFlags: "-c", host: null);
         await Assert.That(drop.ExitCode).IsEqualTo(0L)
             .Because($"dropping the marker table failed: {drop.Stderr}");
 
         // Confirm the table is really gone before the restore — otherwise we'd be
         // testing a no-op path and the assertion below would pass vacuously.
-        var missing = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -tAc \"SELECT to_regclass('public.restore_marker') IS NULL\""]);
+        var missing = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"SELECT to_regclass('public.restore_marker') IS NULL\"",
+            password: adminPass, host: null);
         await Assert.That(missing.Stdout.Trim()).IsEqualTo("t")
             .Because("marker table must actually be absent before the restore");
 
         // Restore --restore-latest picks up the .dump we just took. --force skips the
         // destructive-op confirmation prompt (required in --non-interactive mode).
-        var restore = await dinD.RunBootstrapperAsync(nameof(RestorePostgresFromDumpRoundTripsMarkerTable),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--force", "--non-interactive"]);
+        var restore = await dinD.RunOnScratchAsync(scratch, nameof(RestorePostgresFromDumpRoundTripsMarkerTable), "restore",
+            "--restore-latest", "--force");
         await Assert.That(restore.ExitCode).IsEqualTo(0).Because($"restore failed: {restore.Stderr}");
 
         // The marker must be back. Value check pins that the round-trip preserved the
         // row data, not just the schema.
-        var probe = await dinD.ExecAsync(["sh", "-c",
-            $"ADMIN_PW=$(grep postgresAdminPassword {scratch.OutputDir}/secrets/secrets.json | " +
-            "sed -E 's/.*\"([^\"]+)\".*$/\\1/' | tail -1); " +
-            $"docker compose -f {composeFile} exec -T -e PGPASSWORD=\"$ADMIN_PW\" msg-db " +
-            "psql -U interfold_admin -d test_pg_db -tAc \"SELECT id FROM restore_marker\""]);
+        var probe = await dinD.PsqlAsync(
+            composeFile, "interfold_admin", "test_pg_db",
+            "\"SELECT id FROM restore_marker\"",
+            password: adminPass, host: null);
         await Assert.That(probe.ExitCode).IsEqualTo(0L)
             .Because($"post-restore probe failed: {probe.Stderr}");
         await Assert.That(probe.Stdout.Trim()).IsEqualTo("42")
@@ -119,25 +102,18 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // to the newer archive by mtime. The log lines from RestorePhase.ResolveArchives
         // name the chosen path, giving us a deterministic assertion target without
         // having to poke inside the running database.
-        var scratch = await dinD.CreateScratchAsync(nameof(RestoreLatestPicksMostRecentArchive), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(RestoreLatestPicksMostRecentArchive)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(RestoreLatestPicksMostRecentArchive), TestConfigPaths.DefaultConfig);
 
         // First backup, then a 2s sleep so mtimes are distinguishable at second
         // resolution, then a second backup.
-        var b1 = await dinD.RunBootstrapperAsync($"{nameof(RestoreLatestPicksMostRecentArchive)}-b1",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var b1 = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestoreLatestPicksMostRecentArchive)}-b1", "backup",
+            "--component", "postgres");
         await Assert.That(b1.ExitCode).IsEqualTo(0).Because(b1.Stderr);
 
         await dinD.ExecAsync(["sleep", "2"]);
 
-        var b2 = await dinD.RunBootstrapperAsync($"{nameof(RestoreLatestPicksMostRecentArchive)}-b2",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var b2 = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestoreLatestPicksMostRecentArchive)}-b2", "backup",
+            "--component", "postgres");
         await Assert.That(b2.ExitCode).IsEqualTo(0).Because(b2.Stderr);
 
         // Resolve the newest archive name via a shell one-liner so we know what the
@@ -151,9 +127,8 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
 
         // Restore with --restore-latest and no explicit --restore-postgres so the
         // resolver picks by mtime. The log line names the chosen path — assert it.
-        var restore = await dinD.RunBootstrapperAsync(nameof(RestoreLatestPicksMostRecentArchive),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--force", "--non-interactive"]);
+        var restore = await dinD.RunOnScratchAsync(scratch, nameof(RestoreLatestPicksMostRecentArchive), "restore",
+            "--restore-latest", "--force");
         await Assert.That(restore.ExitCode).IsEqualTo(0).Because($"restore failed: {restore.Stderr}");
 
         var combined = restore.Stdout + restore.Stderr;
@@ -167,16 +142,10 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // Zero-archive-selector case: --restore-latest by itself against an
         // empty {backups}/ directory must produce an actionable error naming the
         // missing selectors, not crash somewhere deep in pg_restore.
-        var scratch = await dinD.CreateScratchAsync(nameof(RestoreWithoutArchivesFailsClearly), TestConfigJsonPath);
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(RestoreWithoutArchivesFailsClearly), TestConfigPaths.DefaultConfig);
 
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(RestoreWithoutArchivesFailsClearly)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
-
-        var result = await dinD.RunBootstrapperAsync(nameof(RestoreWithoutArchivesFailsClearly),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--force", "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(RestoreWithoutArchivesFailsClearly), "restore",
+            "--restore-latest", "--force");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("restore --restore-latest with no archives on disk must fail");
@@ -192,23 +161,16 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
         // Destructive-op safety gate. Passing a real archive selector without --force
         // in --non-interactive mode must refuse to proceed and print a clear error
         // pointing the operator at the --force flag.
-        var scratch = await dinD.CreateScratchAsync(nameof(RestoreInNonInteractiveModeRequiresForce), TestConfigJsonPath);
-
-        var bootstrap = await dinD.RunBootstrapperAsync($"{nameof(RestoreInNonInteractiveModeRequiresForce)}-bootstrap",
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(bootstrap.ExitCode).IsEqualTo(0).Because($"bootstrap failed: {bootstrap.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(RestoreInNonInteractiveModeRequiresForce), TestConfigPaths.DefaultConfig);
 
         // Take a backup so there's a real archive to point at.
-        var backup = await dinD.RunBootstrapperAsync($"{nameof(RestoreInNonInteractiveModeRequiresForce)}-backup",
-            ["backup", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--component", "postgres", "--non-interactive"]);
+        var backup = await dinD.RunOnScratchAsync(scratch, $"{nameof(RestoreInNonInteractiveModeRequiresForce)}-backup", "backup",
+            "--component", "postgres");
         await Assert.That(backup.ExitCode).IsEqualTo(0).Because(backup.Stderr);
 
         // No --force. Must fail with a clear error mentioning --force.
-        var result = await dinD.RunBootstrapperAsync(nameof(RestoreInNonInteractiveModeRequiresForce),
-            ["restore", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir,
-             "--restore-latest", "--non-interactive"]);
+        var result = await dinD.RunOnScratchAsync(scratch, nameof(RestoreInNonInteractiveModeRequiresForce), "restore",
+            "--restore-latest");
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0)
             .Because("restore in non-interactive mode without --force must be refused");
@@ -218,3 +180,7 @@ public class RestorePhaseTests(UbuntuDinDFixture dinD)
             .Because("error must name --force as the escape hatch for non-interactive mode");
     }
 }
+
+
+
+

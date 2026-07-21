@@ -1,4 +1,4 @@
-﻿using Cassandra;
+using Cassandra;
 using Interfold.Contracts.Configuration;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -94,19 +94,18 @@ public class ScyllaHealthChecker : IHealthCheck
 
     private static async Task<List<string>> GetMissingTablesAsync(ISession session, string keyspace, IEnumerable<string> tableNames)
     {
-        //TODO: This should be optimized to query system_schema.tables once per keyspace and check for all required tables in-memory, 
-        // rather than querying for each table individually.
+        var query = new SimpleStatement(
+            "SELECT table_name FROM system_schema.tables WHERE keyspace_name = ?",
+            keyspace
+        );
+
+        var rows = await session.ExecuteAsync(query).ConfigureAwait(false);
+        var existingTables = rows.Select(r => r.GetValue<string>("table_name")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var missingTables = new List<string>();
         foreach (var tableName in tableNames)
         {
-            var tableQuery = new SimpleStatement(
-                "SELECT table_name FROM system_schema.tables WHERE keyspace_name = ? AND table_name = ? LIMIT 1",
-                keyspace,
-                tableName
-            );
-
-            var tableResult = await session.ExecuteAsync(tableQuery);
-            if (!tableResult.Any())
+            if (!existingTables.Contains(tableName))
             {
                 missingTables.Add(tableName);
             }

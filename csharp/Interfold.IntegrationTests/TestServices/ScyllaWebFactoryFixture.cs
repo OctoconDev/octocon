@@ -1,3 +1,4 @@
+using Interfold.Contracts;
 using TUnit.Core.Interfaces;
 
 namespace Interfold.IntegrationTests.TestServices;
@@ -46,7 +47,7 @@ public sealed class ScyllaWebFactoryFixture : IWebFactoryFixture, IAsyncInitiali
     // ScyllaPort is asserted non-null by InitializeAsync's guard above — any caller reaching
     // this method has already passed that check via the same shared Aspire fixture.
     public InterfoldWebApplicationFactory CreatePrivateFactory()
-        => new InterfoldWebApplicationFactory("scylla-postgres", "scylla-single-node")
+        => new InterfoldWebApplicationFactory(PersistenceMode.ScyllaPostgres, "scylla-single-node")
             .WithConfiguration("OCTOCON_POSTGRES_CONNECTION", Aspire.PostgresConnectionString)
             .WithConfiguration("OCTOCON_SCYLLA_PORT", Aspire.ScyllaPort!.Value.ToString())
             .WithConfiguration("OCTOCON_SINGLE_SCYLLA_INSTANCE", "true")

@@ -1,5 +1,6 @@
 using Interfold.Contracts.Configuration;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -97,6 +98,14 @@ public static class Extensions
         options.CircuitBreaker.SamplingDuration = CircuitBreakerSamplingDuration;
     }
 
+    /// <summary>
+    /// Configures OpenTelemetry logging, metrics, and tracing. Deliberately <c>public</c>
+    /// per the Aspire ServiceDefaults template convention (Aspire operators are expected
+    /// to be able to chain their own composition around this call). Do not demote to
+    /// <c>private static</c> without first auditing the downstream <c>AddServiceDefaults</c>
+    /// callers in this repo and any external consumers that treat ServiceDefaults as a
+    /// composition surface.
+    /// </summary>
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Logging.AddOpenTelemetry(logging =>
@@ -139,6 +148,12 @@ public static class Extensions
         return builder;
     }
 
+    /// <summary>
+    /// Registers the built-in <c>self</c> liveness check tagged
+    /// <see cref="HealthCheckTags.Live"/>. Deliberately <c>public</c> per the Aspire
+    /// ServiceDefaults template convention — see <see cref="ConfigureOpenTelemetry"/>'s
+    /// remarks for the same demotion caveat.
+    /// </summary>
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
@@ -147,26 +162,26 @@ public static class Extensions
         return builder;
     }
 
-    public static WebApplication MapDefaultEndpoints(this WebApplication app)
+    public static IEndpointRouteBuilder MapDefaultEndpoints(this IEndpointRouteBuilder endpoints)
     {
         // Liveness: no dependency checks
-        app.MapHealthChecks(HealthEndpoints.Live, new HealthCheckOptions
+        endpoints.MapHealthChecks(HealthEndpoints.Live, new HealthCheckOptions
         {
             Predicate = _ => false
         }).AllowAnonymous().ShortCircuit();
 
         // Readiness: checks tagged "ready"
-        app.MapHealthChecks(HealthEndpoints.Ready, new HealthCheckOptions
+        endpoints.MapHealthChecks(HealthEndpoints.Ready, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains(HealthCheckTags.Ready)
         }).AllowAnonymous().ShortCircuit();
 
         // Startup: checks tagged "startup" (longer timeout for DB init)
-        app.MapHealthChecks(HealthEndpoints.Startup, new HealthCheckOptions
+        endpoints.MapHealthChecks(HealthEndpoints.Startup, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains(HealthCheckTags.Startup)
         }).AllowAnonymous().ShortCircuit();
 
-        return app;
+        return endpoints;
     }
 }

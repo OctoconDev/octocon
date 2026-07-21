@@ -32,16 +32,11 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// </summary>
 public sealed class ConfigMdnsGateTests
 {
-    private static BootstrapOptions OptionsFor(bool nonInteractive) => new(
-        Command: BootstrapCommand.Bootstrap,
-        ConfigPath: null,
-        OutputDir: "./deploy",
-        SkipPrereqs: true,
-        RotateSecrets: false,
-        RotateCerts: false,
-        NonInteractive: nonInteractive,
-        FaultInject: null,
-        PrintPhaseStatus: false);
+    private static BootstrapOptions OptionsFor(bool nonInteractive) => TestSupport.MakeOptions(
+        command: BootstrapCommand.Bootstrap,
+        outputDir: "./deploy",
+        skipPrereqs: true,
+        nonInteractive: nonInteractive);
 
     /// <summary>
     /// Constructs a minimal <see cref="BootstrapConfig"/> with the supplied hosts. Every

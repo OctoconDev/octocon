@@ -1,6 +1,7 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
@@ -15,12 +16,7 @@ public static class JournalSocketEventHandlers
 
     public static async Task HandleAsync(GlobalJournalEntryDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Journals.GlobalDeleted, new EntryDeletedSocketPayload(evt.EntryId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Journals.GlobalDeleted, new EntryDeletedSocketPayload(evt.EntryId));
     }
 
     public static async Task HandleAsync(AlterJournalEntryCreatedEvent evt, SocketPushContext context, IJournalRepository journalRepository)
@@ -31,43 +27,18 @@ public static class JournalSocketEventHandlers
 
     public static async Task HandleAsync(AlterJournalEntryDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Journals.AlterDeleted, new EntryDeletedSocketPayload(evt.EntryId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Journals.AlterDeleted, new EntryDeletedSocketPayload(evt.EntryId));
     }
 
-    private static async Task HandleGlobalUpsertAsync(SystemId systemId, EntryId entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
-    {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
+    private static Task HandleGlobalUpsertAsync(SystemId systemId, EntryId entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
+        => context.PushIfJoinedAsync<JournalReadModel, GlobalJournalSocketPayload>(
+            systemId, eventName,
+            ct => journalRepository.GetGlobalAsync(systemId, entryId, ct),
+            entry => new GlobalJournalSocketPayload(entry));
 
-        var entry = await journalRepository.GetGlobalAsync(systemId, entryId, context.CancellationToken).ConfigureAwait(false);
-        if (entry is null)
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new GlobalJournalSocketPayload(entry));
-    }
-
-    private static async Task HandleAlterUpsertAsync(SystemId systemId, EntryId entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
-    {
-        if (!context.TryGetSystemTopic(systemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var entry = await journalRepository.GetAlterAsync(systemId, entryId, context.CancellationToken).ConfigureAwait(false);
-        if (entry is null)
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, eventName, new AlterJournalSocketPayload(entry));
-    }
+    private static Task HandleAlterUpsertAsync(SystemId systemId, EntryId entryId, string eventName, SocketPushContext context, IJournalRepository journalRepository)
+        => context.PushIfJoinedAsync<AlterJournalReadModel, AlterJournalSocketPayload>(
+            systemId, eventName,
+            ct => journalRepository.GetAlterAsync(systemId, entryId, ct),
+            entry => new AlterJournalSocketPayload(entry));
 }

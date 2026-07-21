@@ -6,6 +6,7 @@ using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Images;
+using TUnit.Assertions;
 using TUnit.Core.Interfaces;
 
 namespace Interfold.Bootstrapper.IntegrationTests.Fixtures;
@@ -246,6 +247,51 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         return await _dinD.ReadFileAsync(containerPath, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Convenience wrapper over <see cref="CopyOutAsync(string, CancellationToken)"/> that
+    /// reads the per-scratch <c>secrets/secrets.json</c> and returns it as a UTF-8 string.
+    /// Every test that needs to grep / compare / rotate the secrets file was previously
+    /// open-coding <c>Encoding.UTF8.GetString(await dinD.CopyOutAsync($"{scratch.OutputDir}/secrets/secrets.json"))</c>
+    /// — this helper is the single fix-forward point if the path or format ever changes.
+    /// </summary>
+    public async Task<string> ReadSecretsJsonAsync(DinDScratch scratch, CancellationToken ct = default)
+    {
+        var bytes = await CopyOutAsync(scratch.SecretsJsonPath, ct).ConfigureAwait(false);
+        return Encoding.UTF8.GetString(bytes);
+    }
+
+    public async Task<string> ReadSecretsFieldAsync(DinDScratch scratch, string field, CancellationToken ct = default)
+    {
+        var json = await ReadSecretsJsonAsync(scratch, ct).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.TryGetProperty(field, out var prop))
+        {
+            return prop.ValueKind == JsonValueKind.String ? (prop.GetString() ?? string.Empty) : prop.GetRawText().Trim('"');
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Counts files matching a glob under the scratch's output dir. The <paramref name="relativePathOrGlob"/>
+    /// is joined onto <see cref="DinDScratch.OutputDir"/> in-container — passing
+    /// <c>"{scratch.OutputDir}/backups/postgres/*.dump"</c> is a bug (the literal <c>{scratch.OutputDir}</c>
+    /// string reaches <c>ls</c> and matches nothing), so this signature takes the scratch as a first-class
+    /// parameter to eliminate that footgun (see sibling <see cref="ReadSecretsFieldAsync"/>). Callers pass
+    /// the trailing relative path only, e.g. <c>"backups/postgres/*.dump"</c>.
+    /// </summary>
+    public async Task<int> CountFilesAsync(DinDScratch scratch, string relativePathOrGlob, CancellationToken ct = default)
+    {
+        var fullPath = $"{scratch.OutputDir}/{relativePathOrGlob.TrimStart('/')}";
+        var exec = await ExecAsync(["sh", "-c", $"ls -1 {fullPath} 2>/dev/null | wc -l"], ct).ConfigureAwait(false);
+        return int.TryParse(exec.Stdout.Trim(), out var count) ? count : 0;
+    }
+
+    public async Task<string> CopyOutAsTextAsync(string containerPath, CancellationToken ct = default)
+    {
+        var bytes = await CopyOutAsync(containerPath, ct).ConfigureAwait(false);
+        return Encoding.UTF8.GetString(bytes);
+    }
+
     /// <summary>Copy a host file into the DinD container.</summary>
     public async Task CopyInAsync(string hostPath, string containerPath, CancellationToken ct = default)
     {
@@ -254,6 +300,72 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         // CopyAsync(content, path, userId, groupId, fileMode, ct) - mode 0600 (owner rw only).
         const UnixFileModes Mode0600 = UnixFileModes.UserRead | UnixFileModes.UserWrite;
         await _dinD.CopyAsync(bytes, containerPath, 0, 0, Mode0600, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a <c>psql</c> command against the <c>msg-db</c> service of the compose project at
+    /// <paramref name="composeFile"/> inside the DinD container. Concentrates the
+    /// <c>docker compose -f … exec -T [-e PGPASSWORD=…] msg-db psql -U … -d … -h … …</c> shape
+    /// that every DB-init / restore integration test was hand-rolling with slight variations.
+    /// <para>
+    /// <paramref name="quotedSql"/> must include its outer shell quoting (single or double).
+    /// <paramref name="password"/>, when supplied, is forwarded verbatim, so both literal
+    /// values (<c>"abc123"</c>) and shell expressions (<c>"$ADMIN_PW"</c>, subshells) work.
+    /// Set <paramref name="softFail"/> to append <c>2&gt;&amp;1 || true</c> for probes that
+    /// deliberately expect a non-zero psql exit (auth-refused, permission-denied etc.).
+    /// </para>
+    /// </summary>
+    public Task<ExecResult> PsqlAsync(
+        string composeFile,
+        string user,
+        string database,
+        string quotedSql,
+        string? password = null,
+        string psqlFlags = "-tAc",
+        string? host = "127.0.0.1",
+        bool softFail = false,
+        CancellationToken ct = default)
+    {
+        // NOTE: the "PGPASSWORD" env-var name is intentionally kept as a string literal here rather
+        // than referencing DatabaseArchiveStreamer.PgPasswordEnvVar. This project's csproj holds the
+        // bootstrapper reference with ReferenceOutputAssembly="false" + ExcludeAssets="all" (see
+        // Interfold.Bootstrapper.IntegrationTests.csproj) so nothing from Interfold.Bootstrapper.dll
+        // is compile-linked into the test binary — the fixture shells out to `dotnet publish`
+        // instead. Also, "PGPASSWORD" is a fixed Postgres-client protocol name, not a value we
+        // control, so drift-clearance is not a concern.
+        var pwPrefix = password is null ? string.Empty : $"-e PGPASSWORD={password} ";
+        var hostArg = host is null ? string.Empty : $"-h {host} ";
+        var tail = softFail ? " 2>&1 || true" : string.Empty;
+        var cmd = $"docker compose -f {composeFile} exec -T {pwPrefix}msg-db " +
+                  $"psql -U {user} -d {database} {hostArg}{psqlFlags} {quotedSql}{tail}";
+        return ExecAsync(["sh", "-c", cmd], ct);
+    }
+
+    /// <summary>
+    /// Runs a <c>cqlsh</c> command against the <c>scylla</c> service of the compose project at
+    /// <paramref name="composeFile"/> inside the DinD container. Concentrates the
+    /// <c>docker compose -f … exec -T scylla cqlsh -u … -p … -e "…" 2&gt;&amp;1 || true</c>
+    /// shape shared by every Scylla auth/role invariant test.
+    /// <para>
+    /// <paramref name="quotedCqlExpression"/> must include its outer double quotes.
+    /// <paramref name="password"/> is forwarded verbatim (literal values, shell variables,
+    /// and <c>"$(...)"</c> subshells all work). <paramref name="softFail"/> defaults to
+    /// <c>true</c> because Scylla auth probes typically expect a non-zero cqlsh exit and
+    /// grep the stdout/stderr for the failure mode.
+    /// </para>
+    /// </summary>
+    public Task<ExecResult> CqlshAsync(
+        string composeFile,
+        string user,
+        string password,
+        string quotedCqlExpression,
+        bool softFail = true,
+        CancellationToken ct = default)
+    {
+        var tail = softFail ? " 2>&1 || true" : string.Empty;
+        var cmd = $"docker compose -f {composeFile} exec -T scylla " +
+                  $"cqlsh -u {user} -p {password} -e {quotedCqlExpression}{tail}";
+        return ExecAsync(["sh", "-c", cmd], ct);
     }
 
     /// <summary>
@@ -274,6 +386,68 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         sb.AppendLine("--- stderr ---");
         sb.AppendLine(result.Stderr);
         return result;
+    }
+
+    /// <summary>
+    /// Runs an arbitrary bootstrapper subcommand against an already-created scratch, with the
+    /// three flags that every test would otherwise repeat (<c>--config</c>, <c>--output-dir</c>,
+    /// <c>--non-interactive</c>) pre-populated. Does NOT assert on exit code — callers make
+    /// their own success/failure assertions since different sites expect different exit codes
+    /// (health-timeout wants non-zero; secondary <c>bootstrap</c> re-runs want zero; etc.).
+    /// </summary>
+    /// <remarks>
+    /// Use this instead of hand-rolling <see cref="RunBootstrapperAsync"/> whenever a test is
+    /// invoking a single subcommand (<c>install-service</c>, <c>update-images</c>, <c>backup</c>,
+    /// <c>restore</c>, <c>up</c>, <c>rotate-secrets</c>, <c>rotate-certs</c>, second <c>bootstrap</c>,
+    /// etc.) against a scratch it already holds. For the primary <c>bootstrap</c>/<c>publish</c>
+    /// at the top of a test body, prefer <see cref="BootstrapAsync"/>/<see cref="PublishAsync"/>
+    /// which also create the scratch and assert exit zero.
+    /// </remarks>
+    public Task<ExecResult> RunOnScratchAsync(
+        DinDScratch scratch,
+        string testName,
+        string command,
+        params string[] extraArgs)
+    {
+        var args = new List<string>(4 + extraArgs.Length)
+        {
+            command,
+            "--config", scratch.ConfigPath,
+            "--output-dir", scratch.OutputDir,
+            "--non-interactive",
+        };
+        args.AddRange(extraArgs);
+        return RunBootstrapperAsync(testName, args);
+    }
+
+    /// <summary>
+    /// Drives a full bootstrap against a fresh scratch and returns the in-container compose
+    /// file path. Each test calls this once at the top of its body, then issues its probes.
+    /// </summary>
+    public async Task<(DinDScratch Scratch, string ComposeFile)> BootstrapAsync(string testName, string configPath, params string[] extraArgs)
+    {
+        var scratch = await CreateScratchAsync(testName, configPath);
+        var args = new List<string> { "bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--skip-prereqs" };
+        args.AddRange(extraArgs);
+        var result = await RunBootstrapperAsync(testName, args);
+        await Assert.That(result.ExitCode).IsEqualTo(0)
+            .Because($"bootstrap must succeed before invariants can be checked: {result.Stderr}");
+        return (scratch, $"{scratch.OutputDir}/docker-compose.yaml");
+    }
+
+    /// <summary>
+    /// Drives a publish against a fresh scratch and returns the in-container compose
+    /// file path. Each test calls this once at the top of its body, then issues its probes.
+    /// </summary>
+    public async Task<(DinDScratch Scratch, string ComposeFile)> PublishAsync(string testName, string configPath, params string[] extraArgs)
+    {
+        var scratch = await CreateScratchAsync(testName, configPath);
+        var args = new List<string> { "publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive" };
+        args.AddRange(extraArgs);
+        var result = await RunBootstrapperAsync(testName, args);
+        await Assert.That(result.ExitCode).IsEqualTo(0)
+            .Because($"publish must succeed: {result.Stderr}");
+        return (scratch, $"{scratch.OutputDir}/docker-compose.yaml");
     }
 
     /// <summary>
@@ -416,7 +590,16 @@ public readonly record struct ExecResult(long ExitCode, string Stdout, string St
 /// <param name="OutputDir">Where the bootstrapper emits compose/secrets/certs (<c>{Root}/deploy</c>).</param>
 /// <param name="ConfigPath">Per-test copy of <c>interfold.bootstrap.json</c> (<c>{Root}/interfold.bootstrap.json</c>).</param>
 /// <param name="Ports">Per-test host-port allocation embedded into the per-test config's <c>ports</c> block.</param>
-public readonly record struct DinDScratch(string Root, string OutputDir, string ConfigPath, DinDPortAllocation Ports);
+public readonly record struct DinDScratch(string Root, string OutputDir, string ConfigPath, DinDPortAllocation Ports)
+{
+    /// <summary>
+    /// In-container path to the bootstrapper-emitted <c>secrets/secrets.json</c>. Convenient
+    /// shorthand for the <c>{OutputDir}/secrets/secrets.json</c> fragment repeated across
+    /// nearly every secret-adjacent integration test — see
+    /// <c>DinDFixtureBase.ReadSecretsJsonAsync</c>.
+    /// </summary>
+    public string SecretsJsonPath => $"{OutputDir}/secrets/secrets.json";
+}
 
 /// <summary>
 /// 6-port allocation issued per test by <see cref="DinDFixtureBase.AllocatePorts"/>. The values

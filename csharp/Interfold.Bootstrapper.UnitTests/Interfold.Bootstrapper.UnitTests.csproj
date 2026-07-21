@@ -44,4 +44,16 @@
     -->
     <ProjectReference Include="..\Interfold.Bootstrapper\Interfold.Bootstrapper.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Source-link the pure DinD-parallelism calculator from the integration-test project so we
+      can unit-test its math without pulling in Testcontainers or spinning any container. The
+      integration-test assembly stays the source of truth; this project just compiles the same
+      file into its own assembly under the same namespace so the tests can call the public API
+      directly.
+    -->
+    <Compile Include="..\Interfold.Bootstrapper.IntegrationTests\fixtures\DinDParallelLimitCalculator.cs"
+             Link="Fixtures\DinDParallelLimitCalculator.cs" />
+  </ItemGroup>
 </Project>

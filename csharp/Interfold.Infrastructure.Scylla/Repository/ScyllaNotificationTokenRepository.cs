@@ -12,22 +12,25 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
     private readonly IScyllaSessionProvider _sessionProvider;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
+    private readonly IScyllaScopeResolver _scopeResolver;
 
     public ScyllaNotificationTokenRepository(
         IScyllaSessionProvider sessionProvider,
         IScyllaKeyspaceResolver keyspaceResolver,
+        IScyllaScopeResolver scopeResolver,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
+        _scopeResolver = scopeResolver;
     }
 
     public async Task<bool> AddAsync(SystemId systemId, PushToken token, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteGlobalAsync<bool>(async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var session = scope.Session;
             var now = DateTimeOffset.UtcNow;
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
 
@@ -41,14 +44,14 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
 
             await session.ExecuteAsync(batch);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> RemoveAsync(PushToken token, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteGlobalAsync<bool>(async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var session = scope.Session;
 
             var findByToken = await session.PrepareAsync($@"
                 SELECT user_id FROM {ScyllaGlobalKeyspace.Name}.notification_tokens_by_push_token
@@ -74,7 +77,7 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
             }
 
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     // Reads global.friendships for the friend-id list, then multi-partition selects
@@ -86,9 +89,9 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
         SystemId systemId,
         CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteGlobalAsync<IReadOnlyList<FriendNotificationTokens>>(async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var session = scope.Session;
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
 
             var friendRows = await session.ExecuteAsync(new SimpleStatement(
@@ -123,6 +126,6 @@ public sealed class ScyllaNotificationTokenRepository : INotificationTokenReposi
             return (IReadOnlyList<FriendNotificationTokens>)perFriendGroups
                 .Where(g => g.Tokens.Count > 0)
                 .ToArray();
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 }

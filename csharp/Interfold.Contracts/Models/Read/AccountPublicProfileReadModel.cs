@@ -12,7 +12,7 @@ public sealed record AccountPublicProfileReadModel(
     DiscordId? DiscordId,
     Email? Email,
     AppleId? AppleId
-);
+) : IAvatarBearing;
 
 public enum AccountLinkResult
 {

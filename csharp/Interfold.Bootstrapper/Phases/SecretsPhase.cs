@@ -1,8 +1,8 @@
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
+using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -79,23 +79,19 @@ internal static partial class SecretsPhase
             }
             if (string.IsNullOrEmpty(existing.JwtRsa256PrivateKeyPem))
             {
-                using var jwtRsa = RSA.Create(RsaKeyBits);
-                existing.JwtRsa256PublicKeyPem = jwtRsa.ExportSubjectPublicKeyInfoPem();
-                existing.JwtRsa256PrivateKeyPem = jwtRsa.ExportPkcs8PrivateKeyPem();
+                (existing.JwtRsa256PublicKeyPem, existing.JwtRsa256PrivateKeyPem) = GenerateJwtRsaKeypair();
                 mutated = true;
             }
             if (string.IsNullOrEmpty(existing.JwtEs256PrivateKeyPem))
             {
-                using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-                existing.JwtEs256PublicKeyPem = ecdsa.ExportSubjectPublicKeyInfoPem();
-                existing.JwtEs256PrivateKeyPem = ecdsa.ExportECPrivateKeyPem();
+                (existing.JwtEs256PublicKeyPem, existing.JwtEs256PrivateKeyPem) = GenerateJwtEs256Keypair();
                 mutated = true;
             }
             if (mutated)
             {
                 logger.Info("    backfilled missing fields into existing secrets.json");
                 await PersistAsync(existing, secretsPath, ct).ConfigureAwait(false);
-                ChmodUserOnly(secretsPath, logger);
+                UnixFilePermissions.SetOwnerOnly(secretsPath, logger);
             }
             return existing;
         }
@@ -130,7 +126,7 @@ internal static partial class SecretsPhase
             secrets.LeafPfxPassword = preservedLeafPfxPassword;
         }
         await PersistAsync(secrets, secretsPath, ct).ConfigureAwait(false);
-        ChmodUserOnly(secretsPath, logger);
+        UnixFilePermissions.SetOwnerOnly(secretsPath, logger);
 
         logger.PhaseDone(Phase);
         return secrets;
@@ -171,15 +167,10 @@ internal static partial class SecretsPhase
         var dataPrivatePem = dataRsa.ExportRSAPrivateKeyPem();
         var dataPrivateB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(dataPrivatePem));
 
-        using var jwtRsa = RSA.Create(RsaKeyBits);
         // PKCS#8 + SPKI - the formats Microsoft.IdentityModel and System.Security.Cryptography
         // accept directly via RSA.ImportFromPem in the API.
-        var jwtRsaPrivatePem = jwtRsa.ExportPkcs8PrivateKeyPem();
-        var jwtRsaPublicPem = jwtRsa.ExportSubjectPublicKeyInfoPem();
-
-        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var jwtEsPrivatePem = ecdsa.ExportECPrivateKeyPem();
-        var jwtEsPublicPem = ecdsa.ExportSubjectPublicKeyInfoPem();
+        var (jwtRsaPublicPem, jwtRsaPrivatePem) = GenerateJwtRsaKeypair();
+        var (jwtEsPublicPem, jwtEsPrivatePem) = GenerateJwtEs256Keypair();
 
         return new GeneratedSecrets
         {
@@ -240,33 +231,28 @@ internal static partial class SecretsPhase
         await File.WriteAllTextAsync(path, json, ct).ConfigureAwait(false);
     }
 
-    private static void ChmodUserOnly(string path, PhaseLogger logger)
+    /// <summary>
+    /// RSA-2048 JWT signing keypair emitted as PKCS#8 (private) + SubjectPublicKeyInfo (public) PEM.
+    /// Internal so unit tests can pin the emitted PEM header/format contract that the API's
+    /// <c>RSA.ImportFromPem</c> depends on. Both the fresh-generation path (<see cref="Generate"/>)
+    /// and the second-run backfill path in <see cref="RunAsync"/> route through here so any format
+    /// change moves in lockstep across the auth boundary.
+    /// </summary>
+    internal static (string PublicPem, string PrivatePem) GenerateJwtRsaKeypair()
     {
-        // 0600 = owner read/write only. Matches the existing convention in scripts/generate-encryption-keypair.sh.
-        const int s_IRUSR_IWUSR = 0x180; // 0o600
-        Chmod(path, s_IRUSR_IWUSR, "0600", logger);
+        using var rsa = RSA.Create(RsaKeyBits);
+        return (rsa.ExportSubjectPublicKeyInfoPem(), rsa.ExportPkcs8PrivateKeyPem());
     }
 
-    private static void Chmod(string path, int mode, string modeDisplay, PhaseLogger logger)
+    /// <summary>
+    /// ES256 (NIST P-256) JWT signing keypair emitted as SEC1 (private) + SubjectPublicKeyInfo
+    /// (public) PEM. Internal so unit tests can pin the emitted PEM header/format contract that
+    /// the API's <c>ECDsa.ImportFromPem</c> depends on. Both generation paths route through here
+    /// for the same lockstep reason as <see cref="GenerateJwtRsaKeypair"/>.
+    /// </summary>
+    internal static (string PublicPem, string PrivatePem) GenerateJwtEs256Keypair()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            !RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            // Windows ACLs don't translate to a Unix mode; we expect Linux for production self-hosting.
-            return;
-        }
-
-        var rc = NativeMethods.chmod(path, mode);
-        if (rc != 0)
-        {
-            var err = Marshal.GetLastPInvokeError();
-            logger.Warn($"chmod({path}, {modeDisplay}) failed: errno={err} (file written but permissions not adjusted)");
-        }
-    }
-
-    private static partial class NativeMethods
-    {
-        [LibraryImport("libc", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
-        internal static partial int chmod(string path, int mode);
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        return (ecdsa.ExportSubjectPublicKeyInfoPem(), ecdsa.ExportECPrivateKeyPem());
     }
 }

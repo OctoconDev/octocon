@@ -11,26 +11,27 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
+    private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly PersistenceConfiguration _options;
 
     public ScyllaEncryptionStateRepository(
         IScyllaSessionProvider sessionProvider,
+        IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         IOptions<PersistenceConfiguration> options)
     {
         _sessionProvider = sessionProvider;
+        _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _options = options.Value;
     }
 
     public async Task<EncryptionState?> GetAsync(SystemId systemId, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             // Bind the raw string (either NormalizeSystemId's return, or Cat B `.Value` where
             // no widen exists), not the wrapper struct itself. The Cassandra C# driver's
@@ -53,16 +54,14 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
                     row.GetValue<bool?>("encryption_initialized") ?? false,
                     KeyChecksum.FromNullable(row.GetValue<string?>("encryption_key_checksum")),
                     EncryptionSalt.FromNullable(row.GetValue<string?>("salt")));
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 
     public async Task<bool> UpsertAsync(SystemId systemId, bool initialized, KeyChecksum? keyChecksum, EncryptionSalt? salt, CancellationToken cancellationToken = default)
     {
-        return await DatabaseTransientRetry.ExecuteScyllaAsync(async () =>
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
         {
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
-            var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
-            var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
+            var (session, keyspace, normalizedSystemId) = scope;
 
             SimpleStatement statement;
             if (salt is not { } newSalt)
@@ -87,6 +86,6 @@ public sealed class ScyllaEncryptionStateRepository : IEncryptionStateRepository
 
             await session.ExecuteAsync(statement);
             return true;
-        }, _options, cancellationToken);
+        }, cancellationToken);
     }
 }

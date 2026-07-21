@@ -32,15 +32,8 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
         CommandEnvelope<ImportPkCommand> command,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(command.Payload.Token.Value))
-        {
-            return CommandExecutionResult<ImportDispatchCommandResult>.Rejected(
-                new ConflictResult(
-                    ConflictCode.ConflictInvariant,
-                    command.OperationId,
-                    EntityRefs.SettingsImportPkInvalid,
-                    ResolutionHint.ManualMergeRequired));
-        }
+        if (CommandHandler.RejectIfBlank<ImportDispatchCommandResult>(command.OperationId, command.Payload.Token.Value, EntityRefs.SettingsImportPkInvalid) is { } blankReject)
+            return blankReject;
 
         var claim = await _operations.TryClaimAsync(
             command.PrincipalId,

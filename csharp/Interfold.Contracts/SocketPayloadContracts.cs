@@ -70,7 +70,7 @@ public sealed record SocketSelfReadModel(
     int LifetimeAlterCount,
     AlterId? PrimaryFront,
     IReadOnlyList<SettingsFieldReadModel> Fields,
-    bool EncryptionInitialized) : ISocketPayload;
+    bool EncryptionInitialized) : ISocketPayload, IAvatarBearing;
 
 public sealed record AlterSocketPayload(AlterReadModel Alter) : ISocketPayload;
 

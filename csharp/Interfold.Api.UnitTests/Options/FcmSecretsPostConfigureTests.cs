@@ -20,12 +20,9 @@ public sealed class FcmSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_RowPresent_PopulatesServiceAccountJson()
     {
-        var snapshot = SecretsSnapshotMock.Empty()
-            .With(SecretsStoreKeys.FcmServiceAccountJson, ServiceAccountJson);
-        var patcher = new FcmSecretsPostConfigure(snapshot.Object);
-        var options = new FcmConfiguration();
-
-        patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
+        var options = SecretsSnapshotMock.Empty()
+            .With(SecretsStoreKeys.FcmServiceAccountJson, ServiceAccountJson)
+            .ApplyPostConfigure<FcmSecretsPostConfigure, FcmConfiguration>();
 
         await Assert.That(options.ServiceAccountJson).IsEqualTo(ServiceAccountJson)
             .Because("The fcm:service_account_json row must flow through verbatim — the Firebase Admin SDK, not this patcher, is responsible for parsing it.");
@@ -34,11 +31,8 @@ public sealed class FcmSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_MissingRow_LeavesNull()
     {
-        var snapshot = SecretsSnapshotMock.Empty();
-        var patcher = new FcmSecretsPostConfigure(snapshot.Object);
-        var options = new FcmConfiguration();
-
-        patcher.PostConfigure(Microsoft.Extensions.Options.Options.DefaultName, options);
+        var options = SecretsSnapshotMock.Empty()
+            .ApplyPostConfigure<FcmSecretsPostConfigure, FcmConfiguration>();
 
         await Assert.That(options.ServiceAccountJson).IsNull()
             .Because("FCM is opt-in per deployment — an absent row must leave ServiceAccountJson null so the IFCMService DI factory falls back to NullFCMService instead of tripping a boot-time validator.");
@@ -47,12 +41,9 @@ public sealed class FcmSecretsPostConfigureTests
     [Test]
     public async Task PostConfigure_NamedInstance_LeavesUntouched()
     {
-        var snapshot = SecretsSnapshotMock.Empty()
-            .With(SecretsStoreKeys.FcmServiceAccountJson, ServiceAccountJson);
-        var patcher = new FcmSecretsPostConfigure(snapshot.Object);
-        var options = new FcmConfiguration();
-
-        patcher.PostConfigure("other-name", options);
+        var options = SecretsSnapshotMock.Empty()
+            .With(SecretsStoreKeys.FcmServiceAccountJson, ServiceAccountJson)
+            .ApplyPostConfigure<FcmSecretsPostConfigure, FcmConfiguration>(name: "other-name");
 
         await Assert.That(options.ServiceAccountJson).IsNull()
             .Because("PostConfigure guards on Options.DefaultName so a named bucket never receives the default's FCM credential.");

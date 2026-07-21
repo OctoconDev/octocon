@@ -154,7 +154,7 @@ public sealed partial class ScyllaMigrationService(
             var applied = await LoadAppliedAsync(session);
 
             await ApplyKeyspaces(session, visibleDcs, isScylla, applied);
-            await ApplySchema(session, applied);
+            await ApplyTemplatedMigrationPerKeyspace(session, applied, SchemaMigration);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, FieldTimestampsMigration);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, ImportOperationsMigration);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, ColorFixupMarkerMigration);
@@ -388,43 +388,16 @@ public sealed partial class ScyllaMigrationService(
         }
     }
 
-    // --- Schema Application ---
-
-    private async Task ApplySchema(
-        ISession session,
-        Dictionary<(string Scope, string Version), string> applied)
-    {
-        var cqlTemplate = GetEmbeddedResource(SchemaMigration);
-        var checksum = ComputeChecksum(cqlTemplate);
-
-        var keyspaces = TargetKeyspaces();
-
-        foreach (var keyspace in keyspaces)
-        {
-            if (ShouldSkip(applied, keyspace, SchemaMigration, checksum))
-            {
-                logger.LogDebug("[scylla-migrate] Skipping {Migration} for '{Keyspace}', already applied.",
-                    SchemaMigration, keyspace);
-                continue;
-            }
-
-            var rendered = cqlTemplate.Replace("{{KEYSPACE}}", keyspace);
-            logger.LogInformation("[scylla-migrate] Applying schema to keyspace '{Keyspace}'...", keyspace);
-            var stopwatch = Stopwatch.StartNew();
-            await ExecuteStatements(session, rendered);
-            stopwatch.Stop();
-
-            await RecordMigrationAsync(session, keyspace, SchemaMigration, checksum,
-                (int)stopwatch.ElapsedMilliseconds);
-        }
-    }
-
     // --- Templated Per-Keyspace Migrations ---
 
     /// <summary>
     /// Applies a templated <c>.cql</c> migration to every regional keyspace, tracked individually
-    /// in the ledger so it runs exactly once per keyspace. Used for post-002 schema additions
-    /// such as UDT extensions where re-running the bootstrap schema isn't acceptable.
+    /// in the ledger so it runs exactly once per keyspace. Every keyspace-scoped migration in this
+    /// service flows through here — the bootstrap schema (<see cref="SchemaMigration"/>) and every
+    /// post-002 addition (UDT extensions, column additions) share the same envelope: render
+    /// <c>{{KEYSPACE}}</c>, skip-if-applied via ledger checksum, time and record via
+    /// <see cref="RecordMigrationAsync"/>. Keep this the single seam for any envelope-level change
+    /// (retry policy, telemetry span, per-keyspace error mapping).
     /// </summary>
     private async Task ApplyTemplatedMigrationPerKeyspace(
         ISession session,

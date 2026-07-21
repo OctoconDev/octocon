@@ -152,7 +152,7 @@ public static async Task<SocketJoinInitPayload> BuildJoinInitPayloadAsync(
         ct);
 
     foreach (var alter in alters)
-        alter.AvatarUrl = AvatarUrlQualifier.QualifyAvatar(alter.AvatarUrl, alter.AvatarSource, context.Request.Scheme, context.Request.Host);
+        alter.AvatarUrl = AvatarUrlQualifier.QualifyAvatar(alter, context.Request.Scheme, context.Request.Host);
 
     return new SocketJoinInitPayload(
         BuildSelfReadModel(
@@ -183,7 +183,7 @@ public static SocketSelfReadModel BuildSelfReadModel(
         profile?.SystemId ?? systemId,
         profile?.Username,
         profile?.Description,
-        AvatarUrlQualifier.QualifyAvatar(profile?.AvatarUrl, profile?.AvatarSource, requestOrigin),
+        AvatarUrlQualifier.QualifyAvatar(profile, requestOrigin),
         profile?.AvatarSource,
         AccountLinkFlag.FromValuePresence(profile?.DiscordId?.Value),
         AccountLinkFlag.NotLinked,

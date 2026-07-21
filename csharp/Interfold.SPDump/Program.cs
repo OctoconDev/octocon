@@ -1,13 +1,14 @@
 ﻿using System.Security.Cryptography;
 using Interfold.Api.Services;
-using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Api.Services.Http;
+using Interfold.Api.SimplyPlural;
 using Interfold.Contracts;
 using Interfold.Contracts.Enums;
 using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions;
-using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.DependencyInjection;
+using Interfold.Infrastructure.InMemory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,11 @@ var services = new ServiceCollection();
 services.AddLogging(builder => builder.AddConsole());
 services.AddSingleton<IConfiguration>(new ConfigurationManager());
 
+// TimeProvider — SimplyPluralImportService (registered below via AddSimplyPluralImportCore)
+// takes it via constructor injection so its "used import time as created date" fallback
+// paths can be time-frozen in tests.
+services.AddSingleton(TimeProvider.System);
+
 // Register InMemory persistence support
 InMemoryServiceCollectionExtensions.Register();
 services.AddInterfoldPersistence(PersistenceMode.InMemory, cfg =>
@@ -40,11 +46,14 @@ services.AddSingleton<IAvatarStorage, TempAvatarStorage>();
 
 services.AddTransient<HttpLoggingHandler>();
 
-// HttpClient used by SimplyPluralImportService
+// HttpClient used by SimplyPluralImportService (wired here because this utility owns
+// its own HttpClient shape - see AddSimplyPluralImportCore comment).
 services.AddHttpClient(HttpClientNames.SimplyPlural).AddHttpMessageHandler<HttpLoggingHandler>();
 
-// Register the import service itself (it will resolve repositories from InMemory registration)
-services.AddSingleton<ISimplyPluralImportService, SimplyPluralImportService>();
+// Register the import service itself (it will resolve repositories from InMemory registration).
+// Uses the -Core overload so we skip the async IImportJobRunner queue consumer that the
+// full API extension registers - this utility drives ImportAsync directly.
+services.AddSimplyPluralImportCore();
 
 var provider = services.BuildServiceProvider();
 

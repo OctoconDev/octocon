@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IO.Compression;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
@@ -66,46 +65,13 @@ internal static class BackupPhase
                 $"--component='{options.BackupComponent}' is invalid. Expected one of: {string.Join(", ", ValidComponents)}.");
         }
 
-        var configPath = BootstrapArtifactPaths.ResolveConfigPath(options);
-        if (!File.Exists(configPath))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingConfig);
-            throw new InvalidOperationException(
-                $"Backup requires a populated bootstrap config at {configPath}. " +
-                "Run `bootstrap` first.");
-        }
+        var config = await PhaseArtifactLoader
+            .LoadRequiredConfigAsync(options, logger, Phase, "Backup", ct)
+            .ConfigureAwait(false);
 
-        BootstrapConfig config;
-        await using (var stream = File.OpenRead(configPath))
-        {
-            config = await System.Text.Json.JsonSerializer.DeserializeAsync(
-                stream, BootstrapJsonContext.Default.BootstrapConfig, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"Failed to parse {configPath}.");
-        }
+        var secrets = PhaseArtifactLoader.LoadRequiredSecretsOrFail(options, logger, Phase, "Backup");
 
-        GeneratedSecrets secrets;
-        try
-        {
-            secrets = SecretsPhase.LoadExisting(options);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Re-throw with a phase-specific message; the original carries the secrets-phase
-            // wording which is misleading in a backup context.
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingSecrets);
-            throw new InvalidOperationException(
-                $"Backup requires the admin credentials in secrets/secrets.json under {options.OutputDir}. " +
-                "Run `bootstrap` first to generate them.", ex);
-        }
-
-        var composeFile = FindComposeFile(options.OutputDir);
-        if (composeFile is null)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.NoComposeFile);
-            throw new InvalidOperationException(
-                $"docker-compose.yaml not found under {options.OutputDir}. Run `bootstrap publish` first.");
-        }
-        logger.Info($"    using compose file {composeFile}");
+        var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
         var backupRoot = ResolveBackupRoot(options, config);
         var retainCount = options.BackupRetainOverride ?? config.Backup.RetainCount;
@@ -199,31 +165,21 @@ internal static class BackupPhase
     /// </summary>
     internal static IReadOnlyList<string> BuildPostgresDumpArgs(
         string composeFile, string adminUser, string database)
-    {
-        return
-        [
-            "compose", "-f", composeFile,
-            "exec", "-T",
-            "--env", "PGPASSWORD",
-            ComposeServices.Postgres,
-            "pg_dump",
-            "-U", adminUser,
-            "-d", database,
-            "-Fc",
-        ];
-    }
+        => DockerCompose.BuildPostgresExecArgs(
+            composeFile, ComposeServices.Postgres, "pg_dump", adminUser, database,
+            "-Fc");
 
     /// <summary>
-    /// Builds the docker-compose exec argv for the Scylla/Cassandra nodetool snapshot
-    /// bracket. Returns three argv lists (snapshot, resolve-container, clearsnapshot) so
-    /// the caller can drive each step in sequence. The middle list resolves the seed
-    /// node's container id (via <c>docker compose ps -q</c>) so the caller can then
-    /// <c>docker cp</c> the snapshot contents out — the archive itself is produced
-    /// host-side (see <see cref="BuildContainerCpArgs"/>) because the
-    /// <c>scylladb/scylla</c> image ships no <c>tar</c> binary.
+    /// Builds the docker-compose exec argv pair for the Scylla/Cassandra nodetool snapshot
+    /// bracket. Returns <c>(Snapshot, Clear)</c>: nodetool snapshot + clearsnapshot argv,
+    /// each shaped for direct dispatch through <see cref="ProcessRunner"/>. The seed's
+    /// runtime container id is resolved via <see cref="DockerCompose.PsAsync"/> at the
+    /// call site (used by the intervening <c>docker cp</c> step whose argv comes from
+    /// <see cref="BuildContainerCpArgs"/> — <c>scylladb/scylla</c> ships no <c>tar</c>,
+    /// so the archive is produced host-side).
     /// Internal so unit tests can assert the argv shape without invoking docker.
     /// </summary>
-    internal static (IReadOnlyList<string> Snapshot, IReadOnlyList<string> ResolveContainer, IReadOnlyList<string> Clear)
+    internal static (IReadOnlyList<string> Snapshot, IReadOnlyList<string> Clear)
         BuildScyllaSnapshotArgs(string composeFile, string service, string dataPath, string tag)
     {
         _ = dataPath; // consumed by BuildContainerCpArgs downstream; kept in the signature so
@@ -235,20 +191,13 @@ internal static class BackupPhase
             "exec", "-T", service,
             "nodetool", "snapshot", "-t", tag,
         };
-        // Container id is a runtime handle (docker assigns it when compose brings the
-        // service up), so we can't bake it into an argv template — this step resolves it.
-        var resolveContainer = new[]
-        {
-            "compose", "-f", composeFile,
-            "ps", "-q", service,
-        };
         var clear = new[]
         {
             "compose", "-f", composeFile,
             "exec", "-T", service,
             "nodetool", "clearsnapshot", "-t", tag,
         };
-        return (snapshot, resolveContainer, clear);
+        return (snapshot, clear);
     }
 
     /// <summary>
@@ -260,17 +209,7 @@ internal static class BackupPhase
     /// the argv shape without invoking docker.
     /// </summary>
     internal static IReadOnlyList<string> BuildContainerCpArgs(string containerId, string dataPath)
-    {
-        if (string.IsNullOrWhiteSpace(containerId))
-        {
-            throw new ArgumentException("containerId must be non-empty.", nameof(containerId));
-        }
-        if (string.IsNullOrWhiteSpace(dataPath))
-        {
-            throw new ArgumentException("dataPath must be non-empty.", nameof(dataPath));
-        }
-        return ["cp", $"{containerId}:{dataPath}", "-"];
-    }
+        => DockerCompose.BuildContainerCpFromContainer(containerId, dataPath);
 
     private static async Task BackupPostgresAsync(
         string composeFile, string backupRoot, string timestamp,
@@ -285,22 +224,17 @@ internal static class BackupPhase
         // role — pg_dump needs broader privileges to capture every object regardless of
         // ownership, and the admin role is exactly what `DatabaseInitPhase.BuildPostgresSeedOptions`
         // already provisioned for that purpose (see csharp/Interfold.Bootstrapper/Phases/DatabaseInitPhase.cs).
-        var adminUser = $"{secrets.PostgresUser}_admin";
-        var adminPassword = secrets.PostgresAdminPassword;
-        if (string.IsNullOrEmpty(adminPassword))
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.MissingAdminPassword);
-            throw new InvalidOperationException(
-                "secrets/secrets.json does not contain a PostgresAdminPassword. " +
-                "Either it predates DatabaseInitPhase or it was hand-edited; re-run `bootstrap`.");
-        }
+        var (adminUser, adminPassword) = PhaseArtifactLoader.RequireAdminPassword(secrets, logger, Phase);
 
         logger.Info($"    postgres: pg_dump -> {dumpPath}");
         var argv = BuildPostgresDumpArgs(composeFile, adminUser, config.PostgresDatabase);
-        var env = new Dictionary<string, string?> { ["PGPASSWORD"] = adminPassword };
 
-        // Stream stdout straight to the output file so the dump never sits in memory.
-        await StreamProcessStdoutToFileAsync("docker", argv, env, dumpPath, ct).ConfigureAwait(false);
+        // Stream stdout straight to the output file so the dump never sits in memory. The
+        // PGPASSWORD env var is smuggled onto the process environment via the canonical
+        // trust-boundary factory (never on the argv, so it can't surface in `ps`).
+        await DatabaseArchiveStreamer.StreamProcessStdoutToFileAsync(
+            "docker", argv, DatabaseArchiveStreamer.PgPasswordEnv(adminPassword), dumpPath, ct)
+            .ConfigureAwait(false);
 
         var size = new FileInfo(dumpPath).Length;
         if (size == 0)
@@ -330,17 +264,14 @@ internal static class BackupPhase
         // run. The tag is purely a name on disk inside the container.
         var tag = $"interfold-backup-{timestamp}";
 
-        var (snapshotArgs, resolveContainerArgs, clearArgs) =
+        var (snapshotArgs, clearArgs) =
             BuildScyllaSnapshotArgs(composeFile, service, dataPath, tag);
 
         logger.Info($"    scylla: nodetool snapshot -t {tag} (service={service})");
-        var snapshot = await ProcessRunner.RunAsync("docker", snapshotArgs, ct: ct).ConfigureAwait(false);
-        if (snapshot.ExitCode != 0)
-        {
-            logger.PhaseFail(Phase, PhaseFailureReasons.NodetoolSnapshot);
-            throw new InvalidOperationException(
-                $"nodetool snapshot exited {snapshot.ExitCode} on {service}: {snapshot.StdErr.Trim()}");
-        }
+        await PhaseRunner.RunOrPhaseFailAsync(
+            () => ProcessRunner.RunAsync("docker", snapshotArgs, ct: ct),
+            logger, Phase, PhaseFailureReasons.NodetoolSnapshot,
+            $"nodetool snapshot", ct).ConfigureAwait(false);
 
         try
         {
@@ -348,18 +279,14 @@ internal static class BackupPhase
             // resolve the seed's runtime id first. `docker compose ps -q <service>` prints
             // one id per line; take the first (there is only ever one for the seed
             // service in the compose graph the AppHost emits).
-            var resolve = await ProcessRunner.RunAsync("docker", resolveContainerArgs, ct: ct).ConfigureAwait(false);
-            if (resolve.ExitCode != 0 || string.IsNullOrWhiteSpace(resolve.StdOut))
+            var containerId = await DockerCompose.ResolveContainerIdAsync(composeFile, service, ct: ct).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(containerId))
             {
                 logger.PhaseFail(Phase, PhaseFailureReasons.ResolveScyllaContainer);
                 throw new InvalidOperationException(
                     $"Failed to resolve container id for compose service '{service}'. " +
-                    $"Exit={resolve.ExitCode}, stderr='{resolve.StdErr.Trim()}'. " +
                     "Is the stack running? Try `docker compose ps` under the output directory.");
             }
-            var containerId = resolve.StdOut
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .First();
 
             logger.Info($"    scylla: docker cp {service}({containerId[..Math.Min(12, containerId.Length)]}):{dataPath} -> {archivePath}");
 
@@ -370,7 +297,7 @@ internal static class BackupPhase
             // in-process avoids the sh/pipefail semantics headache and works identically
             // on any host with just docker installed.
             var cpArgs = BuildContainerCpArgs(containerId, dataPath);
-            await StreamProcessStdoutToFileAsync(
+            await DatabaseArchiveStreamer.StreamProcessStdoutToFileAsync(
                 "docker", cpArgs, environment: null, archivePath, ct, compress: true)
                 .ConfigureAwait(false);
         }
@@ -400,7 +327,7 @@ internal static class BackupPhase
         PruneComponent(componentDir, BackupDatabaseComponent.Scylla, retainCount, logger);
     }
 
-    private static void PruneComponent(string componentDir, BackupDatabaseComponent component, int retainCount, PhaseLogger logger)
+    internal static void PruneComponent(string componentDir, BackupDatabaseComponent component, int retainCount, PhaseLogger logger)
     {
         var pattern = component switch
         {
@@ -423,87 +350,6 @@ internal static class BackupPhase
             {
                 logger.Warn($"failed to delete {stale.FullName}: {ex.Message}");
             }
-        }
-    }
-
-    private static string? FindComposeFile(string outputDir) => BootstrapArtifactPaths.FindComposeFile(outputDir);
-
-    /// <summary>
-    /// Runs <paramref name="fileName"/> with <paramref name="arguments"/> and streams its
-    /// stdout directly into <paramref name="destinationPath"/>. Throws if the process exits
-    /// non-zero; partial output is preserved on disk for diagnosis but the caller deletes
-    /// it before propagating the exception when it's known to be empty/corrupt.
-    /// </summary>
-    /// <param name="compress">
-    /// When true, the destination file is wrapped in a <see cref="GZipStream"/> so the
-    /// process's stdout is written as gzip-compressed bytes on disk. Used by the Scylla
-    /// path where <c>docker cp</c> emits an uncompressed tar but the target filename is
-    /// <c>.tar.gz</c>. Postgres path leaves this false — <c>pg_dump -Fc</c> already emits
-    /// a compressed custom-format archive.
-    /// </param>
-    private static async Task StreamProcessStdoutToFileAsync(
-        string fileName, IReadOnlyList<string> arguments,
-        IDictionary<string, string?>? environment, string destinationPath,
-        CancellationToken ct, bool compress = false)
-    {
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = fileName,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var a in arguments) psi.ArgumentList.Add(a);
-        if (environment is not null)
-        {
-            foreach (var kvp in environment)
-            {
-                psi.Environment[kvp.Key] = kvp.Value;
-            }
-        }
-
-        using var proc = new System.Diagnostics.Process { StartInfo = psi };
-        var stderr = new System.Text.StringBuilder();
-        proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
-
-        if (!proc.Start())
-        {
-            throw new InvalidOperationException($"Failed to start process '{fileName}'.");
-        }
-        proc.BeginErrorReadLine();
-
-        try
-        {
-            await using (var fs = File.Create(destinationPath))
-            {
-                if (compress)
-                {
-                    // CompressionLevel.Fastest keeps CPU well below the docker-cp / disk
-                    // throughput ceiling on typical backup data (SSTables compress poorly
-                    // anyway because they're already LZ4-compressed internally). Higher
-                    // levels would burn CPU for a marginal size win on already-compressed
-                    // payload.
-                    await using var gz = new GZipStream(fs, CompressionLevel.Fastest, leaveOpen: false);
-                    await proc.StandardOutput.BaseStream.CopyToAsync(gz, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await proc.StandardOutput.BaseStream.CopyToAsync(fs, ct).ConfigureAwait(false);
-                }
-            }
-            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            throw;
-        }
-
-        if (proc.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"{fileName} {string.Join(' ', arguments)} exited {proc.ExitCode}: {stderr.ToString().Trim()}");
         }
     }
 
@@ -553,3 +399,4 @@ internal static class BackupRetention
             : ordered.Take(toDeleteCount);
     }
 }
+

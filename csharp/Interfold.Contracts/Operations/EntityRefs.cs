@@ -11,6 +11,11 @@ namespace Interfold.Contracts.Operations;
 /// </summary>
 public static class EntityRefs
 {
+    // --- auth ---
+    public static readonly EntityRef AuthLoginFailed = new("auth:login_failed");
+    public static readonly EntityRef AuthLinkInvalidToken = new("auth:link_invalid_token");
+    public static readonly EntityRef AuthLinkFailed = new("auth:link_failed");
+
     // --- account ---
     public static readonly EntityRef AccountUsernameInvalid = new("account:username_invalid");
     public static readonly EntityRef AccountUsernameTooLong = new("account:username_too_long");
@@ -155,9 +160,9 @@ public static class EntityRefs
     public static readonly EntityRef TagUpdate = new("tag:update");
 
     /// <summary>
-    /// The invariant-violation ref minted by <c>SettingsCommandHelper</c> when applying a
+    /// The invariant-violation ref minted by the settings-command flow when applying a
     /// settings command fails, e.g. <c>"settings:avatar_uploaded_failed"</c> — one value per
-    /// <see cref="SettingsAction"/> routed through the helper.
+    /// <see cref="SettingsAction"/> routed through <c>SettingsIdempotentCommandFlow</c>.
     /// </summary>
     public static EntityRef SettingsActionFailed(SettingsAction action)
         => new($"settings:{action.ToWire()}_failed");

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Interfold.Contracts;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Controllers;
@@ -30,10 +31,10 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
     [Test]
     public async Task Api_InMemorySecretsSeed_PatchesAuthFromEnvVars()
     {
-        await using var factory = new InterfoldWebApplicationFactory("inmemory");
+        await using var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory);
         using var client = factory.CreateClient();
 
-        var principalId = $"sys-secrets-seed-{Guid.NewGuid():N}"[..24];
+        var principalId = TestIds.NewSystemId("sys-secrets-seed", maxLen: 24);
 
         // POST /api/settings/username is a [Authorize]-gated route. Reaching 204 NoContent
         // proves end-to-end that:
@@ -104,11 +105,11 @@ public class InMemorySecretsSeedTests : BaseEndpointTest
             // shortcut and must resolve them from the env-var-backed configuration provider — i.e.
             // the same code path the published image exercises in production.
             await using var factory = new InterfoldWebApplicationFactory(
-                "inmemory",
+                PersistenceMode.InMemory,
                 seedInMemorySecretsFromFactoryConfig: false);
             using var client = factory.CreateClient();
 
-            var principalId = $"sys-secrets-env-{Guid.NewGuid():N}"[..24];
+            var principalId = TestIds.NewSystemId("sys-secrets-env", maxLen: 24);
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/settings/username")
             {
                 Content = JsonContent.Create(new { username = principalId })

@@ -1,7 +1,6 @@
 using System.Net;
-using System.Net.Http.Json;
+using Interfold.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Interfold.IntegrationTests.Controllers;
 
@@ -14,95 +13,59 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test, Category("Index")]
     public async Task AlterJournal_ListWhenEmpty_ReturnsDataAsEmptyArray()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions());
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-alter-journal-empty-list";
         var alterId = await CreateAlterAsync(client, principal, "NoJournalAlter");
 
-        using var listReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/{alterId}/journals");
-        AttachPrincipalAuth(listReq, client, principal);
-        var listRes = await client.SendAsync(listReq);
-        var listBody = await listRes.Content.ReadAsStringAsync();
+        using var listRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/{alterId}/journals", principal);
 
-        using var doc = System.Text.Json.JsonDocument.Parse(listBody);
-        using (Assert.Multiple())
-        {
-            await Assert.That(listRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(doc.RootElement.TryGetProperty("data", out var dataProp)).IsTrue();
-            await Assert.That(dataProp.ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Array);
-            await Assert.That(dataProp.GetArrayLength()).IsEqualTo(0);
-        }
+        var envelope = await listRes.ReadEnvelopeAsync<IReadOnlyList<AlterJournalReadModel>>(HttpStatusCode.OK);
+        await Assert.That(envelope.Data.Count).IsEqualTo(0);
     }
 
     [Test]
     public async Task AlterJournal_NestedCreate_Returns201WithDataAndReplay()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-alter-journal";
         var alterId = await CreateAlterAsync(client, principal, "JournalHolder");
 
         // POST /api/systems/me/alters/:id/journals  →  201 + {data, replay}
-        using var createReq = new HttpRequestMessage(HttpMethod.Post, $"/api/systems/me/alters/{alterId}/journals");
-        createReq.Content = JsonContent.Create(new { title = "NestedParityJournal" });
-        AttachPrincipalAuth(createReq, client, principal);
-        var createRes = await client.SendAsync(createReq);
-        var createBody = await createRes.Content.ReadAsStringAsync();
+        using var createRes = await client.SendAsJsonAsync(
+            HttpMethod.Post, $"/api/systems/me/alters/{alterId}/journals",
+            new CreateAlterJournalRequest("NestedParityJournal"),
+            principal);
+        var createEnv = await createRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.Created);
+        var entryId = createEnv.Data.Id;
 
-        var entryId = ReadNestedString(createBody, "data", "id");
-        if (string.IsNullOrWhiteSpace(entryId))
-            entryId = ReadNestedString(createBody, "data", "entry_id");
-
-        var replay = ReadBool(createBody, "replay");
         using (Assert.Multiple())
         {
-            await Assert.That(createRes.StatusCode).IsEqualTo(HttpStatusCode.Created);
-            await Assert.That(entryId).IsNotNullOrWhiteSpace();
-            await Assert.That(replay).IsFalse();
+            await Assert.That(entryId).IsNotEqualTo(default);
+            await Assert.That(createEnv.Replay ?? false).IsFalse();
         }
 
         // GET /api/systems/me/alters/:id/journals  →  200 + {data:[...]}
-        using var listReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/{alterId}/journals");
-        AttachPrincipalAuth(listReq, client, principal);
-        var listRes = await client.SendAsync(listReq);
-        var listBody = await listRes.Content.ReadAsStringAsync();
-
-        using (Assert.Multiple())
-        {
-            await Assert.That(listRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(listBody.Contains("data", StringComparison.OrdinalIgnoreCase)).IsTrue();
-        }
+        using var listRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/{alterId}/journals", principal);
+        var listEnv = await listRes.ReadEnvelopeAsync<IReadOnlyList<AlterJournalReadModel>>(HttpStatusCode.OK);
+        await Assert.That(listEnv.Data.Count).IsGreaterThan(0);
 
         // GET /api/systems/me/alters/journals/:journalId  →  200 + {data:{...}}
-        using var showReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(showReq, client, principal);
-        var showRes = await client.SendAsync(showReq);
-        var showBody = await showRes.Content.ReadAsStringAsync();
-
-        var shownId = ReadNestedString(showBody, "data", "id");
-        if (string.IsNullOrWhiteSpace(shownId))
-            shownId = ReadNestedString(showBody, "data", "entry_id");
-        using (Assert.Multiple())
-        {
-            await Assert.That(showRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
-            await Assert.That(string.Equals(shownId, entryId, StringComparison.OrdinalIgnoreCase)).IsTrue();
-        }
+        using var showRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/journals/{entryId}", principal);
+        var showEnv = await showRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.OK);
+        await Assert.That(showEnv.Data.Id).IsEqualTo(entryId);
 
         // PATCH /api/systems/me/alters/journals/:journalId  →  204
-        using var patchReq = new HttpRequestMessage(HttpMethod.Patch, $"/api/systems/me/alters/journals/{entryId}");
-        patchReq.Content = JsonContent.Create(new { title = "UpdatedParityJournal" });
-        AttachPrincipalAuth(patchReq, client, principal);
-        var patchRes = await client.SendAsync(patchReq);
-
+        using var patchRes = await client.SendAsJsonAsync(
+            HttpMethod.Patch, $"/api/systems/me/alters/journals/{entryId}",
+            new UpdateAlterJournalRequest(Title: "UpdatedParityJournal"),
+            principal);
         await Assert.That(patchRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        patchRes.Dispose();
 
         // DELETE /api/systems/me/alters/journals/:journalId  →  204
-        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(deleteReq, client, principal);
-        var deleteRes = await client.SendAsync(deleteReq);
+        using var deleteRes = await client.SendAuthedDeleteAsync($"/api/systems/me/alters/journals/{entryId}", principal);
 
         await Assert.That(deleteRes.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
     }
@@ -110,29 +73,22 @@ public class AlterJournalsControllerTests(IWebFactoryFixture fixture) : BaseEndp
     [Test]
     public async Task AlterJournal_ShowAfterDelete_Returns404()
     {
-        using var client = fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
+        using var client = TestClient.NoRedirect(fixture);
 
         var principal = "parity-alter-journal-delete-404";
         var alterId = await CreateAlterAsync(client, principal, "DeleteHolder");
 
-        using var createReq = new HttpRequestMessage(HttpMethod.Post, $"/api/systems/me/alters/{alterId}/journals");
-        createReq.Content = JsonContent.Create(new { title = "JournalToDelete" });
-        AttachPrincipalAuth(createReq, client, principal);
-        var createRes = await client.SendAsync(createReq);
-        var createBody = await createRes.Content.ReadAsStringAsync();
-        var entryId = ReadNestedString(createBody, "data", "id");
-        if (string.IsNullOrWhiteSpace(entryId)) entryId = ReadNestedString(createBody, "data", "entry_id");
+        using var createRes = await client.SendAsJsonAsync(
+            HttpMethod.Post, $"/api/systems/me/alters/{alterId}/journals",
+            new CreateAlterJournalRequest("JournalToDelete"),
+            principal);
+        var createEnv = await createRes.ReadEnvelopeAsync<AlterJournalReadModel>(HttpStatusCode.Created);
+        var entryId = createEnv.Data.Id;
 
-        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(deleteReq, client, principal);
-        _ = await client.SendAsync(deleteReq);
+        (await client.SendAuthedDeleteAsync($"/api/systems/me/alters/journals/{entryId}", principal)).Dispose();
 
-        using var showReq = new HttpRequestMessage(HttpMethod.Get, $"/api/systems/me/alters/journals/{entryId}");
-        AttachPrincipalAuth(showReq, client, principal);
-        var showRes = await client.SendAsync(showReq);
+        using var showRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/journals/{entryId}", principal);
         await Assert.That(showRes.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 }
+

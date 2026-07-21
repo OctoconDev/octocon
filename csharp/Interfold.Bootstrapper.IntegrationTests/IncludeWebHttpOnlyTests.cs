@@ -23,18 +23,9 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class IncludeWebHttpOnlyTests(UbuntuDinDFixture dinD)
 {
-    private static string IncludeWebHttpOnlyConfigPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.web-http-only.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task PublishWithIncludeWebHttpOnlyEmitsServiceWithoutTlsWiring()
@@ -44,14 +35,8 @@ public class IncludeWebHttpOnlyTests(UbuntuDinDFixture dinD)
         // vars. This is the "ship the wasm container for debugging behind an external proxy"
         // shape — the operator wants the container, doesn't want the bootstrapper to wire TLS
         // termination into it.
-        var scratch = await dinD.CreateScratchAsync(
-            nameof(PublishWithIncludeWebHttpOnlyEmitsServiceWithoutTlsWiring),
-            IncludeWebHttpOnlyConfigPath);
-
-        var publish = await dinD.RunBootstrapperAsync(
-            nameof(PublishWithIncludeWebHttpOnlyEmitsServiceWithoutTlsWiring),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(publish.ExitCode).IsEqualTo(0).Because(publish.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(
+            nameof(PublishWithIncludeWebHttpOnlyEmitsServiceWithoutTlsWiring), TestConfigPaths.WebHttpOnlyConfig);
 
         var composeBytes = await dinD.CopyOutAsync($"{scratch.OutputDir}/docker-compose.yaml");
         var compose = Encoding.UTF8.GetString(composeBytes);
@@ -91,3 +76,6 @@ public class IncludeWebHttpOnlyTests(UbuntuDinDFixture dinD)
                      "Ports:web-https is unused when webHttps=false");
     }
 }
+
+
+

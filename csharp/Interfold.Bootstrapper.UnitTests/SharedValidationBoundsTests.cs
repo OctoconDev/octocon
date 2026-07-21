@@ -158,67 +158,76 @@ public sealed class SharedValidationBoundsTests
     // ---------------------------------------------------------------------------------
 
     [Test]
-    public async Task Parity_DbRetryAttemptsAboveMax_FailsBothSides()
+    public Task Parity_DbRetryAttemptsAboveMax_FailsBothSides()
     {
         // Bootstrapper side — ConfigPhase.Validate throws with dbRetryAttempts in the message.
-        var cfg = MakeBootstrapValid();
-        cfg.Persistence.DbRetryAttempts = ConfigurationBounds.DbRetryAttemptsMax + 1;
-        var bootstrapperEx = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(bootstrapperEx.Message).Contains("dbRetryAttempts");
-
         // API side — DataAnnotations validation on PersistenceConfiguration.DbRetryAttempts
         // fires the same [Range] check. Same input, same rejection.
-        var opts = MakePersistenceValid();
-        opts.DbRetryAttempts = ConfigurationBounds.DbRetryAttemptsMax + 1;
-        var apiResults = ValidateOptions(opts);
-        await Assert.That(apiResults.Count).IsGreaterThan(0);
-        await Assert.That(string.Join(";", apiResults.Select(r => r.MemberNames.FirstOrDefault()))).Contains(nameof(PersistenceConfiguration.DbRetryAttempts));
+        var overMax = ConfigurationBounds.DbRetryAttemptsMax + 1;
+        var apiOpts = MakePersistenceValid();
+        apiOpts.DbRetryAttempts = overMax;
+        return AssertParityRejectionAsync(
+            bootstrapMutate: c => c.Persistence.DbRetryAttempts = overMax,
+            bootstrapMessageContains: "dbRetryAttempts",
+            apiOpts: apiOpts,
+            apiMemberName: nameof(PersistenceConfiguration.DbRetryAttempts));
     }
 
     [Test]
-    public async Task Parity_SocketBatchBytesThresholdAboveMax_FailsBothSides()
+    public Task Parity_SocketBatchBytesThresholdAboveMax_FailsBothSides()
     {
-        // Bootstrapper side.
-        var cfg = MakeBootstrapValid();
-        cfg.Socket.BatchBytesThreshold = ConfigurationBounds.SocketBatchBytesThresholdMax + 1;
-        var bootstrapperEx = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(bootstrapperEx.Message).Contains("batchBytesThreshold");
-
-        // API side.
-        var opts = new SocketConfiguration { BatchBytesThreshold = ConfigurationBounds.SocketBatchBytesThresholdMax + 1 };
-        var apiResults = ValidateOptions(opts);
-        await Assert.That(apiResults.Count).IsGreaterThan(0);
+        var overMax = ConfigurationBounds.SocketBatchBytesThresholdMax + 1;
+        return AssertParityRejectionAsync(
+            bootstrapMutate: c => c.Socket.BatchBytesThreshold = overMax,
+            bootstrapMessageContains: "batchBytesThreshold",
+            apiOpts: new SocketConfiguration { BatchBytesThreshold = overMax });
     }
 
     [Test]
-    public async Task Parity_AbsolutePathRejection_FailsBothSides()
-    {
+    public Task Parity_AbsolutePathRejection_FailsBothSides()
         // Bootstrapper side — the config phase rejects a relative avatarStorageRoot.
-        var cfg = MakeBootstrapValid();
-        cfg.Storage.AvatarStorageRoot = "relative/avatars";
-        var bootstrapperEx = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(bootstrapperEx.Message).Contains("avatarStorageRoot");
-
         // API side — StorageConfiguration.AvatarStorageRoot carries [AbsolutePath] which
         // trips on the same relative input.
-        var opts = new StorageConfiguration { AvatarStorageRoot = "relative/avatars" };
-        var apiResults = ValidateOptions(opts);
-        await Assert.That(apiResults.Count).IsGreaterThan(0);
-    }
+        => AssertParityRejectionAsync(
+            bootstrapMutate: c => c.Storage.AvatarStorageRoot = "relative/avatars",
+            bootstrapMessageContains: "avatarStorageRoot",
+            apiOpts: new StorageConfiguration { AvatarStorageRoot = "relative/avatars" });
 
     [Test]
-    public async Task Parity_AbsoluteHttpUriRejection_FailsBothSides()
-    {
+    public Task Parity_AbsoluteHttpUriRejection_FailsBothSides()
         // Bootstrapper side — non-http OtlpEndpoint blows up in ConfigPhase.Validate.
-        var cfg = MakeBootstrapValid();
-        cfg.Observability.OtlpEndpoint = "grpc://otel:4317";
-        var bootstrapperEx = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
-        await Assert.That(bootstrapperEx.Message).Contains("otlpEndpoint");
-
         // API side — same input fails [AbsoluteHttpUri] on ObservabilityConfiguration.
-        var opts = new ObservabilityConfiguration { OtlpEndpoint = "grpc://otel:4317" };
-        var apiResults = ValidateOptions(opts);
+        => AssertParityRejectionAsync(
+            bootstrapMutate: c => c.Observability.OtlpEndpoint = "grpc://otel:4317",
+            bootstrapMessageContains: "otlpEndpoint",
+            apiOpts: new ObservabilityConfiguration { OtlpEndpoint = "grpc://otel:4317" });
+
+    /// <summary>
+    /// Two-sided parity assertion for the shared-bounds contract: the same out-of-range value
+    /// must be rejected by <see cref="ConfigPhase.Validate"/> AND by the DataAnnotations
+    /// validation the API's <c>ValidateOnStart</c> pipeline runs. If one side drifts, an
+    /// operator sees a green bootstrap gate followed by a red API boot — this helper's four
+    /// call sites make sure both surfaces stay in lockstep on every bound. Pass
+    /// <paramref name="apiMemberName"/> when the API-side test additionally pins which member
+    /// name the failing <see cref="ValidationResult"/> reports.
+    /// </summary>
+    private static async Task AssertParityRejectionAsync(
+        Action<BootstrapConfig> bootstrapMutate,
+        string bootstrapMessageContains,
+        object apiOpts,
+        string? apiMemberName = null)
+    {
+        var cfg = MakeBootstrapValid();
+        bootstrapMutate(cfg);
+        var bootstrapperEx = Assert.Throws<InvalidOperationException>(() => ConfigPhase.Validate(cfg));
+        await Assert.That(bootstrapperEx.Message).Contains(bootstrapMessageContains);
+
+        var apiResults = ValidateOptions(apiOpts);
         await Assert.That(apiResults.Count).IsGreaterThan(0);
+        if (apiMemberName is not null)
+        {
+            await Assert.That(string.Join(";", apiResults.Select(r => r.MemberNames.FirstOrDefault()))).Contains(apiMemberName);
+        }
     }
 
     // ---------------------------------------------------------------------------------

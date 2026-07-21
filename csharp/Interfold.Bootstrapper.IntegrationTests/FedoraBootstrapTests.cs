@@ -14,23 +14,12 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<FedoraDinDFixture>(Shared = SharedType.PerTestSession)]
 public class FedoraBootstrapTests(FedoraDinDFixture dinD)
 {
-    private static string TestConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     // Trust-store-install tests use a variant that enables /etc/pki/ca-trust/source/anchors/
     // writes. See Ubuntu suite for the parallel-safety rationale.
-    private static string TrustInstallConfigJsonPath => Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.trust-install.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        // Tear the per-test compose stack down so the dedicated host-port window inside the
-        // DinD is freed for reallocation across reruns. Always safe to invoke.
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     // Each compose-up test draws a unique host-port window from the DinD-wide port allocator
     // (see DinDFixtureBase.CreateScratchAsync), so the previous fedora-compose-up serialiser
@@ -38,13 +27,7 @@ public class FedoraBootstrapTests(FedoraDinDFixture dinD)
     [Test]
     public async Task StackComesUpHealthyOnRhelFamily()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(StackComesUpHealthyOnRhelFamily), TestConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(StackComesUpHealthyOnRhelFamily),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--skip-prereqs"]);
-
-        await Assert.That(result.ExitCode).IsEqualTo(0)
-            .Because($"full bootstrap failed on Fedora: {result.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(StackComesUpHealthyOnRhelFamily), TestConfigPaths.DefaultConfig);
 
         var ps = await dinD.ExecAsync(
             ["docker", "compose", "-f", $"{scratch.OutputDir}/docker-compose.yaml", "ps", "--format", "json"]);
@@ -59,11 +42,7 @@ public class FedoraBootstrapTests(FedoraDinDFixture dinD)
     [NotInParallel("fedora-trust-install")]
     public async Task RootCaInstalledInRhelTrustStore()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(RootCaInstalledInRhelTrustStore), TrustInstallConfigJsonPath);
-
-        var result = await dinD.RunBootstrapperAsync(nameof(RootCaInstalledInRhelTrustStore),
-            ["publish", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0).Because(result.Stderr);
+        var (scratch, _) = await dinD.PublishAsync(nameof(RootCaInstalledInRhelTrustStore), TestConfigPaths.TrustInstallConfig);
 
         // update-ca-trust extract writes the extracted PEM bundles to /etc/pki/ca-trust/extracted/.
         var lookup = await dinD.ExecAsync(
@@ -73,3 +52,6 @@ public class FedoraBootstrapTests(FedoraDinDFixture dinD)
             .Because("root CA subject should appear in /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem after update-ca-trust extract");
     }
 }
+
+
+

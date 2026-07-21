@@ -46,13 +46,10 @@ public readonly record struct PollChoiceId
     public override string ToString() => Value;
 }
 
-internal sealed class PollChoiceIdJsonConverter : System.Text.Json.Serialization.JsonConverter<PollChoiceId>
+internal sealed class PollChoiceIdJsonConverter : StringBackedJsonConverter<PollChoiceId>
 {
-    public override PollChoiceId Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-        => new(reader.GetString() ?? string.Empty);
-
-    public override void Write(System.Text.Json.Utf8JsonWriter writer, PollChoiceId value, System.Text.Json.JsonSerializerOptions options)
-        => writer.WriteStringValue(value.Value);
+    protected override PollChoiceId Create(string value) => new(value);
+    protected override string GetValue(PollChoiceId value) => value.Value;
 }
 
 public sealed record PollDataChoice(

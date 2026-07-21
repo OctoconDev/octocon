@@ -1,97 +1,47 @@
 using Interfold.Contracts;
 using Interfold.Contracts.Events;
+using Interfold.Contracts.Ids;
+using Interfold.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
 
 public static class FrontingSocketEventHandlers
 {
-    public static async Task HandleAsync(FrontingStartedEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
-    {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var front = await frontingRepository.GetActiveByFrontIdAsync(evt.TargetSystemId, evt.FrontId, context.CancellationToken).ConfigureAwait(false);
-        if (front is null)
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.Started, new FrontSocketPayload(front));
-    }
+    public static Task HandleAsync(FrontingStartedEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
+        => HandleFrontUpsertAsync(evt.TargetSystemId, evt.FrontId, SocketEventNames.Fronting.Started, context, frontingRepository);
 
     public static async Task HandleAsync(FrontingEndedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.Ended, new AlterIdSocketPayload(evt.AlterId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Fronting.Ended, new AlterIdSocketPayload(evt.AlterId));
     }
 
-    public static async Task HandleAsync(FrontingSetEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
-    {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
+    public static Task HandleAsync(FrontingSetEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
+        => HandleFrontUpsertAsync(evt.TargetSystemId, evt.FrontId, SocketEventNames.Fronting.Set, context, frontingRepository);
 
-        var front = await frontingRepository.GetActiveByFrontIdAsync(evt.TargetSystemId, evt.FrontId, context.CancellationToken).ConfigureAwait(false);
-        if (front is null)
-        {
-            return;
-        }
+    public static Task HandleAsync(FrontingBulkUpdatedEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
+        => context.PushIfJoinedAsync<IReadOnlyList<FrontActiveReadModel>, FrontsSocketPayload>(
+            evt.TargetSystemId,
+            SocketEventNames.Fronting.BulkUpdated,
+            ct => frontingRepository.ListActiveAsync(evt.TargetSystemId, ct),
+            fronts => new FrontsSocketPayload(fronts));
 
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.Set, new FrontSocketPayload(front));
-    }
-
-    public static async Task HandleAsync(FrontingBulkUpdatedEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
-    {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var fronts = await frontingRepository.ListActiveAsync(evt.TargetSystemId, context.CancellationToken).ConfigureAwait(false);
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.BulkUpdated, new FrontsSocketPayload(fronts));
-    }
-
-    public static async Task HandleAsync(FrontCommentUpdatedEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
-    {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        var front = await frontingRepository.GetActiveByFrontIdAsync(evt.TargetSystemId, evt.FrontId, context.CancellationToken).ConfigureAwait(false);
-        if (front is null)
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.CommentUpdated, new FrontSocketPayload(front));
-    }
+    public static Task HandleAsync(FrontCommentUpdatedEvent evt, SocketPushContext context, IFrontingRepository frontingRepository)
+        => HandleFrontUpsertAsync(evt.TargetSystemId, evt.FrontId, SocketEventNames.Fronting.CommentUpdated, context, frontingRepository);
 
     public static async Task HandleAsync(FrontingPrimaryChangedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.PrimaryChanged, new AlterIdSocketPayload(evt.AlterId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Fronting.PrimaryChanged, new AlterIdSocketPayload(evt.AlterId));
     }
 
     public static async Task HandleAsync(FrontDeletedEvent evt, SocketPushContext context)
     {
-        if (!context.TryGetSystemTopic(evt.TargetSystemId, out var topic, out var joinRef, out var asArray))
-        {
-            return;
-        }
-
-        await context.SendAsync(topic, joinRef, asArray, SocketEventNames.Fronting.Deleted, new FrontIdSocketPayload(evt.FrontId));
+        await context.SendIfJoinedAsync(evt.TargetSystemId, SocketEventNames.Fronting.Deleted, new FrontIdSocketPayload(evt.FrontId));
     }
+
+    private static Task HandleFrontUpsertAsync(SystemId systemId, FrontId frontId, string eventName, SocketPushContext context, IFrontingRepository frontingRepository)
+        => context.PushIfJoinedAsync<FrontActiveReadModel, FrontSocketPayload>(
+            systemId, eventName,
+            ct => frontingRepository.GetActiveByFrontIdAsync(systemId, frontId, ct),
+            front => new FrontSocketPayload(front));
 }

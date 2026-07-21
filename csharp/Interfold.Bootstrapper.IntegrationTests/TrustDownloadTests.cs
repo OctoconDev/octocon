@@ -20,30 +20,14 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
 public class TrustDownloadTests(UbuntuDinDFixture dinD)
 {
-    private static string TestConfigJsonPath =>
-        Path.Combine(AppContext.BaseDirectory, "fixtures", "interfold.bootstrap.test.json");
 
     [After(Test)]
-    public async Task DumpOnFailure(TestContext ctx)
-    {
-        if (ctx.Execution.Result?.State == TestState.Failed)
-        {
-            await dinD.CaptureFailureArtifactsAsync(ctx.Metadata.TestName);
-        }
-        await dinD.TearDownComposeAsync(ctx.Metadata.TestName);
-    }
+    public Task DumpOnFailure(TestContext ctx) => DinDHookHelpers.DumpOnFailureAsync(dinD, ctx);
 
     [Test]
     public async Task WellKnownEndpointServesBootstrapperCert()
     {
-        var scratch = await dinD.CreateScratchAsync(nameof(WellKnownEndpointServesBootstrapperCert), TestConfigJsonPath);
-
-        // Full `bootstrap`: publish + db-init + launch. LaunchPhase polls /health/ready, so a
-        // 0 exit here means the API container is up and ready to serve.
-        var result = await dinD.RunBootstrapperAsync(nameof(WellKnownEndpointServesBootstrapperCert),
-            ["bootstrap", "--config", scratch.ConfigPath, "--output-dir", scratch.OutputDir, "--non-interactive", "--skip-prereqs"]);
-        await Assert.That(result.ExitCode).IsEqualTo(0)
-            .Because($"full bootstrap failed: {result.Stderr}");
+        var (scratch, _) = await dinD.BootstrapAsync(nameof(WellKnownEndpointServesBootstrapperCert), TestConfigPaths.DefaultConfig);
 
         // On-disk artefacts the bootstrapper just produced — our golden truth for the three
         // endpoint responses.
@@ -97,3 +81,6 @@ public class TrustDownloadTests(UbuntuDinDFixture dinD)
             .Because("the .crt route must publish a 60s cacheable Cache-Control directive");
     }
 }
+
+
+

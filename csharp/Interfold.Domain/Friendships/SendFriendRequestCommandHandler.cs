@@ -11,45 +11,27 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Friendships;
 
-public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriendRequestCommand, FriendshipCommandResult>
+public sealed class SendFriendRequestCommandHandler : IdempotentCommandHandler<SendFriendRequestCommand, FriendshipCommandResult>
 {
     private readonly IFriendshipRepository _repository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public SendFriendRequestCommandHandler(
         IFriendshipRepository repository,
         IIdempotencyStore idempotencyStore,
         IClusterEventBus eventBus)
-    {
+:base(idempotencyStore)    {
         _repository = repository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<FriendshipCommandResult>> HandleAsync(
+
+    protected override EntityRef DuplicateEntityRef => EntityRefs.FriendRequestSend;
+
+protected override async Task<CommandExecutionResult<FriendshipCommandResult>> ExecuteCoreAsync (
         CommandEnvelope<SendFriendRequestCommand> command,
         CancellationToken cancellationToken = default)
     {
-        var payloadJson = CommandSerialization.Serialize(command.Payload);
-        var payloadHash = CommandSerialization.Hash(payloadJson);
-
-        var previous = await _idempotencyStore.FindAsync(
-            command.PrincipalId, command.OperationId, command.IdempotencyKey, cancellationToken);
-
-        if (previous is not null)
-        {
-            if (!string.Equals(previous.PayloadHash, payloadHash, StringComparison.Ordinal))
-            {
-                return RejectDuplicate(command, EntityRefs.FriendRequestSend);
-            }
-
-            var replay = CommandSerialization.Deserialize<FriendshipCommandResult>(previous.OutcomePayload);
-            if (replay is not null)
-            {
-                return CommandExecutionResult<FriendshipCommandResult>.Success(replay with { Replay = true });
-            }
-        }
 
         var resolvedTargetSystemId = await _repository.ResolveUserIdAsync(
             command.Payload.TargetSystemId,
@@ -76,8 +58,8 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
         // before returning). Route through Compose one more time so we still hand the
         // event publisher a ScopedSystemId if a repo path ever emits a bare id — the
         // principal's region is the safe fallback for the same-region friendship case.
-        var targetScopedId = ScopedSystemId.Compose(
-            command.PrincipalId.Region,
+        var targetScopedId = FriendshipCommandNormalization.ComposePeerId(
+            command.PrincipalId,
             targetSystemId);
 
         var outcome = await _repository.SendRequestAsync(
@@ -102,33 +84,13 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
 
         var action = outcome is SendFriendRequestOutcome.Accepted ? FriendshipAction.Accepted : FriendshipAction.Sent;
 
-        var result = new FriendshipCommandResult(
-            command.PrincipalId,
-            targetSystemId,
-            action,
-            Replay: false);
-
-        var resultJson = CommandSerialization.Serialize(result);
-
-        await _idempotencyStore.SaveAsync(
-            command.PrincipalId,
-            command.OperationId,
-            command.IdempotencyKey,
-            payloadHash,
-            CommandSerialization.Hash(resultJson),
-            resultJson,
-            cancellationToken);
-
         //TODO: Check this path sends the required events
         if (outcome is SendFriendRequestOutcome.Accepted)
         {
-            await _eventBus.PublishAsync(new FriendshipAddedEvent(
+            await _eventBus.PublishFriendshipAddedBothWaysAsync(
                 command.PrincipalId,
-                targetSystemId), cancellationToken);
-
-            await _eventBus.PublishAsync(new FriendshipAddedEvent(
                 targetScopedId,
-                command.PrincipalId), cancellationToken);
+                cancellationToken);
 
             await _eventBus.PublishAsync(new FriendRequestRemovedToEvent(
                 targetScopedId,
@@ -145,18 +107,7 @@ public sealed class SendFriendRequestCommandHandler : ICommandHandler<SendFriend
                 command.PrincipalId), cancellationToken);
         }
 
-        return CommandExecutionResult<FriendshipCommandResult>.Success(result);
+        return FriendshipCommandFlow.Success(command.PrincipalId, targetSystemId, action);
     }
 
-    private static CommandExecutionResult<FriendshipCommandResult> RejectDuplicate(
-        CommandEnvelope<SendFriendRequestCommand> command,
-        EntityRef entityRef)
-        => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictDuplicate, command.OperationId, entityRef, ResolutionHint.NoRetry));
-
-    private static CommandExecutionResult<FriendshipCommandResult> RejectInvariant(
-        CommandEnvelope<SendFriendRequestCommand> command,
-        EntityRef entityRef)
-        => CommandExecutionResult<FriendshipCommandResult>.Rejected(
-            new ConflictResult(ConflictCode.ConflictInvariant, command.OperationId, entityRef, ResolutionHint.ManualMergeRequired));
 }

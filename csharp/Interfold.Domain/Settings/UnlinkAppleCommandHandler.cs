@@ -10,33 +10,28 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-public sealed class UnlinkAppleCommandHandler : ICommandHandler<UnlinkAppleCommand, SettingsCommandResult>
+public sealed class UnlinkAppleCommandHandler : IdempotentCommandHandler<UnlinkAppleCommand, SettingsCommandResult>
 {
     private readonly IAccountRepository _accountRepository;
-    private readonly IIdempotencyStore _idempotencyStore;
     private readonly IClusterEventBus _eventBus;
 
     public UnlinkAppleCommandHandler(IAccountRepository accountRepository, IIdempotencyStore idempotencyStore, IClusterEventBus eventBus)
+        : base(idempotencyStore)
     {
         _accountRepository = accountRepository;
-        _idempotencyStore = idempotencyStore;
         _eventBus = eventBus;
     }
 
-    public async Task<CommandExecutionResult<SettingsCommandResult>> HandleAsync(CommandEnvelope<UnlinkAppleCommand> command, CancellationToken cancellationToken = default)
-    {
-        var result = await SettingsCommandHelper.ExecuteAsync(
-            command,
-            SettingsAction.AppleUnlinked,
-            EntityRefs.SettingsUnlinkApple,
-            _idempotencyStore,
-            ct => _accountRepository.UnlinkAppleAsync(command.PrincipalId, ct),
-            cancellationToken);
-        if (result is { Accepted: true, Result.Replay: false })
-        {
-            await _eventBus.PublishAsync(new SettingsAppleAccountUnlinkedSignalEvent(command.PrincipalId), cancellationToken);
-        }
+    protected override EntityRef DuplicateEntityRef => EntityRefs.SettingsUnlinkApple;
 
-        return result;
-    }
+    protected override Task<CommandExecutionResult<SettingsCommandResult>> ExecuteCoreAsync(
+        CommandEnvelope<UnlinkAppleCommand> command,
+        CancellationToken cancellationToken)
+        => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
+            command,
+            ct => _accountRepository.UnlinkAppleAsync(command.PrincipalId, ct),
+            EntityRefs.SettingsActionFailed(SettingsAction.AppleUnlinked),
+            SettingsAction.AppleUnlinked,
+            ct => _eventBus.PublishAsync(new SettingsAppleAccountUnlinkedSignalEvent(command.PrincipalId), ct),
+            cancellationToken);
 }
