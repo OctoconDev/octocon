@@ -16,12 +16,10 @@ namespace Microsoft.Extensions.Hosting;
 
 public static class Extensions
 {
-    /// <summary>The standard OTLP exporter endpoint variable; when present, the OTLP exporter is enabled.</summary>
     private const string OtlpEndpointEnvName = "OTEL_EXPORTER_OTLP_ENDPOINT";
 
-    // Resilience ceilings applied by ConfigureResilienceForGetOnly (see its doc comment
-    // for the reasoning). SamplingDuration must satisfy the framework constraint of
-    // >= 2x AttemptTimeout.
+    // Applied by ConfigureResilienceForGetOnly. Sampling duration satisfies the
+    // framework constraint SamplingDuration >= 2 * AttemptTimeout.
     private static readonly TimeSpan ResilienceAttemptTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ResilienceTotalRequestTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CircuitBreakerSamplingDuration = TimeSpan.FromMinutes(1);
@@ -43,32 +41,12 @@ public static class Extensions
         return builder;
     }
 
-    /// <summary>
-    /// Gates the standard resilience pipeline (Retry + CircuitBreaker) so it only fires for
-    /// idempotent GET requests, and tightens the timeout strategies to the configured
-    /// ceilings (30 s per attempt, 2 min total).
-    ///
-    /// <para>
-    /// <b>Why GET-only.</b> The default <see cref="HttpStandardResilienceOptions"/> retries
-    /// on any transient outcome including <c>TimeoutRejectedException</c>. For state-changing
-    /// verbs (POST/PUT/PATCH/DELETE) a retry after the per-attempt timeout fires is
-    /// indistinguishable, from the server's perspective, from a brand-new call — the original
-    /// request may have already started or finished. The Pi 4 dump captured in
-    /// <c>scripts/diagnostics/raspi_dump.txt</c> (Polly[0] OnTimeout at the 10 s default,
-    /// followed by two more full import runs) is the canonical witness. GETs are safe to
-    /// retry; everything else gets a one-shot pass through the pipeline.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Why we still set the timeouts.</b> Even for non-GETs the AttemptTimeout and
-    /// TotalRequestTimeout strategies still apply (the strategies themselves have no
-    /// <c>ShouldHandle</c> hook). Setting AttemptTimeout = 30 s and TotalRequestTimeout =
-    /// 2 min gives long-running mutations like the SP import enough room to complete without
-    /// being cancelled mid-flight, while keeping a hard ceiling so genuinely stuck requests
-    /// can't hold a connection forever. CircuitBreaker.SamplingDuration is bumped to 60 s to
-    /// satisfy the framework constraint (≥ 2 × AttemptTimeout).
-    /// </para>
-    /// </summary>
+    /// <summary>Retries and the circuit breaker only fire for idempotent GET. Non-GET
+    /// verbs are unsafe to replay after a per-attempt timeout (the origin can't tell the
+    /// retry from a fresh call — see the Pi 4 SP-import triple-run in
+    /// <c>scripts/diagnostics/raspi_dump.txt</c>). AttemptTimeout / TotalRequestTimeout
+    /// still apply universally (no <c>ShouldHandle</c> hook), so keep them long enough for
+    /// legitimate long-running mutations but bounded.</summary>
     public static void ConfigureResilienceForGetOnly(HttpStandardResilienceOptions options)
     {
         var defaultRetryShould = options.Retry.ShouldHandle;
@@ -98,14 +76,8 @@ public static class Extensions
         options.CircuitBreaker.SamplingDuration = CircuitBreakerSamplingDuration;
     }
 
-    /// <summary>
-    /// Configures OpenTelemetry logging, metrics, and tracing. Deliberately <c>public</c>
-    /// per the Aspire ServiceDefaults template convention (Aspire operators are expected
-    /// to be able to chain their own composition around this call). Do not demote to
-    /// <c>private static</c> without first auditing the downstream <c>AddServiceDefaults</c>
-    /// callers in this repo and any external consumers that treat ServiceDefaults as a
-    /// composition surface.
-    /// </summary>
+    /// <summary>OTel logging, metrics, and tracing. Kept <c>public</c> to match the Aspire
+    /// ServiceDefaults template — operators wrap their own composition around this call.</summary>
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Logging.AddOpenTelemetry(logging =>
@@ -148,12 +120,8 @@ public static class Extensions
         return builder;
     }
 
-    /// <summary>
-    /// Registers the built-in <c>self</c> liveness check tagged
-    /// <see cref="HealthCheckTags.Live"/>. Deliberately <c>public</c> per the Aspire
-    /// ServiceDefaults template convention — see <see cref="ConfigureOpenTelemetry"/>'s
-    /// remarks for the same demotion caveat.
-    /// </summary>
+    /// <summary>Built-in <c>self</c> liveness check tagged <see cref="HealthCheckTags.Live"/>.
+    /// Kept <c>public</c> for the Aspire template convention.</summary>
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
@@ -164,19 +132,16 @@ public static class Extensions
 
     public static IEndpointRouteBuilder MapDefaultEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        // Liveness: no dependency checks
         endpoints.MapHealthChecks(HealthEndpoints.Live, new HealthCheckOptions
         {
             Predicate = _ => false
         }).AllowAnonymous().ShortCircuit();
 
-        // Readiness: checks tagged "ready"
         endpoints.MapHealthChecks(HealthEndpoints.Ready, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains(HealthCheckTags.Ready)
         }).AllowAnonymous().ShortCircuit();
 
-        // Startup: checks tagged "startup" (longer timeout for DB init)
         endpoints.MapHealthChecks(HealthEndpoints.Startup, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains(HealthCheckTags.Startup)

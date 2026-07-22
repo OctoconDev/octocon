@@ -83,7 +83,6 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 startedAt,
                 startedAt
             ));
-            // Maintain fronts_by_alter denormalized table
             startBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.fronts_by_alter (user_id, alter_id, id, comment, time_start, inserted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 normalizedSystemId,
@@ -94,7 +93,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 startedAt,
                 startedAt
             ));
-            // Note: fronts_by_time and fronts_by_end_time are only populated when a front is closed
+            // fronts_by_time / fronts_by_end_time land on close, not on start.
             await session.ExecuteAsync(startBatch);
             return new(frontGuid);
         }, cancellationToken);
@@ -112,8 +111,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 return false;
             }
 
-            // Prefetch primary_front_alter so we know whether ending this front should
-            // also clear the primary.
+            // Prefetch primary_front_alter — closing it also clears the primary.
             var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
 
             var endBatch = new BatchStatement();
@@ -173,10 +171,8 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            // Register UDT mapping before selecting the fields UDT column.
+            // Register UDT mapping before SELECTing the fields UDT column.
             EnsureAlterFieldUdtMapping(session, keyspace);
-
-
 
             var activeTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id, id, comment, time_start FROM {keyspace}.current_fronts WHERE user_id = ?",
@@ -288,7 +284,6 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            // Identify the alter for this specific front record
             var frontRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT alter_id FROM {keyspace}.fronts WHERE user_id = ? AND id = ? LIMIT 1 ALLOW FILTERING",
                 normalizedSystemId,
@@ -302,7 +297,6 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             EnsureAlterFieldUdtMapping(session, keyspace);
             var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
 
-            // Parallelize the three remaining targeted lookups
             var currentTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, alter_id, comment, time_start FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ? LIMIT 1",
                 normalizedSystemId, alterId));
@@ -310,8 +304,6 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var alterTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, fields, pronouns, pinned FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId, alterId));
-
-
 
             await Task.WhenAll(currentTask, alterTask);
 
@@ -411,16 +403,14 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
             var currentRow = await GetCurrentFrontRowAsync(session, keyspace, normalizedSystemId, alterId);
             var primaryAlterId = await ScyllaSharedQueries.LoadPrimaryFrontAlterAsync(session, keyspace, normalizedSystemId);
 
-            // Build batch for all delete/update operations
             var deleteBatch = new BatchStatement();
-            
-            // Remove from current_fronts if still active
+
             if (currentRow is not null && currentRow.FrontId == frontGuid)
             {
                 deleteBatch.Add(new SimpleStatement(
                     $"DELETE FROM {keyspace}.current_fronts WHERE user_id = ? AND alter_id = ?",
                     normalizedSystemId, alterId.Value));
-                
+
                 if (primaryAlterId == alterId)
                 {
                     deleteBatch.Add(new SimpleStatement(
@@ -429,15 +419,13 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 }
             }
 
-            // Delete from base fronts table
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.fronts WHERE user_id = ? AND id = ? AND time_start = ?",
                 normalizedSystemId, frontGuid, timeStart));
-            // Delete from fronts_by_alter
             deleteBatch.Add(new SimpleStatement(
                 $"DELETE FROM {keyspace}.fronts_by_alter WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
                 normalizedSystemId, alterId.Value, frontGuid, timeStart));
-            // Delete from fronts_by_time and fronts_by_end_time (only present if front was closed)
+            // *_by_time siblings only exist for closed fronts.
             if (timeEnd.HasValue)
             {
                 deleteBatch.Add(new SimpleStatement(
@@ -477,7 +465,6 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
                 normalizedSystemId,
                 current.FrontId,
                 current.StartedAt));
-            // Maintain fronts_by_alter comment
             commentBatch.Add(new SimpleStatement(
                 $"UPDATE {keyspace}.fronts_by_alter SET comment = ?, updated_at = toTimestamp(now()) WHERE user_id = ? AND alter_id = ? AND id = ? AND time_start = ?",
                 comment, normalizedSystemId, current.AlterId, current.FrontId, current.StartedAt));
@@ -512,10 +499,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
         return current;
     }
 
-    // CurrentFrontRow still carries a raw `short AlterId` because it mirrors the CQL
-    // row shape one-to-one and is threaded through bind sites via `current.AlterId`.
-    // Callers that need domain-side identity comparisons wrap with `new AlterId(...)` at
-    // their read site; the storage boundary lives on this record.
+    // Raw short AlterId mirrors the CQL row shape; callers wrap in new AlterId(...) at read time.
     private async Task<CurrentFrontRow?> GetCurrentFrontRowAsync(
         ISession session,
         string keyspace,
@@ -536,10 +520,8 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
         var timeStart = row.GetValue<DateTimeOffset?>("time_start");
         if (timeStart is null)
         {
-            // Corrupt current_fronts row (no time_start). Refuse to silently stamp
-            // today's date into fronts_by_time on the next EndAsync; surface a
-            // warning so we notice if this ever fires in production and let the
-            // caller treat the row as if the front weren't current.
+            // Corrupt row — refuse to silently stamp today's date into fronts_by_time on
+            // the next EndAsync. Treat as not-current and warn loudly.
             _logger.LogWarning(
                 "current_fronts row for user {SystemId} alter {AlterId} has null time_start; treating as not-current.",
                 normalizedSystemId, alterId.Value);

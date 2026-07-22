@@ -1,0 +1,149 @@
+---
+description: Enforce short, why-focused code comments across Interfold; forbid plan/step/history narration; allow richer XML doc only on HTTP action methods and wire DTOs.
+alwaysApply: true
+---
+
+# Comment style
+
+Code comments in this repo exist to explain *why* the code is the way it is,
+not *what* it does. Keep them short. If the code cannot self-explain, prefer
+refactoring for clarity (rename, extract-method) before adding a comment.
+
+## Principle
+
+- One to three lines. If it needs more, the code probably needs a rename or a
+  helper, not a longer comment.
+- Comment the surprising thing. If a reader could work out the intent from the
+  parameter names, the method name, and the types, don't restate it.
+- Point at deep context rather than inlining it. Prefer
+  `// see InterfoldAppHost.ConfigureApiSelfHostEnv` over re-narrating the
+  rationale that already lives at the referenced site.
+
+## Never
+
+- **Plan / step / roadmap narration.** No `// TODO:`, no `// FIXME:`, no
+  `// HACK:`, no `// Step 1: ...`, no `// PATCH does not currently expose X —
+  in the future ...`. Deferred work goes in `docs/ROADMAP.md`, not in
+  comments.
+- **Refactor archaeology.** No `// The sync overload this used to sit
+  alongside was dropped because ...`, no `// Callers no longer thread a
+  selector.`, no comment that only makes sense to someone who was in the
+  original PR review.
+- **Story-telling / defensive narration.** No `// Without this we would ...`,
+  no `// scheme doesn't need forwarding because ...`, no "mini-essay against
+  a question the call site doesn't invite".
+- **Redundant XML doc.** A `/// <summary>Returns the current user.</summary>`
+  above `public User GetCurrentUser()` adds nothing — delete it.
+- **Obvious step labels in tests.** No `// Arrange`, `// Act`, `// Assert`,
+  no `// Setup:`, `// Verify:`, etc. The test's structure is already visible.
+- **Commented-out code.** If it might come back, git remembers.
+
+## Do
+
+- Explain a non-obvious constraint in 2–4 dense lines when it's genuinely
+  hidden (silent widening, `System.Text.Json` ctor-selection rules, framework
+  foot-guns, database-driver quirks).
+- Cross-reference the owning file/symbol when the deep context lives
+  elsewhere. Example: `// see AlterUrlQualifier.QualifyFriendship for the
+  origin-rewrite rules`.
+- On `catch { }` and `catch (Exception) { }` that intentionally swallow, a
+  one-line explanation (`// best-effort cleanup, tolerate storage flake`)
+  is welcome — a silent swallow with no comment reads as a bug.
+
+## Exception — member-level, not file-level
+
+Two surfaces are allowed richer XML doc. The exception is *member-level*: it
+does not license an entire file. Even inside the exception, the "Never" list
+above still applies.
+
+- **HTTP action methods.** Methods on a `ControllerBase`-derived class
+  carrying `[HttpGet]`, `[HttpPost]`, `[HttpPut]`, `[HttpPatch]`,
+  `[HttpDelete]`, or a method-level `[Route]`. XML `<summary>` describing
+  the endpoint's contract semantics is welcome. Put behavioural nuance in
+  `<remarks>`. No refactor archaeology.
+- **Wire-contract DTOs.** `record` / `class` declarations serialised as
+  `[FromBody]` requests or as `Response<T>` bodies (types under
+  `csharp/Interfold.Api/Models/**` and the actually-serialised types in
+  `csharp/Interfold.Contracts/Models/**` — `AlterReadModel`,
+  `FriendshipReadModel`, request records, `SocketPayloadContracts`,
+  `PhxFrame`, etc.). XML `<summary>` on the type and per-property
+  `<summary>` documenting wire semantics is welcome. No story-telling
+  about why the type exists.
+
+Everything else — controller base classes, controller-private helpers,
+non-wire enums / extensions / converters, internal models — follows the
+strict style above.
+
+## Concrete examples from this repo
+
+### Trim over-long XML doc (strict style — not an endpoint / DTO)
+
+**Before** — `csharp/Interfold.Api/Controllers/Base/InterfoldControllerBase.cs`, `PrincipalId`:
+
+```csharp
+/// <summary>
+/// The authenticated principal for the current request as a
+/// <see cref="ScopedSystemId"/>. The middleware guarantees the value is present and
+/// scoped — any endpoint reaching this getter has already passed the JWT-sub
+/// validation. <see cref="ScopedSystemId"/> widens implicitly to
+/// <see cref="SystemId"/> at every persistence / repository call site, so this
+/// getter's byte value flows unchanged to Postgres idempotency and Scylla PKs.
+/// </summary>
+protected ScopedSystemId PrincipalId
+```
+
+**After**:
+
+```csharp
+/// <summary>Authenticated principal for the current request; middleware guarantees presence.</summary>
+protected ScopedSystemId PrincipalId
+```
+
+### Delete plan / refactor-archaeology comments
+
+**Before** — `csharp/Interfold.Api/Controllers/AltersController.cs`:
+
+```csharp
+// PATCH does not currently expose AvatarUrl as a mutable field — avatar updates go
+// through the dedicated PUT .../avatar endpoints (multipart for Local, JSON for External)
+// so we never observe a half-set (url-without-source) here.
+var payload = new UpdateAlterCommand { ... };
+
+//TODO: To ensure route works as expected - check if we delete alter journal entries, unattach from gobal journals when an alter is deleted and delete them from polls
+[HttpDelete("{alterId:int}")]
+public async Task<Response> Delete(...)
+```
+
+**After** — both comments removed. The `//TODO` intent is captured in
+`docs/ROADMAP.md`. The `// PATCH does not ...` comment is refactor
+archaeology.
+
+### Keep a dense why-comment on a wire DTO
+
+**Keep** — `csharp/Interfold.Contracts/Models/Alter.cs`, the block above the
+`[JsonConstructor]` overload:
+
+```csharp
+// The 14-arg ctor above takes `bool?` for the flag trio so the CQL projections in
+// ScyllaAlterRepository can bind `row.GetValue<bool?>(...)` directly. STJ's
+// deserialiser refuses that ctor because `bool? untracked` doesn't type-match the
+// `bool Untracked` property — this second ctor takes plain `bool`, is marked
+// [JsonConstructor], and forwards.
+[JsonConstructor]
+public AlterReadModel(...)
+```
+
+`AlterReadModel` is a wire DTO (returned as `Response<AlterReadModel>` from
+`AltersController`), and the comment documents a non-obvious
+`System.Text.Json` constraint that the code itself cannot convey. This is
+what a "kept" dense comment looks like: 5 lines, no history, no plan, no
+apologising.
+
+## Enforcement
+
+- Applies to every `.cs` file under `csharp/`.
+- New `//TODO` / `//FIXME` / `//HACK` in a diff is a review block. Move the
+  intent to `docs/ROADMAP.md` first.
+- New `// Arrange / // Act / // Assert` in a test diff is a review block.
+- An XML doc block longer than ~10 lines outside the two exception surfaces
+  is a review block.

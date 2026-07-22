@@ -1,17 +1,9 @@
 namespace Interfold.AppHostGraph;
 
-/// <summary>
-/// Environment-variable NAMES the AppHost graph sets on third-party containers (Postgres,
-/// Scylla, Cassandra, nginx) and on the API container itself. Several of these are read
-/// back inside shell one-liners (compose healthchecks, <see cref="DockerExecCqlProbe"/>),
-/// so centralising the spellings keeps the C# <c>WithEnvironment</c> registration and the
-/// in-container <c>$VAR</c> expansion from drifting.
-/// </summary>
-/// <remarks>
-/// Values are dictated by the upstream images' entrypoints (official postgres/cassandra
-/// entrypoint scripts, nginx envsubst templates, ASP.NET Core hosting) — they are not
-/// ours to rename.
-/// </remarks>
+/// <summary>Env-var names the AppHost graph sets on third-party containers. Also read
+/// inside compose healthcheck / <see cref="DockerExecCqlProbe"/> shell one-liners, so C#
+/// registration and in-container <c>$VAR</c> expansion share these constants. Names are
+/// dictated by upstream entrypoints — not ours to rename.</summary>
 internal static class ContainerEnvNames
 {
     // --- Postgres / TimescaleDB (official entrypoint + timescaledb-tune init script) ---

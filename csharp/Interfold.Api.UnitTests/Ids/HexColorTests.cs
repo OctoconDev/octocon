@@ -3,26 +3,12 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 
-/// <summary>
-/// Pins the strict contract every construction path on <see cref="HexColor"/> now honours:
-/// the public constructor, <see cref="HexColor.Parse(string, IFormatProvider?)"/>,
-/// <see cref="HexColor.TryParse(string?, IFormatProvider?, out HexColor)"/>, the JSON
-/// reader, and <see cref="HexColor.FromNullable(string?)"/> all reject non-well-formed
-/// input. The historical "tolerate anything from the DB" shape is gone — the
-/// HexColorFixupService normalises legacy rows before this strict boundary starts
-/// throwing on them.
-///
-/// <para>
-/// <see cref="HexColor.Normalise(string?)"/> is the recovery helper shared with the
-/// Simply Plural importer, exercised here because a regression that lets a bare
-/// six-char hex slip through (without <c>#</c>) would silently write malformed rows
-/// again once the importer runs against the strict constructor.
-/// </para>
-/// </summary>
+// Pins the strict contract every HexColor construction path honours: ctor, Parse,
+// TryParse, JSON reader, and FromNullable all reject non-well-formed input. Normalise
+// (shared with the SP importer + HexColorFixupService) is exercised here too, since a
+// bare six-char slip through would silently write malformed rows again.
 public sealed class HexColorTests
 {
-    // ---------------- Constructor + IsWellFormed ----------------------------
-
     [Test]
     [Arguments("#F0A")]
     [Arguments("#FF00AA")]
@@ -62,8 +48,6 @@ public sealed class HexColorTests
             .Because("null is a caller bug, not malformed data — ArgumentNullException surfaces the parameter name.");
     }
 
-    // ---------------- Parse / TryParse (IParsable) --------------------------
-
     [Test]
     public async Task Parse_WellFormed_Roundtrips()
     {
@@ -102,8 +86,6 @@ public sealed class HexColorTests
             .Because("TryParse must never throw and must return false for every shape that would fail Parse — matches int.TryParse's contract.");
     }
 
-    // ---------------- FromNullable (persistence boundary) -------------------
-
     [Test]
     public async Task FromNullable_Null_ReturnsNull()
     {
@@ -135,8 +117,6 @@ public sealed class HexColorTests
             .Because("The strict contract makes FromNullable throw on malformed input; the HexColorFixupService is the pre-flight that guarantees this never fires on well-migrated data.");
     }
 
-    // ---------------- JSON round-trip ---------------------------------------
-
     [Test]
     public async Task Json_WellFormed_Roundtrips()
     {
@@ -164,8 +144,6 @@ public sealed class HexColorTests
             .ThrowsExactly<JsonException>()
             .Because("Malformed JSON must surface as JsonException so ASP.NET Core model binding maps to a 400, matching the StringBackedIds house style.");
     }
-
-    // ---------------- Normalise (shared with SP importer + fixup) ----------
 
     [Test]
     [Arguments(null)]
@@ -204,7 +182,7 @@ public sealed class HexColorTests
     [Test]
     [Arguments("red")]
     [Arguments("FF00")]
-    [Arguments("FF00AAFF")] // 8-hex without # — SP never wrote this, ambiguous
+    [Arguments("FF00AAFF")]
     [Arguments("#GGGGGG")]
     [Arguments("GGGGGG")]
     public async Task Normalise_Unrecoverable_ReturnsNull(string input)

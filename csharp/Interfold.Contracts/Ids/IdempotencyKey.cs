@@ -4,16 +4,8 @@ using System.Text.Json.Serialization;
 
 namespace Interfold.Contracts.Ids;
 
-/// <summary>
-/// Strongly-typed wrapper around the client-supplied (or server-minted) idempotency key
-/// that scopes command deduplication. Carried on <c>CommandEnvelope&lt;T&gt;.IdempotencyKey</c>,
-/// the idempotency store keys, and <c>ImportOperationSnapshot.IdempotencyKey</c>.
-///
-/// <para>
-/// <b>Wire compatibility.</b> JSON serializes as the raw underlying string. DB parameter
-/// binding must pass <see cref="Value"/> explicitly (Npgsql/Cassandra cannot bind the struct).
-/// </para>
-/// </summary>
+/// <summary>Strongly-typed wrapper around the client-supplied (or server-minted) idempotency
+/// key that scopes command deduplication.</summary>
 [JsonConverter(typeof(IdempotencyKeyJsonConverter))]
 public readonly record struct IdempotencyKey : IParsable<IdempotencyKey>
 {
@@ -24,16 +16,8 @@ public readonly record struct IdempotencyKey : IParsable<IdempotencyKey>
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(IdempotencyKey)raw</c> instead of
-    /// <c>new IdempotencyKey(raw)</c>. See <see cref="SystemId"/>'s conversion operators for
-    /// the wider rationale on explicit-narrow / implicit-widen.
-    /// </summary>
     public static explicit operator IdempotencyKey(string value) => new(value);
 
-    /// <summary>
-    /// Implicit widen to the raw <see cref="string"/> for DB / HTTP boundary use.
-    /// </summary>
     public static implicit operator string(IdempotencyKey value) => value.Value;
 
     public override string ToString() => Value;

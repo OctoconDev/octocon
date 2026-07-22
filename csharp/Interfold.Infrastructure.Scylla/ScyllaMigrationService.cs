@@ -12,40 +12,29 @@ using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;
 
-/// <summary>
-/// Applies embedded CQL migrations at startup using admin credentials from ISecretsStore.
-/// Creates keyspaces for all regions, applies schema, and grants DML permissions to the app user.
-/// Supports both single-node (SimpleStrategy) and multi-DC (NetworkTopologyStrategy) deployments.
-/// Runs before the app accepts traffic (IHostedLifecycleService.StartingAsync).
-/// </summary>
-/// <remarks>
-/// Each migration is tracked in <c>global.schema_migrations</c> by <c>(scope, version)</c>
-/// + SHA-256 checksum so previously-applied files are skipped on subsequent runs and
-/// post-deploy edits are detected (fail-fast). The cluster-wide singleton keyspaces
-/// (<c>global</c>, <c>nam_nt</c>, <c>dummy</c>) are bootstrapped from
-/// <c>000_create_singleton_keyspaces.cql</c> unconditionally — they're a precondition for
-/// the ledger itself and every statement is idempotent. Templated per-region files
-/// (<c>001_create_interfold_keyspaces.cql</c>, <c>002_create_interfold_schema.templated.cql</c>)
-/// are tracked once per regional keyspace, so adding a new region later only re-applies the
-/// rendered template to the new keyspace.
-/// </remarks>
+/// <summary>Applies embedded CQL migrations at startup under
+/// <see cref="IHostedLifecycleService.StartingAsync"/>. Creates keyspaces, schema, and
+/// DML grants under admin credentials from <see cref="ISecretsStore"/>. Handles
+/// SimpleStrategy (single-node) and NetworkTopologyStrategy (multi-DC). Ledger is
+/// <c>global.schema_migrations</c> keyed on <c>(scope, version)</c> + SHA-256 checksum;
+/// singleton keyspaces (<c>global</c>, <c>nam_nt</c>, <c>dummy</c>) are bootstrapped
+/// unconditionally because the ledger table lives in <c>global</c>. Templated
+/// per-region migrations are tracked once per keyspace so a later region add re-runs
+/// only against the new keyspace.</summary>
 public sealed partial class ScyllaMigrationService(
     IOptions<PersistenceConfiguration> options,
     ISecretsStore secretsStore,
     IScyllaConfigResolver configResolver,
     ILogger<ScyllaMigrationService> logger) : IHostedLifecycleService
 {
-    // Derived from the ScyllaKeyspace enum so the regional list can't drift from the type
-    // that the resolution APIs (IRegionContext) hand around.
+    // Derived from ScyllaKeyspace so the regional list can't drift from IRegionContext.
     private static readonly string[] RegionalKeyspaces =
         Enum.GetValues<Contracts.Enums.ScyllaKeyspace>()
             .Select(Contracts.Enums.EnumWire<Contracts.Enums.ScyllaKeyspace>.ToWire)
             .ToArray();
 
-    // Singleton keyspaces created once during bootstrap from 000_create_singleton_keyspaces.cql.
     private static readonly string[] SingletonKeyspaces = ["global", "nam_nt", "dummy"];
 
-    // Ledger constants.
     private const string LedgerKeyspace = "global";
     private const string LedgerTable = "schema_migrations";
     private const string LedgerTableFqn = $"{LedgerKeyspace}.{LedgerTable}";
@@ -58,16 +47,11 @@ public sealed partial class ScyllaMigrationService(
     private const string PrimaryFrontAddAlterMigration = "006_add_primary_front_alter.templated.cql";
     private const string GrantsVersion = "grants_v1";
 
-    // Ledger constants for the inline backfill that follows migration 006. The backfill
-    // has to be sequenced immediately after the ALTER that introduces primary_front_alter
-    // (see the 006 header), so it can't be a separate hosted service and instead lives
-    // inline in StartingAsync. Same ledger shape as any tracked migration:
-    // (scope, version, checksum) — bump the checksum to force a per-keyspace re-run.
+    // Sequenced immediately after 006's ALTER; bump the checksum to force per-keyspace re-run.
     private const string PrimaryFrontBackfillVersion = "v1";
     private const string PrimaryFrontIntToAlterChecksum = "primary_front_int_to_alter_v1";
 
-    // Stable template hashed for grant tracking. Bump GrantsVersion whenever this string
-    // changes so existing rows mismatch and grants get re-applied across all scopes.
+    // Bump GrantsVersion whenever this string changes so grants re-apply across all scopes.
     private const string GrantTemplate = "GRANT SELECT ON KEYSPACE {ks} TO {user};GRANT MODIFY ON KEYSPACE {ks} TO {user}";
 
     private string? _adminUsername;
@@ -80,7 +64,6 @@ public sealed partial class ScyllaMigrationService(
 
     public async Task StartingAsync(CancellationToken cancellationToken)
     {
-        // Read admin credentials from secrets store
         _adminUsername = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaAdminUsername, cancellationToken);
         _adminPassword = await secretsStore.GetAsync(SecretsStoreKeys.ScyllaAdminPassword, cancellationToken);
 
@@ -91,7 +74,6 @@ public sealed partial class ScyllaMigrationService(
             return;
         }
 
-        // Read connection details via unified resolver
         _contactPoints = await configResolver.GetContactPointsAsync(cancellationToken);
         _datacenter = await configResolver.GetDatacenterAsync(cancellationToken);
         _appUsername = await configResolver.GetUsernameAsync(cancellationToken);
@@ -102,9 +84,8 @@ public sealed partial class ScyllaMigrationService(
 
         logger.LogInformation("[scylla-migrate] Applying ScyllaDB schema migrations...");
 
-        // Ensure we get an authenticated connection. Cassandra's PasswordAuthenticator
-        // may not be enforcing auth immediately after startup, causing the driver to
-        // connect anonymously. We retry until LIST ROLES succeeds (requires auth).
+        // Retry LIST ROLES — Cassandra's PasswordAuthenticator can accept anonymous
+        // connections briefly after startup, before auth is enforced.
         var cluster = BuildCluster();
         var session = await cluster.ConnectAsync();
 
@@ -147,8 +128,7 @@ public sealed partial class ScyllaMigrationService(
             logger.LogInformation("[scylla-migrate] Visible datacenters: {DCs}, database: {Db}",
                 string.Join(", ", visibleDcs), isScylla ? "ScyllaDB" : "Cassandra");
 
-            // Bootstrap: create the singleton keyspaces (global, nam_nt, dummy) unconditionally
-            // so the ledger table can live in `global` and the rest of the run can be tracked.
+            // Untracked bootstrap — the ledger table lives in `global`, so `global` must exist first.
             await EnsureSingletonKeyspacesAsync(session, visibleDcs, isScylla);
             await EnsureLedgerAsync(session);
             var applied = await LoadAppliedAsync(session);
@@ -159,14 +139,9 @@ public sealed partial class ScyllaMigrationService(
             await ApplyTemplatedMigrationPerKeyspace(session, applied, ImportOperationsMigration);
             await ApplyTemplatedMigrationPerKeyspace(session, applied, ColorFixupMarkerMigration);
 
-            // users.primary_front (int) -> users.primary_front_alter (smallint) narrowing.
-            // A same-name DROP+ADD with a different type is rejected server-side (Cassandra
-            // tracks the old type in system_schema.dropped_columns forever) and RENAME is
-            // limited to primary-key columns, so the only safe path is a new column name.
-            // The legacy int column is left in place; a future release can DROP it once
-            // no external tool still reads it. Both steps have to finish inside this
-            // StartingAsync pass because repositories bind to primary_front_alter as soon
-            // as traffic starts.
+            // primary_front (int) -> primary_front_alter (smallint): same-name DROP+ADD of a
+            // different type is server-rejected, RENAME is PK-only, so we use a new column
+            // and backfill inline before traffic can bind to it.
             await ApplyTemplatedMigrationPerKeyspace(session, applied, PrimaryFrontAddAlterMigration);
             await BackfillPrimaryFrontIntToAlterAsync(session, applied, cancellationToken);
 
@@ -180,7 +155,6 @@ public sealed partial class ScyllaMigrationService(
 
         logger.LogInformation("[scylla-migrate] All migrations applied.");
 
-        // Clear admin credentials from memory.
         _adminUsername = null;
         _adminPassword = null;
         logger.LogInformation("[scylla-migrate] Admin credentials cleared from memory.");
@@ -192,14 +166,9 @@ public sealed partial class ScyllaMigrationService(
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     public Task StoppedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    /// <summary>
-    /// Externally invocable entry point that applies the embedded CQL migrations using admin
-    /// credentials from <paramref name="secretsStore"/>. The integration test
-    /// <c>SharedDbFixture</c> calls this once per test session against each enabled CQL backend
-    /// (Scylla and/or Cassandra) so the per-test <c>InterfoldWebApplicationFactory</c> doesn't
-    /// need to rebuild migrations on every host. Idempotent: every CREATE statement uses
-    /// <c>IF NOT EXISTS</c> and <see cref="AlreadyExistsException"/> is caught.
-    /// </summary>
+    /// <summary>Idempotent migration entry point. Exposed as a static so
+    /// <c>SharedDbFixture</c> can migrate once per test session per backend instead of on
+    /// every host build.</summary>
     public static Task MigrateAsync(
         PersistenceConfiguration options,
         ISecretsStore secretsStore,
@@ -207,9 +176,6 @@ public sealed partial class ScyllaMigrationService(
         ILogger<ScyllaMigrationService> logger,
         CancellationToken cancellationToken)
     {
-        // Wrap the caller-supplied snapshot so the primary constructor's
-        // IOptions<PersistenceConfiguration> contract is honoured without spreading
-        // Options.Create noise across every test call site.
         var service = new ScyllaMigrationService(Options.Create(options), secretsStore, configResolver, logger);
         return service.StartingAsync(cancellationToken);
     }
@@ -223,11 +189,7 @@ public sealed partial class ScyllaMigrationService(
             .WithQueryTimeout(30000)
             .WithSocketOptions(new SocketOptions()
                 .SetConnectTimeoutMillis(15000)
-                // Default SocketOptions.ReadTimeoutMillis is 12s, which is too short for the
-                // migration path where Scylla can spend a few seconds per CREATE TABLE on a
-                // contended host (e.g. self-hosted DinD on slow disks). Bumping to 60s matches
-                // the per-host budget of a single migration statement; the per-query budget is
-                // still bounded by WithQueryTimeout above.
+                // 60s covers per-CREATE TABLE latency on contended hosts (e.g. self-hosted DinD).
                 .SetReadTimeoutMillis(60000)
                 .SetKeepAlive(true))
             .Build();
@@ -252,7 +214,6 @@ public sealed partial class ScyllaMigrationService(
             if (!string.IsNullOrWhiteSpace(dc)) dcs.Add(dc.ToLowerInvariant());
         }
 
-        // Only keep known regional DCs
         dcs.IntersectWith(RegionalKeyspaces);
         return dcs;
     }
@@ -266,7 +227,6 @@ public sealed partial class ScyllaMigrationService(
 
     private static string NtsReplication(HashSet<string> visibleDcs, params string[] preferredDcs)
     {
-        // Only include DCs that actually exist in the cluster
         var actualDcs = preferredDcs.Where(visibleDcs.Contains).ToArray();
         if (actualDcs.Length == 0) actualDcs = [visibleDcs.First()];
         var pairs = string.Join(", ", actualDcs.Select(dc => $"'{dc}': '1'"));
@@ -294,7 +254,7 @@ public sealed partial class ScyllaMigrationService(
     {
         if (!IsMultiDc(dcs)) return SimpleReplication();
 
-        // Global keyspace replicates to all available DCs
+        // Global replicates to every available DC.
         var allDcs = new[] { "nam", "eur", "sam", "sas", "eas", "ocn", "gdpr" }
             .Where(dcs.Contains)
             .ToArray();
@@ -314,7 +274,7 @@ public sealed partial class ScyllaMigrationService(
         try
         {
             var rs = await session.ExecuteAsync(new SimpleStatement("SELECT cluster_name FROM system.local"));
-            // ScyllaDB clusters have system_schema.scylla_tables; try a lightweight probe
+            // system_schema.scylla_tables is ScyllaDB-only.
             await session.ExecuteAsync(new SimpleStatement(
                 "SELECT keyspace_name FROM system_schema.scylla_tables LIMIT 1"));
             return true;
@@ -327,12 +287,7 @@ public sealed partial class ScyllaMigrationService(
 
     // --- Singleton Keyspace Bootstrap (untracked) ---
 
-    /// <summary>
-    /// Renders and applies <see cref="SingletonsMigration"/> to create the cluster-wide
-    /// singleton keyspaces (<c>global</c>, <c>nam_nt</c>, <c>dummy</c>). This step is
-    /// intentionally not recorded in the ledger: <c>global</c> must exist before the ledger
-    /// table can be created and the statements are cheap idempotent CREATE/ALTERs anyway.
-    /// </summary>
+    // Untracked: `global` must exist before the ledger table itself does.
     private async Task EnsureSingletonKeyspacesAsync(ISession session, HashSet<string> dcs, bool isScylla)
     {
         var cqlTemplate = GetEmbeddedResource(SingletonsMigration);
@@ -390,15 +345,9 @@ public sealed partial class ScyllaMigrationService(
 
     // --- Templated Per-Keyspace Migrations ---
 
-    /// <summary>
-    /// Applies a templated <c>.cql</c> migration to every regional keyspace, tracked individually
-    /// in the ledger so it runs exactly once per keyspace. Every keyspace-scoped migration in this
-    /// service flows through here — the bootstrap schema (<see cref="SchemaMigration"/>) and every
-    /// post-002 addition (UDT extensions, column additions) share the same envelope: render
-    /// <c>{{KEYSPACE}}</c>, skip-if-applied via ledger checksum, time and record via
-    /// <see cref="RecordMigrationAsync"/>. Keep this the single seam for any envelope-level change
-    /// (retry policy, telemetry span, per-keyspace error mapping).
-    /// </summary>
+    // Single seam for every keyspace-scoped migration — render {{KEYSPACE}}, skip via
+    // ledger checksum, record via RecordMigrationAsync. Envelope-level changes (retry,
+    // telemetry, error mapping) belong here.
     private async Task ApplyTemplatedMigrationPerKeyspace(
         ISession session,
         Dictionary<(string Scope, string Version), string> applied,
@@ -432,14 +381,9 @@ public sealed partial class ScyllaMigrationService(
 
     // --- Primary Front Backfill ---
 
-    /// <summary>
-    /// Copies every non-null <c>users.primary_front</c> (int, legacy) value into the sibling
-    /// <c>users.primary_front_alter</c> (smallint) column added by migration 006. Runs
-    /// immediately after 006 lands and before any repository code observes the schema.
-    /// Ledger-guarded per keyspace so the scan runs at most once even under crash-restart
-    /// churn; rows where <c>primary_front_alter</c> is already populated are skipped, so a
-    /// crash mid-scan just resumes on the still-null tail.
-    /// </summary>
+    // Copies legacy int primary_front into the smallint sibling added by 006.
+    // Ledger-guarded per keyspace + skips already-populated rows, so crash-restart resumes
+    // on the null tail rather than repeating work.
     private async Task BackfillPrimaryFrontIntToAlterAsync(
         ISession session,
         Dictionary<(string Scope, string Version), string> applied,
@@ -510,7 +454,6 @@ public sealed partial class ScyllaMigrationService(
             return;
         }
 
-        // Skip grants when app user is the same as admin (e.g. default Cassandra superuser)
         if (string.Equals(appUser, _adminUsername, StringComparison.OrdinalIgnoreCase))
         {
             logger.LogInformation("[scylla-migrate] App user is the admin user — skipping permission grants.");
@@ -565,10 +508,7 @@ public sealed partial class ScyllaMigrationService(
 
     // --- Ledger Helpers ---
 
-    /// <summary>
-    /// Ensures the <c>global.schema_migrations</c> ledger table exists. Assumes the
-    /// <c>global</c> keyspace has already been created by <see cref="EnsureSingletonKeyspacesAsync"/>.
-    /// </summary>
+    // Presumes `global` has already been bootstrapped by EnsureSingletonKeyspacesAsync.
     private static async Task EnsureLedgerAsync(ISession session)
     {
         var ddl = $$"""
@@ -600,11 +540,7 @@ public sealed partial class ScyllaMigrationService(
         return applied;
     }
 
-    /// <summary>
-    /// Returns true if the migration is already recorded with a matching checksum. Throws
-    /// <see cref="InvalidOperationException"/> if a row exists with a different checksum
-    /// (fail-fast on post-deploy file drift).
-    /// </summary>
+    // Throws on checksum drift so an edited-in-place migration cannot silently rebase.
     private static bool ShouldSkip(
         Dictionary<(string Scope, string Version), string> applied,
         string scope,
@@ -670,24 +606,9 @@ public sealed partial class ScyllaMigrationService(
     private Task ExecuteStatements(ISession session, string cql)
         => ExecuteStatementsStatic(session, cql, logger);
 
-    /// <summary>
-    /// CQL execution helper. Swallows two idempotence-critical exception classes:
-    ///
-    /// <list type="bullet">
-    ///   <item>
-    ///     <see cref="AlreadyExistsException"/> — CREATE-side migrations all use
-    ///     <c>IF NOT EXISTS</c> but Scylla still raises this for a small window of
-    ///     edge cases (concurrent CREATE INDEX, older server builds).
-    ///   </item>
-    ///   <item>
-    ///     <see cref="InvalidQueryException"/> where the message signals "column not
-    ///     found" / "column does not exist" / "column already exists" — kept as a
-    ///     forward-compat safety net so that a boot which crashes between an ALTER
-    ///     landing and its ledger row being written can re-run without throwing on
-    ///     the second boot.
-    ///   </item>
-    /// </list>
-    /// </summary>
+    // Swallows AlreadyExistsException and column-added/removed InvalidQueryException so
+    // a boot that crashed between an ALTER landing and its ledger row being written can
+    // re-run on the next boot without exploding.
     private static async Task ExecuteStatementsStatic(ISession session, string cql, ILogger logger)
     {
         var statements = SplitCqlStatements(cql);
@@ -709,11 +630,8 @@ public sealed partial class ScyllaMigrationService(
             }
             catch (InvalidQueryException ex) when (IsColumnAlreadyExists(ex))
             {
-                // Idempotent — ADD {column} already applied on an earlier boot. The
-                // target ScyllaDB version rejects `ADD IF NOT EXISTS` at parse time
-                // (SyntaxError on the `IF` token), so we lean on this handler to make
-                // any future ALTER ... ADD migrations re-runnable after a crash between
-                // the ALTER landing and the ledger row being written.
+                // Target Scylla version SyntaxErrors on `ADD IF NOT EXISTS`, so this
+                // catch is how ALTER ... ADD migrations stay re-runnable across crashes.
                 logger.LogDebug("[scylla-migrate] Skipping ADD for existing column: {Message}", ex.Message);
             }
         }
@@ -732,9 +650,7 @@ public sealed partial class ScyllaMigrationService(
     private static bool IsColumnAlreadyExists(InvalidQueryException ex)
     {
         var msg = ex.Message;
-        // Scylla surfaces this as "Invalid column name ... conflicts with an existing column"
-        // or "Column X of type Y already exists" depending on version; match on the intent
-        // rather than the exact wording.
+        // Version-dependent wording; match intent, not the exact string.
         return (msg.Contains("column", StringComparison.OrdinalIgnoreCase)
                 || msg.Contains("conflicts with", StringComparison.OrdinalIgnoreCase))
                && (msg.Contains("already exists", StringComparison.OrdinalIgnoreCase)

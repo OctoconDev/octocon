@@ -6,13 +6,9 @@ using TUnit.Mocks;
 
 namespace Interfold.Api.UnitTests.Options;
 
-/// <summary>
-/// Locks the contract of <see cref="FcmSecretsPostConfigure"/>: the optional
-/// <c>fcm:service_account_json</c> row is copied verbatim onto
-/// <see cref="FcmConfiguration.ServiceAccountJson"/>, a missing row leaves it null (the
-/// <c>IFCMService</c> DI factory falls back to <c>NullFCMService</c>), and only the default
-/// named options bucket is patched.
-/// </summary>
+// Contract for FcmSecretsPostConfigure: fcm:service_account_json flows verbatim onto
+// FcmConfiguration.ServiceAccountJson; a missing row leaves it null (IFCMService
+// falls back to NullFCMService); only the default named bucket is patched.
 public sealed class FcmSecretsPostConfigureTests
 {
     private const string ServiceAccountJson = """{"type":"service_account","project_id":"test"}""";

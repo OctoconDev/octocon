@@ -5,27 +5,10 @@ using Interfold.Infrastructure.Coordination;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-/// <summary>
-/// Pins the contract of <see cref="InProcessImportJobQueue"/>. The queue is a thin wrapper
-/// around <c>System.Threading.Channels.Channel&lt;T&gt;</c> but the contract that the rest
-/// of the system depends on — FIFO delivery, cancellation observance, back-pressure rather
-/// than drop — has to hold under change. These tests guard those properties.
-///
-/// <para>
-/// <b>What the queue is NOT responsible for.</b> Per-(system, kind) deduplication is owned
-/// by <see cref="Interfold.Domain.Abstractions.Repository.IImportOperationRepository"/>.
-/// By the time an item lands in the queue, the repository has already guaranteed there is
-/// at most one in-flight operation for that system. So we don't test dedupe here — those
-/// tests live in <see cref="InMemoryImportOperationRepositoryTests"/>.
-/// </para>
-/// </summary>
+// FIFO delivery, cancellation, back-pressure for InProcessImportJobQueue. Per-(system,
+// kind) dedupe lives on IImportOperationRepository, not here.
 public sealed class InProcessImportJobQueueTests
 {
-    /// <summary>
-    /// Items consumed in the order they were enqueued. FIFO is load-bearing: the worker
-    /// uses queue ordering to keep "older claim runs first" so the user's first click is
-    /// reflected first.
-    /// </summary>
     [Test]
     public async Task ReadAll_DeliversItemsInFifoOrder()
     {
@@ -56,11 +39,6 @@ public sealed class InProcessImportJobQueueTests
         }
     }
 
-    /// <summary>
-    /// Reader sees items the producer publishes after subscription. This is the normal
-    /// streaming shape the background service runs in — start consuming, then handle
-    /// items as they arrive.
-    /// </summary>
     [Test]
     public async Task ReadAll_StreamsItemsPublishedAfterReaderAttached()
     {
@@ -99,11 +77,6 @@ public sealed class InProcessImportJobQueueTests
         }
     }
 
-    /// <summary>
-    /// Cancelling the read loop completes the async sequence promptly. This is how the
-    /// background service stops on host shutdown — its <c>ExecuteAsync</c> cancellation
-    /// token is the one we pass to <c>ReadAllAsync</c>.
-    /// </summary>
     [Test]
     public async Task ReadAll_StopsWhenCancellationTokenFires()
     {
@@ -116,16 +89,13 @@ public sealed class InProcessImportJobQueueTests
             {
                 await foreach (var _ in queue.ReadAllAsync(cts.Token))
                 {
-                    // Intentionally consume nothing — we just want the loop to be active.
                 }
             }
             catch (OperationCanceledException)
             {
-                // Expected once the token fires while we're parked on ReadAsync.
             }
         });
 
-        // Give the reader a moment to park on the empty channel, then cancel.
         await Task.Delay(50);
         cts.Cancel();
 
@@ -134,11 +104,6 @@ public sealed class InProcessImportJobQueueTests
             .Because("Cancelling the token while ReadAllAsync is parked on an empty channel must surface as a prompt exit; otherwise the worker would hang on shutdown.");
     }
 
-    /// <summary>
-    /// <c>DisposeAsync</c> completes the writer side so any active reader observes the
-    /// end of the sequence. This is how the channel is torn down on host shutdown without
-    /// needing a separate cancellation signal.
-    /// </summary>
     [Test]
     public async Task Dispose_CompletesReaderSequence()
     {

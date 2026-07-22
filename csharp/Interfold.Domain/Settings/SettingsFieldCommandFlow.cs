@@ -7,14 +7,10 @@ using Interfold.Domain.Abstractions;
 
 namespace Interfold.Domain.Settings;
 
-/// <summary>
-/// Field-creation helper for handlers whose result shape is
-/// <see cref="SettingsFieldCommandResult"/> (carries the created
-/// <see cref="FieldId"/>) rather than <see cref="SettingsCommandResult"/>. Distinct from
-/// <see cref="SettingsIdempotentCommandFlow"/> along the result-shape axis — this helper
-/// carries the created <see cref="FieldId"/> in the result envelope, the other returns a
-/// plain <see cref="SettingsCommandResult"/>.
-/// </summary>
+/// <summary>Field-creation helper for handlers returning
+/// <see cref="SettingsFieldCommandResult"/> (carries the created <see cref="FieldId"/>);
+/// contrasts with <see cref="SettingsIdempotentCommandFlow"/> which returns a plain
+/// <see cref="SettingsCommandResult"/>.</summary>
 internal static class SettingsFieldCommandFlow
 {
     public static CommandExecutionResult<SettingsFieldCommandResult> Success(

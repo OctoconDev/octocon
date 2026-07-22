@@ -3,31 +3,10 @@ using System.Globalization;
 
 namespace Interfold.Api.Models;
 
-/// <summary>
-/// A validated Unix-seconds query anchor (fronting history endpoints). Encapsulates
-/// both the numeric parse and <see cref="DateTimeOffset.FromUnixTimeSeconds"/>'s
-/// range check so callers get a single
-/// <see cref="TryParse(string?, IFormatProvider?, out UnixSeconds)"/>.
-///
-/// <para>
-/// Controller parameters bind straight to <see cref="UnixSeconds"/> via the custom
-/// <c>UnixSecondsModelBinder</c>. When the raw query string fails to parse, the
-/// binder honours the accompanying <c>UnixSecondsBindingAttribute</c> to emit the
-/// legacy <c>invalid_end_anchor</c> / <c>invalid_anchor</c> <c>ErrorResponse</c>
-/// bodies verbatim — this replaces the older string-typed parameter + inline
-/// TryParse guard on the controller.
-/// </para>
-///
-/// <para>
-/// The <see cref="IParsable{TSelf}"/> contract is the single parse surface: Unix
-/// timestamps are culture-invariant integers, so the supplied
-/// <see cref="IFormatProvider"/> is intentionally ignored and
-/// <see cref="CultureInfo.InvariantCulture"/> is used internally. Implementing
-/// <see cref="IParsable{TSelf}"/> keeps this type consistent with
-/// <c>Interfold.Contracts.Ids.StringBackedIds</c> and lets tests, minimal APIs, and
-/// OpenAPI generators reuse the same parse without going through the MVC binder.
-/// </para>
-/// </summary>
+/// <summary>Validated Unix-seconds anchor for fronting history endpoints. Combines
+/// long parse + <see cref="DateTimeOffset.FromUnixTimeSeconds"/> range check.
+/// Culture-invariant (Unix timestamps are integers), so the supplied
+/// <see cref="IFormatProvider"/> is ignored.</summary>
 public readonly record struct UnixSeconds(long Value) : IParsable<UnixSeconds>
 {
     public DateTimeOffset ToDateTimeOffset() => DateTimeOffset.FromUnixTimeSeconds(Value);

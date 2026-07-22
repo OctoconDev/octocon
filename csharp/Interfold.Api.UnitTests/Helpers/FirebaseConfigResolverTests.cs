@@ -8,13 +8,8 @@ using Microsoft.AspNetCore.Http;
 
 namespace Interfold.Api.UnitTests.Helpers;
 
-/// <summary>
-/// Unit tests for <see cref="FirebaseConfigResolver"/> — the pure-function bridge that
-/// <c>SettingsController.GetFirebaseConfig</c> delegates to. Covers the three response
-/// shapes, the two error cases, cache-header stamping, and the ETag stability contract.
-/// A green board here means the wire contract the mobile / wasm clients depend on has
-/// not drifted.
-/// </summary>
+// FirebaseConfigResolver: three response shapes, two error cases, cache-header stamping,
+// and ETag stability — the wire contract mobile / wasm clients depend on.
 public sealed class FirebaseConfigResolverTests
 {
     private static FirebaseClientConfiguration FullyPopulated() => new()
@@ -88,8 +83,6 @@ public sealed class FirebaseConfigResolverTests
     [Test]
     public async Task Resolve_PlatformCasingIsNormalised()
     {
-        // The client plan sends lowercase strings, but the endpoint should be tolerant
-        // of trivial casing / whitespace variations rather than 400ing on "Android".
         var (payload, error) = FirebaseConfigResolver.Resolve(FullyPopulated(), "  ANDROID  ");
         await Assert.That(error).IsNull();
         await Assert.That(payload).IsTypeOf<FirebaseAndroidConfigResponse>();
@@ -98,7 +91,6 @@ public sealed class FirebaseConfigResolverTests
     [Test]
     public async Task Resolve_MissingPlatformConfig_Returns503WithUnavailableCode()
     {
-        // Only android is seeded; ios request must fall through to the 503 path.
         var partial = new FirebaseClientConfiguration
         {
             Android = FullyPopulated().Android,
@@ -165,9 +157,6 @@ public sealed class FirebaseConfigResolverTests
     [Test]
     public async Task ApplyCacheHeaders_IdenticalPayloadsProduceIdenticalEtags()
     {
-        // The ETag is what lets browsers / service workers cheaply revalidate without
-        // downloading the body again. Identical payloads across processes MUST produce
-        // identical ETags or the cache validation degrades to always-download.
         var payloadA = (FirebaseClientConfigResponse)new FirebaseWebConfigResponse(
             "k", "d", "p", "s", "sender", "app", "vapid");
         var payloadB = (FirebaseClientConfigResponse)new FirebaseWebConfigResponse(
@@ -185,10 +174,6 @@ public sealed class FirebaseConfigResolverTests
     [Test]
     public async Task ApplyCacheHeaders_DifferentPayloadsProduceDifferentEtags()
     {
-        // The inverse of the above — a rotation MUST bust the client-side cache. If the
-        // ETag ever collapses across distinct payloads (e.g. because the JSON policy
-        // silently dropped a field) the client would keep serving stale config
-        // indefinitely.
         var payloadA = (FirebaseClientConfigResponse)new FirebaseAndroidConfigResponse(
             "k1", "a", "p", "s", null);
         var payloadB = (FirebaseClientConfigResponse)new FirebaseAndroidConfigResponse(
@@ -203,13 +188,11 @@ public sealed class FirebaseConfigResolverTests
             .IsNotEqualTo(responseB.Headers.ETag.ToString());
     }
 
+    // Regression guard on the discriminator + field-name policy — a flipped naming
+    // policy or removed [JsonPolymorphic] annotation would break the kotlinx decoder.
     [Test]
     public async Task WireContract_UsesSnakeCaseFieldNames()
     {
-        // Regression guard on the discriminator + field-name policy. If someone flips
-        // the global naming policy or removes the [JsonPolymorphic] annotation, the
-        // client's kotlinx-serialization decoder will start failing — this test catches
-        // the drift before it reaches CI's integration lane.
         var payload = (FirebaseClientConfigResponse)new FirebaseWebConfigResponse(
             "aaa", "bbb.example.com", "ccc", null, "ddd", "eee", "fff");
         var json = JsonSerializer.Serialize(payload, FirebaseConfigResolver.EtagJsonOptions);

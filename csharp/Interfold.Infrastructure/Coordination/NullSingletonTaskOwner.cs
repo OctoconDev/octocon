@@ -4,10 +4,7 @@ using Interfold.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Coordination;
 
-/// <summary>
-/// No-op <see cref="ISingletonTaskOwner"/> for <see cref="NodeGroup.Auxiliary"/> and
-/// <see cref="NodeGroup.Sidecar"/> nodes.  Never claims ownership; never runs work.
-/// </summary>
+/// <summary>No-op <see cref="ISingletonTaskOwner"/> for auxiliary/sidecar nodes.</summary>
 public sealed class NullSingletonTaskOwner : ISingletonTaskOwner
 {
     public bool OwnsTask(SingletonTaskName taskName) => false;

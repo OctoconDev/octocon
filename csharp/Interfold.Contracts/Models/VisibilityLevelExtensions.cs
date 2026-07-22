@@ -2,19 +2,11 @@ using Interfold.Contracts.Enums;
 
 namespace Interfold.Contracts.Models;
 
-/// <summary>
-/// Viewer-gating helper for <see cref="VisibilityLevel"/>. Persistence-code round-trip
-/// is handled by casting <c>(short)value</c> outbound and calling the fallback-less
-/// <c>code.FromCode&lt;VisibilityLevel&gt;()</c> inbound; unknown or null on-disk codes
-/// throw <see cref="ArgumentOutOfRangeException"/> so corrupt rows surface loudly rather
-/// than silently coercing to <c>Public</c> or <c>Private</c>.
-/// </summary>
+// Viewer-gating helper for VisibilityLevel. Persistence round-trip uses (short)value
+// out / FromCode<VisibilityLevel>() in; corrupt codes throw so bad rows fail loudly.
 public static class VisibilityLevelExtensions
 {
-    /// <summary>
-    /// The single visibility gate: whether a viewer with <paramref name="friendshipLevel"/>
-    /// (null = not a friend) may see an entity at this level. Fail-closed for unknown levels.
-    /// </summary>
+    /// <summary>Fail-closed viewer gate. Null friendship = not a friend.</summary>
     public static bool CanBeViewedBy(this VisibilityLevel visibilityLevel, FriendshipLevel? friendshipLevel)
         => visibilityLevel switch
         {

@@ -19,11 +19,6 @@ public readonly record struct EncryptionKeyMaterial
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(EncryptionKeyMaterial)raw</c> instead of
-    /// <c>new EncryptionKeyMaterial(raw)</c>. No implicit widen by design —
-    /// see <see cref="DiscordId"/>'s operator xml-doc for the redaction-preservation rationale.
-    /// </summary>
     public static explicit operator EncryptionKeyMaterial(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
@@ -48,17 +43,10 @@ public readonly record struct KeyChecksum
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(KeyChecksum)raw</c> instead of
-    /// <c>new KeyChecksum(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
-    /// operator xml-doc for the redaction-preservation rationale. Prefer
-    /// <see cref="FromNullable(string?)"/> when the DB read may be null.
-    /// </summary>
     public static explicit operator KeyChecksum(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 
-    /// <summary>Null-preserving wrap for DB/state reads.</summary>
     public static KeyChecksum? FromNullable(string? value) => value is null ? null : new KeyChecksum(value);
 }
 
@@ -69,10 +57,6 @@ public readonly record struct KeyChecksum
 /// </summary>
 public readonly record struct EncryptionSalt
 {
-    /// <summary>
-    /// Width of a freshly-minted salt in raw bytes before base64 encoding. Centralised so
-    /// <see cref="NewRandom"/> is the single source of truth for salt width.
-    /// </summary>
     private const int RandomByteWidth = 32;
 
     public string Value { get; }
@@ -82,25 +66,13 @@ public readonly record struct EncryptionSalt
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(EncryptionSalt)raw</c> instead of
-    /// <c>new EncryptionSalt(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
-    /// operator xml-doc for the redaction-preservation rationale. Prefer
-    /// <see cref="FromNullable(string?)"/> for nullable DB reads and <see cref="NewRandom"/>
-    /// to mint a fresh salt in one call.
-    /// </summary>
     public static explicit operator EncryptionSalt(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 
-    /// <summary>Null-preserving wrap for DB/state reads.</summary>
     public static EncryptionSalt? FromNullable(string? value) => value is null ? null : new EncryptionSalt(value);
 
-    /// <summary>
-    /// Mint a fresh cryptographically-random salt (32 bytes → base64) and wrap it in one
-    /// call. The raw base64 string spends zero time as a bare local: <see cref="ToString"/>
-    /// redacts, a bare <see cref="string"/> would not.
-    /// </summary>
+    /// <summary>Mint a fresh cryptographically-random salt (32 bytes → base64).</summary>
     public static EncryptionSalt NewRandom()
         => new(Convert.ToBase64String(RandomNumberGenerator.GetBytes(RandomByteWidth)));
 }

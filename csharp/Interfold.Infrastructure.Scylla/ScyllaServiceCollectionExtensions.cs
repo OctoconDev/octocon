@@ -36,16 +36,8 @@ public static class ScyllaServiceCollectionExtensions
                 .AddSingleton<IPollRepository, ScyllaPollRepository>()
                 .AddSingleton<IImportOperationRepository, ScyllaImportOperationRepository>()
                 .AddHostedService<ScyllaMigrationService>()
-                // Registered after ScyllaMigrationService so IHostedLifecycleService.StartingAsync
-                // runs in that order: schema migrations first (which grant the app user MODIFY on
-                // every regional keyspace), then the fixup uses the app-user session to normalise
-                // legacy color rows to the shape strict HexColor.FromNullable now requires.
-                //
-                // Note: the primary_front int -> primary_front_alter smallint narrowing lives
-                // inline in ScyllaMigrationService.StartingAsync (migration 006 + one backfill),
-                // not as a separate hosted service — the ADD and the copy have to run in the
-                // same startup pass before repositories bind to the new column, and
-                // hosted-service ordering can't guarantee that.
+                // Ordering matters: migrations first (grants + column additions), then fixup
+                // uses the app-user session to normalise legacy color rows.
                 .AddHostedService<HexColorFixupService>();
 
         return pipeline;

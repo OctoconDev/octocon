@@ -1,21 +1,12 @@
 namespace Interfold.DatabaseBootstrap;
 
-/// <summary>
-/// The SQL bodies <see cref="PostgresSeeder"/> drives an <see cref="IPostgresExecutor"/> with.
-/// Kept as <c>BuildXxxSql(...)</c> helpers so the strings stay testable in isolation and so
-/// callers can't accidentally hand-roll a divergent variant.
-/// </summary>
-/// <remarks>
-/// The DO/IF blocks use <see cref="SqlEscape.Literal"/> + <c>format(... %I ... %L)</c> to
-/// keep both the role name and the password safe even though the bootstrapper's password
-/// alphabet excludes the apostrophe. Belt-and-braces.
-/// </remarks>
+/// <summary>SQL bodies driven by <see cref="PostgresSeeder"/>. Every DO/IF block uses
+/// <see cref="SqlEscape.Literal"/> + <c>format(... %I ... %L)</c> for defence-in-depth
+/// even though the bootstrapper password alphabet excludes apostrophes.</summary>
 public static class PostgresSqlTemplates
 {
-    /// <summary>
-    /// Idempotent <c>CREATE ROLE</c> / <c>ALTER ROLE</c> for the admin + app users. Connect
-    /// as the init user against the <c>postgres</c> database before running.
-    /// </summary>
+    /// <summary>Idempotent CREATE/ALTER ROLE for admin + app users. Run as the init user
+    /// against the <c>postgres</c> database.</summary>
     public static string BuildRolesSql(PostgresSeedOptions o) =>
         $@"
 DO $bootstrap$
@@ -34,26 +25,19 @@ BEGIN
 END
 $bootstrap$;";
 
-    /// <summary>
-    /// Probe used by <see cref="PostgresSeeder"/> to decide whether the application database
-    /// already exists. Returns <c>1</c> when present, empty otherwise.
-    /// </summary>
+    /// <summary>Returns <c>1</c> when <see cref="PostgresSeedOptions.DefaultDatabase"/> exists.</summary>
     public static string BuildDatabaseExistsProbeSql(PostgresSeedOptions o) =>
         $"SELECT 1 FROM pg_database WHERE datname = '{SqlEscape.Literal(o.DefaultDatabase)}'";
 
-    /// <summary>Single <c>CREATE DATABASE</c> statement. Cannot be wrapped in a transaction.</summary>
+    /// <summary>Single CREATE DATABASE — cannot be transactional.</summary>
     public static string BuildCreateDatabaseSql(PostgresSeedOptions o) =>
         $"CREATE DATABASE \"{o.DefaultDatabase}\" OWNER \"{o.AdminUser}\";";
 
-    /// <summary>Single <c>ALTER DATABASE … OWNER TO</c> for the rerun-against-existing-db case.</summary>
+    /// <summary>ALTER DATABASE … OWNER TO for the rerun-against-existing-db case.</summary>
     public static string BuildAlterDatabaseOwnerSql(PostgresSeedOptions o) =>
         $"ALTER DATABASE \"{o.DefaultDatabase}\" OWNER TO \"{o.AdminUser}\";";
 
-    /// <summary>
-    /// Idempotent schema + grants. Run against the application database as the init user.
-    /// Mirrors the inline <c>schemaSql</c> block in the legacy <c>DatabaseInitPhase</c>
-    /// (lines 375–406 of the pre-refactor file).
-    /// </summary>
+    /// <summary>Idempotent schema + grants. Run against the app database as the init user.</summary>
     public static string BuildSchemaSql(PostgresSeedOptions o) =>
         $@"
 CREATE SCHEMA IF NOT EXISTS internal AUTHORIZATION ""{o.AdminUser}"";
@@ -87,38 +71,24 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ""{o.AdminUser}"" IN SCHEMA public
     GRANT USAGE,  SELECT, UPDATE         ON SEQUENCES TO ""{o.AppUser}"";
 ";
 
-    /// <summary>
-    /// Upsert template used for every <c>internal.secrets</c> row. The bind variables
-    /// <c>secret_key</c> / <c>secret_value</c> map to <see cref="IPostgresExecutor.ExecScriptWithVarsAsync"/>'s
-    /// var list. Both transports must turn these names into safe quoted literals (psql does
-    /// it via <c>:'name'</c>; Npgsql does it via parameter binding).
-    /// </summary>
+    /// <summary>Upsert template for every <c>internal.secrets</c> row. Both transport
+    /// adapters must bind these vars as safe quoted literals — psql via <c>:'name'</c>,
+    /// Npgsql via parameter binding.</summary>
     public const string UpsertSecretSql = @"
 INSERT INTO internal.secrets (key, value, created_by, updated_at)
 VALUES (:'secret_key', :'secret_value', 'bootstrap', now())
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();";
 
-    /// <summary>
-    /// Variable name used by <see cref="UpsertSecretSql"/> for the <c>internal.secrets.key</c>
-    /// column. Constant so the two transport adapters agree on the bind name.
-    /// </summary>
     public const string UpsertKeyVar = "secret_key";
-
-    /// <summary>Variable name for the value column.</summary>
     public const string UpsertValueVar = "secret_value";
 
-    /// <summary>
-    /// Defence-in-depth: replace <see cref="PostgresSeedOptions.InitUser"/>'s password with
-    /// the random scramble. Production callers always finish with this; tests skip it via
-    /// <see cref="PostgresSeedOptions.ScrambleInitUserPassword"/>.
-    /// </summary>
+    /// <summary>Post-seed scramble of the init-user password. Production always runs;
+    /// tests skip via <see cref="PostgresSeedOptions.ScrambleInitUserPassword"/>.</summary>
     public static string BuildScrambleInitUserSql(PostgresSeedOptions o, string scrambled) =>
         $"ALTER ROLE \"{o.InitUser}\" WITH PASSWORD '{SqlEscape.Literal(scrambled)}';";
 
-    /// <summary>
-    /// Probe used by <see cref="PostgresSeeder"/> for idempotency: "is the app user already
-    /// configured as a non-superuser?". Connect as the app user; returns <c>1</c> on yes.
-    /// </summary>
+    /// <summary>Returns <c>1</c> when the app user is already provisioned as non-superuser.
+    /// Connect as the app user.</summary>
     public static string BuildAppRoleConfiguredProbeSql(PostgresSeedOptions o) =>
         $"SELECT 1 FROM pg_roles WHERE rolname = '{SqlEscape.Literal(o.AppUser)}' AND NOT rolsuper";
 }

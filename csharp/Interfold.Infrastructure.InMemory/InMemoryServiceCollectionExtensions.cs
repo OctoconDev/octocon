@@ -22,16 +22,9 @@ public static class InMemoryServiceCollectionExtensions
         return services
             .AddSingleton<IRegionContext>(_ => new InMemoryRegionContext(
                 options.ScyllaKeyspace))
-            // Seed the in-memory secrets store from the `OCTOCON_INMEMORY_SECRETS_SEED__*`
-            // env-var family so an external runner (Kotlin Testcontainers harness, ad-hoc
-            // local container, etc.) can bootstrap the published image without an in-process
-            // hook. The `__`-to-`:` remap performed by EnvironmentVariablesConfigurationProvider
-            // means the bound config keys are `OCTOCON_INMEMORY_SECRETS_SEED:*`; both env-var
-            // and FactoryConfigurationProvider overrides land on the same InMemorySecretsSeedOptions
-            // instance, so tests do not need to mutate global env state. Blank/missing values
-            // are skipped silently — SecretsBootstrapService is the single source of fail-fast
-            // for the mandatory `encryption:pepper` row and we deliberately don't duplicate
-            // that contract here.
+            // Seeded from OCTOCON_INMEMORY_SECRETS_SEED__* so external runners can bootstrap
+            // the published image without an in-process hook. Blanks are skipped silently —
+            // SecretsBootstrapService is the single fail-fast for mandatory rows.
             .AddSingleton<ISecretsStore>(sp =>
             {
                 var seed = sp.GetRequiredService<IOptions<InMemorySecretsSeedOptions>>().Value;

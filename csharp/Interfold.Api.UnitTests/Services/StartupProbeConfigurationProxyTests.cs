@@ -4,23 +4,15 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.Api.UnitTests.Services;
 
-/// <summary>
-/// Pins the disposal-safety contract that <see cref="StartupProbeConfigurationProxy"/>
-/// exists to enforce. If any of these break, Program.cs's startup probe will silently
-/// resurrect the "probe SP disposes the shared ConfigurationManager" bug and every
-/// controller integration test will start failing again with
-/// <c>ObjectDisposedException: 'ConfigurationManager'</c> at <c>WebApplicationFactory.CreateClient()</c>.
-/// </summary>
+// Pins the disposal-safety contract StartupProbeConfigurationProxy enforces. If any
+// break, Program.cs's startup probe silently resurrects the "probe SP disposes the
+// shared ConfigurationManager" bug and controller integration tests fail with
+// ObjectDisposedException at WebApplicationFactory.CreateClient().
 public sealed class StartupProbeConfigurationProxyTests
 {
-    /// <summary>
-    /// Core invariant: disposing an SP built off <see cref="StartupProbeConfigurationProxy.SwapInto"/>
-    /// must leave the underlying <see cref="ConfigurationManager"/> usable. This is the
-    /// direct regression pin for the ObjectDisposedException that broke every controller
-    /// integration test — <c>WebApplicationFactory.ConfigureWebHost</c> tries to
-    /// <c>Add</c> a source during <c>builder.Build()</c>, so if the probe kills the
-    /// manager first the whole test stack collapses.
-    /// </summary>
+    // Core invariant: disposing an SP built off SwapInto leaves the underlying
+    // ConfigurationManager usable — WebApplicationFactory.ConfigureWebHost still needs
+    // to Add sources during builder.Build().
     [Test]
     public async Task ProbeDispose_DoesNotDisposeUnderlyingConfigurationManager()
     {
@@ -48,14 +40,9 @@ public sealed class StartupProbeConfigurationProxyTests
             .Because("The proxy MUST prevent probe SP disposal from tearing down the shared ConfigurationManager — otherwise this Add() would throw ObjectDisposedException, which is exactly the fault every integration test hit before this fix.");
     }
 
-    /// <summary>
-    /// Counter-example that documents WHY the proxy is necessary: without swap, the
-    /// framework's <c>services.AddSingleton&lt;IConfiguration&gt;(_ =&gt; configuration)</c>
-    /// registration is factory-shape so <see cref="ServiceProvider"/> captures the
-    /// resolved instance and disposes it on tear-down. If this test ever starts
-    /// passing (i.e. the framework changes ownership semantics), the proxy may be
-    /// removable — until then, this is the shape of the bug the proxy defends against.
-    /// </summary>
+    // Counter-example showing why the proxy is necessary: without swap, DI's factory
+    // registration captures the resolved IConfiguration and disposes it on tear-down.
+    // If this test ever starts passing, revisit whether the proxy is still needed.
     [Test]
     public async Task ProbeDispose_WithoutProxy_DoesDisposeUnderlyingConfigurationManager()
     {
@@ -82,14 +69,8 @@ public sealed class StartupProbeConfigurationProxyTests
             .Because("Framework-registered IConfiguration is factory-shape and captured for disposal — this is the exact ownership chain the proxy breaks. If .NET ever changes this, revisit whether the proxy is still needed.");
     }
 
-    /// <summary>
-    /// Ordinary <see cref="IConfiguration"/> reads through the proxy must route to the
-    /// same live provider stack the real manager holds; otherwise
-    /// <c>AddInterfoldOptions</c>' <c>Configure&lt;IConfiguration&gt;</c> callbacks (which
-    /// resolve IConfiguration and read keys from it) would see stale/empty values in the
-    /// probe SP and Program.cs's startup snapshots would drift from what the real host
-    /// binds a moment later.
-    /// </summary>
+    // Reads through the proxy must route to the live provider stack — otherwise
+    // Program.cs's startup snapshots drift from what the real host binds moments later.
     [Test]
     public async Task Proxy_ForwardsReadsToUnderlyingConfiguration()
     {
@@ -109,20 +90,13 @@ public sealed class StartupProbeConfigurationProxyTests
             .Because("Sub-section reads must also forward, otherwise options binders that walk .GetSection(...) chains would miss configured values in the probe SP.");
     }
 
-    /// <summary>
-    /// The proxy MUST NOT implement <see cref="IDisposable"/> — that's the entire
-    /// mechanism that keeps DI's disposal-capture walker from taking ownership of the
-    /// wrapped configuration. A well-meaning refactor that adds <c>IDisposable</c> for
-    /// symmetry with the wrapped type would silently reintroduce the bug the whole class
-    /// exists to prevent, so this test locks the interface set explicitly.
-    /// </summary>
+    // The proxy MUST NOT implement IDisposable — that's the mechanism that keeps DI's
+    // disposal-capture walker from taking ownership of the wrapped configuration.
     [Test]
     public async Task Proxy_DoesNotImplementIDisposable()
     {
-        // Reflection over the type (rather than `proxy is IDisposable` on the instance) so
-        // the assertion still fires after any future refactor that removes `sealed` or
-        // pulls the type through a base class — the DI disposal-capture walker checks the
-        // resolved instance at runtime, not the compile-time type, so this test must too.
+        // Reflect over the type so this catches a refactor that removes `sealed` or
+        // pulls the type through a disposable base class.
         var implements = typeof(IDisposable).IsAssignableFrom(typeof(StartupProbeConfigurationProxy));
 
         await Assert.That(implements).IsFalse()

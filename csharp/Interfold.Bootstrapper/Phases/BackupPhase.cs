@@ -7,50 +7,18 @@ using Interfold.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>
-/// One-shot logical backup of the live Postgres + Scylla/Cassandra state. Runs after
-/// <see cref="LaunchPhase"/> has the stack up; idempotent across reruns. Driven either
-/// manually by the operator (<c>interfold-bootstrap backup</c>) or unattended by the
-/// systemd timer installed via <see cref="SystemdInstallPhase"/>.
-/// </summary>
-/// <remarks>
-/// <para>
-/// Backup layout (per component) is <c>{backupDir}/{postgres|scylla}/{timestamp}.{ext}</c>
-/// where:
-/// <list type="bullet">
-///   <item><c>backupDir</c> resolves to the operator-supplied path, otherwise
-///         <c>{outputDir}/backups</c>.</item>
-///   <item><c>postgres</c>: <c>.dump</c> custom-format pg_dump (restorable via
-///         <c>pg_restore</c>). Authenticates as the <c>{user}_admin</c> role created by
-///         <see cref="DatabaseInitPhase"/>; password sourced from
-///         <c>secrets/secrets.json</c> via the <c>PGPASSWORD</c> env var so it never
-///         appears on the docker argv.</item>
-///   <item><c>scylla</c>: <c>.tar.gz</c> of <c>nodetool snapshot</c> contents from the
-///         seed node only. The archive is produced host-side via <c>docker cp
-///         &lt;container&gt;:/var/lib/scylla -</c> piped through a <see cref="GZipStream"/> —
-///         the official <c>scylladb/scylla</c> image is distroless-ish and ships no
-///         <c>tar</c>, so an in-container <c>tar</c> exits 127. <c>docker cp</c> is a
-///         daemon-level operation that streams a raw tar of the source path to stdout
-///         regardless of what binaries the container has. Multi-DC operators that want
-///         all seven regional nodes captured do that with their own wrapper — documented
-///         in <see cref="DatabaseMode"/>.</item>
-/// </list>
-/// </para>
-/// <para>
-/// Retention: after a successful write the phase walks <c>{backupDir}/{component}/</c> and
-/// deletes the oldest archives (by file mtime) until exactly <c>RetainCount</c> remain.
-/// The pure pruning logic lives in <see cref="BackupRetention"/> so the unit tests can
-/// drive every edge case without staging real files.
-/// </para>
-/// </remarks>
+/// <summary>Logical backup of live Postgres + Scylla/Cassandra state; idempotent across
+/// reruns. Driven manually (<c>interfold-bootstrap backup</c>) or by the systemd timer from
+/// <see cref="SystemdInstallPhase"/>. Layout: <c>{backupDir}/{postgres|scylla}/{timestamp}.{ext}</c>.
+/// Postgres → custom-format <c>pg_dump</c> as the <c>{user}_admin</c> role, PGPASSWORD via
+/// env (never argv). Scylla → nodetool snapshot + host-side <c>docker cp</c> piped through
+/// <see cref="System.IO.Compression.GZipStream"/> (the scylladb/scylla image ships no <c>tar</c>);
+/// seed node only, multi-DC wrappers layer over this. Post-write prune keeps exactly
+/// <c>RetainCount</c> archives per component.</summary>
 internal static class BackupPhase
 {
     private static readonly string Phase = BootstrapCommand.Backup.ToPhaseLogName();
 
-    /// <summary>
-    /// Allowed values for <see cref="BootstrapOptions.BackupComponent"/>. Kept as an array
-    /// so the validator can surface the canonical set in its error message.
-    /// </summary>
     internal static readonly string[] ValidComponents =
         Enum.GetValues<BackupDatabaseComponent>().Select(BackupDatabaseComponentExtensions.ToWireValue).ToArray();
 
@@ -83,9 +51,7 @@ internal static class BackupPhase
         }
         logger.Info($"    backup root: {backupRoot} (retain {retainCount} per component)");
 
-        // Stable timestamp shared by every artifact this run produces, so a postgres+scylla
-        // pair can be correlated by filename without parsing inside-the-file metadata.
-        // ISO-ish, sortable, no separators that need escaping on a Unix filesystem.
+        // Shared timestamp so a postgres+scylla pair correlates by filename alone.
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 
         if (component is BackupDatabaseComponent.Postgres or BackupDatabaseComponent.All)
@@ -104,15 +70,8 @@ internal static class BackupPhase
         return 0;
     }
 
-    /// <summary>
-    /// Resolves the on-disk backup root for this invocation. Precedence:
-    /// <list type="number">
-    ///   <item><c>--backup-dir</c> on the CLI (operator escape hatch for one-shot runs).</item>
-    ///   <item><c>config.backup.directory</c> when non-empty (the systemd-timer path).</item>
-    ///   <item>Default: <c>{outputDir}/backups</c>.</item>
-    /// </list>
-    /// Internal so the unit tests can assert the precedence rules without driving the full phase.
-    /// </summary>
+    /// <summary>Precedence: <c>--backup-dir</c> CLI → <c>config.backup.directory</c> →
+    /// <c>{outputDir}/backups</c>.</summary>
     internal static string ResolveBackupRoot(BootstrapOptions options, BootstrapConfig config)
     {
         if (!string.IsNullOrWhiteSpace(options.BackupDirOverride))
@@ -126,12 +85,8 @@ internal static class BackupPhase
         return Path.Combine(options.OutputDir, "backups");
     }
 
-    /// <summary>
-    /// Resolves the Scylla/Cassandra seed service name + container-side data path for the
-    /// configured <see cref="BootstrapConfig.DatabaseMode"/>. Mirrors the resource-naming
-    /// rules in <c>InterfoldAppHost.Configure</c> so the docker-compose exec lands on the
-    /// same container the AppHost graph spun up. Internal for unit testing.
-    /// </summary>
+    /// <summary>Scylla/Cassandra seed service + container data path. Mirrors the resource
+    /// naming in <c>InterfoldAppHost.Configure</c> so exec lands on the same container.</summary>
     internal static (string Service, string DataPath) ResolveScyllaSeed(BootstrapConfig config)
     {
         return config.DatabaseMode switch
@@ -142,10 +97,7 @@ internal static class BackupPhase
         };
     }
 
-    /// <summary>
-    /// Computes the canonical archive filename for a given component + timestamp. Returned
-    /// path is relative to the component subdirectory; callers join with the backup root.
-    /// </summary>
+    /// <summary>Canonical archive filename (relative to the component subdirectory).</summary>
     internal static string BuildArchiveFileName(BackupDatabaseComponent component, string timestamp)
     {
         return component switch
@@ -156,35 +108,21 @@ internal static class BackupPhase
         };
     }
 
-    /// <summary>
-    /// Builds the docker-compose exec argv for the Postgres backup probe. Internal so the
-    /// unit-test project can assert the argv shape without invoking docker. The
-    /// <c>PGPASSWORD</c> env var is set on the exec via <c>--env</c> so the admin password
-    /// never appears on the process argv (which would otherwise be visible to anyone with
-    /// <c>ps</c>).
-    /// </summary>
+    /// <summary>pg_dump docker-compose exec argv. PGPASSWORD flows via env, not argv,
+    /// so it stays invisible to <c>ps</c>.</summary>
     internal static IReadOnlyList<string> BuildPostgresDumpArgs(
         string composeFile, string adminUser, string database)
         => DockerCompose.BuildPostgresExecArgs(
             composeFile, ComposeServices.Postgres, "pg_dump", adminUser, database,
             "-Fc");
 
-    /// <summary>
-    /// Builds the docker-compose exec argv pair for the Scylla/Cassandra nodetool snapshot
-    /// bracket. Returns <c>(Snapshot, Clear)</c>: nodetool snapshot + clearsnapshot argv,
-    /// each shaped for direct dispatch through <see cref="ProcessRunner"/>. The seed's
-    /// runtime container id is resolved via <see cref="DockerCompose.PsAsync"/> at the
-    /// call site (used by the intervening <c>docker cp</c> step whose argv comes from
-    /// <see cref="BuildContainerCpArgs"/> — <c>scylladb/scylla</c> ships no <c>tar</c>,
-    /// so the archive is produced host-side).
-    /// Internal so unit tests can assert the argv shape without invoking docker.
-    /// </summary>
+    /// <summary>Returns <c>(snapshot, clearsnapshot)</c> argv pair. The intervening
+    /// <c>docker cp</c> (see <see cref="BuildContainerCpArgs"/>) produces the archive
+    /// host-side because scylladb/scylla ships no <c>tar</c>.</summary>
     internal static (IReadOnlyList<string> Snapshot, IReadOnlyList<string> Clear)
         BuildScyllaSnapshotArgs(string composeFile, string service, string dataPath, string tag)
     {
-        _ = dataPath; // consumed by BuildContainerCpArgs downstream; kept in the signature so
-                     // callers pass one cohesive set of parameters, and to preserve the
-                     // symmetry with BuildPostgresDumpArgs.
+        _ = dataPath; // Consumed downstream by BuildContainerCpArgs; kept for signature symmetry.
         var snapshot = new[]
         {
             "compose", "-f", composeFile,
@@ -200,14 +138,9 @@ internal static class BackupPhase
         return (snapshot, clear);
     }
 
-    /// <summary>
-    /// Builds the top-level <c>docker cp</c> argv for streaming a container path to the
-    /// host as a raw tar archive on stdout. Piping the container id (not the compose
-    /// service name) because <c>docker cp</c> is a daemon-level API that only speaks
-    /// container ids/names, and passing <c>-</c> as the destination emits the tar to
-    /// stdout instead of writing a file on the host. Internal so unit tests can assert
-    /// the argv shape without invoking docker.
-    /// </summary>
+    /// <summary><c>docker cp</c> argv streaming the container path as a raw tar on stdout.
+    /// Container id (not service name) because <c>docker cp</c> is a daemon-level API;
+    /// <c>-</c> destination emits to stdout instead of a host file.</summary>
     internal static IReadOnlyList<string> BuildContainerCpArgs(string containerId, string dataPath)
         => DockerCompose.BuildContainerCpFromContainer(containerId, dataPath);
 
@@ -220,18 +153,14 @@ internal static class BackupPhase
         Directory.CreateDirectory(componentDir);
         var dumpPath = Path.Combine(componentDir, BuildArchiveFileName(BackupDatabaseComponent.Postgres, timestamp));
 
-        // Admin role created by DatabaseInitPhase. We don't try to run the dump as the app
-        // role — pg_dump needs broader privileges to capture every object regardless of
-        // ownership, and the admin role is exactly what `DatabaseInitPhase.BuildPostgresSeedOptions`
-        // already provisioned for that purpose (see csharp/Interfold.Bootstrapper/Phases/DatabaseInitPhase.cs).
+        // pg_dump needs the admin role — the app role's per-object grants aren't broad enough
+        // to capture ownership metadata. Provisioned by DatabaseInitPhase.
         var (adminUser, adminPassword) = PhaseArtifactLoader.RequireAdminPassword(secrets, logger, Phase);
 
         logger.Info($"    postgres: pg_dump -> {dumpPath}");
         var argv = BuildPostgresDumpArgs(composeFile, adminUser, config.PostgresDatabase);
 
-        // Stream stdout straight to the output file so the dump never sits in memory. The
-        // PGPASSWORD env var is smuggled onto the process environment via the canonical
-        // trust-boundary factory (never on the argv, so it can't surface in `ps`).
+        // Stream to disk so the dump never buffers in memory; password via env, never argv.
         await DatabaseArchiveStreamer.StreamProcessStdoutToFileAsync(
             "docker", argv, DatabaseArchiveStreamer.PgPasswordEnv(adminPassword), dumpPath, ct)
             .ConfigureAwait(false);
@@ -259,9 +188,7 @@ internal static class BackupPhase
         Directory.CreateDirectory(componentDir);
         var archivePath = Path.Combine(componentDir, BuildArchiveFileName(BackupDatabaseComponent.Scylla, timestamp));
 
-        // Snapshot tag pinned to the timestamp so a failed clear (e.g. compose down between
-        // snapshot and clear) leaves an obvious orphan an operator can match to the failed
-        // run. The tag is purely a name on disk inside the container.
+        // Tag pinned to the timestamp so a failed clear leaves an obvious orphan matching this run.
         var tag = $"interfold-backup-{timestamp}";
 
         var (snapshotArgs, clearArgs) =
@@ -275,10 +202,7 @@ internal static class BackupPhase
 
         try
         {
-            // docker cp is a daemon-level API that only accepts container ids / names, so
-            // resolve the seed's runtime id first. `docker compose ps -q <service>` prints
-            // one id per line; take the first (there is only ever one for the seed
-            // service in the compose graph the AppHost emits).
+            // docker cp needs a container id; the AppHost emits exactly one seed container.
             var containerId = await DockerCompose.ResolveContainerIdAsync(composeFile, service, ct: ct).ConfigureAwait(false);
             if (string.IsNullOrEmpty(containerId))
             {
@@ -290,12 +214,7 @@ internal static class BackupPhase
 
             logger.Info($"    scylla: docker cp {service}({containerId[..Math.Min(12, containerId.Length)]}):{dataPath} -> {archivePath}");
 
-            // docker cp <id>:<path> - writes a raw tar of <path>'s contents to stdout.
-            // We wrap the destination stream in a GZipStream on the host so what lands on
-            // disk is a real .tar.gz that pairs with the .tar.gz filename convention.
-            // This deliberately does NOT shell out to gzip — keeping the pipe entirely
-            // in-process avoids the sh/pipefail semantics headache and works identically
-            // on any host with just docker installed.
+            // In-process GZip wrap avoids sh/pipefail semantics and needs only docker on the host.
             var cpArgs = BuildContainerCpArgs(containerId, dataPath);
             await DatabaseArchiveStreamer.StreamProcessStdoutToFileAsync(
                 "docker", cpArgs, environment: null, archivePath, ct, compress: true)
@@ -303,10 +222,8 @@ internal static class BackupPhase
         }
         finally
         {
-            // Best-effort clearsnapshot regardless of cp success/failure — leftover
-            // snapshots eat disk on the scylla container indefinitely otherwise. Failure
-            // here is logged but doesn't fail the phase (the cp already succeeded or
-            // already failed; the dispositive verdict is the operator-visible archive).
+            // Best-effort clearsnapshot: leftover snapshots eat container disk otherwise.
+            // Failure is logged, not fatal — the archive on disk is the dispositive verdict.
             var clear = await ProcessRunner.RunAsync("docker", clearArgs, ct: ct).ConfigureAwait(false);
             if (clear.ExitCode != 0)
             {
@@ -355,8 +272,6 @@ internal static class BackupPhase
 
     private static string FormatBytes(long bytes)
     {
-        // KiB/MiB/GiB — operator-facing diagnostic only, no need to nail down the unit edge
-        // cases or culture-specific formatting beyond invariant.
         const long Kib = 1024L;
         const long Mib = Kib * 1024L;
         const long Gib = Mib * 1024L;
@@ -367,21 +282,13 @@ internal static class BackupPhase
     }
 }
 
-/// <summary>
-/// Pure pruning helper: given an unordered set of backup files and a target retention
-/// count, returns the files to delete (oldest by last-write time). Extracted out of
-/// <see cref="BackupPhase"/> so the retention semantics can be exhaustively unit-tested
-/// without staging real files on disk.
-/// </summary>
+/// <summary>Pure pruning helper — returns files to delete (oldest by last-write time) so the
+/// survivor set is exactly <paramref name="keep"/> entries. Extracted from
+/// <see cref="BackupPhase"/> for exhaustive unit testing without on-disk fixtures.</summary>
 internal static class BackupRetention
 {
-    /// <summary>
-    /// Selects the files to delete so the surviving set has exactly <paramref name="keep"/>
-    /// entries. When the input has &lt;= <paramref name="keep"/> files, returns an empty
-    /// sequence. Ordering of the returned files is oldest-first.
-    /// </summary>
-    /// <param name="files">Candidate backup archives in the component subdirectory.</param>
-    /// <param name="keep">Target survivor count. Must be &gt;= 0; zero deletes everything.</param>
+    /// <summary>Returns files to delete, oldest-first. Empty when input ≤ keep;
+    /// keep == 0 deletes everything.</summary>
     public static IEnumerable<FileInfo> Prune(IEnumerable<FileInfo> files, int keep)
     {
         ArgumentNullException.ThrowIfNull(files);
@@ -390,8 +297,7 @@ internal static class BackupRetention
             throw new ArgumentOutOfRangeException(nameof(keep), keep, "retain count must be >= 0.");
         }
 
-        // Materialise once — both the count and the order matter, and the caller hands us a
-        // freshly-enumerated DirectoryInfo result that doesn't survive a second pass anyway.
+        // Materialise once — DirectoryInfo enumerations don't survive a second pass.
         var ordered = files.OrderBy(f => f.LastWriteTimeUtc).ToList();
         var toDeleteCount = ordered.Count - keep;
         return toDeleteCount <= 0

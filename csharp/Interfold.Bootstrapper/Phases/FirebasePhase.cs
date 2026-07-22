@@ -7,49 +7,21 @@ using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>
-/// Ingests the four operator-supplied Firebase inputs
-/// (<c>google-services.json</c>, <c>GoogleService-Info.plist</c>,
-/// <c>firebase-web-config.json</c>, and the FCM v1 service-account JSON), reshapes each
-/// into the wire JSON that <c>SecretsBootstrapService</c> deserialises at API startup,
-/// and returns them for <see cref="DatabaseInitPhase"/> to fold into
-/// <see cref="DatabaseBootstrap.PostgresSeedOptions"/>.
-///
-/// <para>
-/// Runs before <see cref="DatabaseInitPhase"/> so the seed values are already in
-/// <see cref="DatabaseBootstrap.PostgresSeedOptions"/> when
-/// <see cref="DatabaseBootstrap.PostgresSeeder.BootstrapAsync"/> runs — the
-/// <c>internal.secrets</c> rows land in the same pass as the OAuth secrets, keeping
-/// admin state and Firebase state consistent.
-/// </para>
-///
-/// <para>
-/// Every input is optional. An empty path in <see cref="FirebaseSection"/> means "skip
-/// this platform / feature" — the phase logs the skip and moves on, and the matching
-/// seed row stays absent. That in turn means the <c>/api/settings/firebase-config</c>
-/// endpoint returns 503 for the affected platform and the <c>IFCMService</c> DI factory
-/// falls back to <c>NullFCMService</c>. Missing paths are the supported "self-hosted
-/// deployment without Firebase" shape and are not an error.
-/// </para>
-///
-/// <para>
-/// A non-empty path that doesn't resolve to a file OR that fails to parse IS an error —
-/// the phase throws so the operator sees the mistake at bootstrap time rather than at
-/// first API request.
-/// </para>
-/// </summary>
+/// <summary>Ingests the four operator-supplied Firebase inputs (google-services.json,
+/// GoogleService-Info.plist, firebase-web-config.json, FCM v1 service-account JSON),
+/// reshapes each into the wire JSON <c>SecretsBootstrapService</c> deserialises at API
+/// startup, and returns them for <see cref="DatabaseInitPhase"/> to fold into
+/// <see cref="DatabaseBootstrap.PostgresSeedOptions"/>. Runs before <see cref="DatabaseInitPhase"/>
+/// so the internal.secrets rows land in the same pass as the OAuth secrets. Every input
+/// is optional (blank path → skip; the API falls back to <c>NullFCMService</c> and
+/// <c>/api/settings/firebase-config</c> returns 503 for that platform). Non-blank paths
+/// that don't resolve OR fail to parse ARE errors — surface at bootstrap, not first
+/// request.</summary>
 internal static class FirebasePhase
 {
     private static readonly string Phase = BootstrapPhase.Firebase.ToWireName();
 
-    /// <summary>
-    /// Wire-write options for the seed JSON emitted into <c>internal.secrets</c>. The
-    /// snake_case policy + WhenWritingNull mirror the shape
-    /// <c>SecretsBootstrapService.FirebaseClientJsonOptions</c> deserialises with, so
-    /// serialising a <see cref="FirebaseAndroidClientConfig"/> / <see cref="FirebaseIosClientConfig"/>
-    /// / <see cref="FirebaseWebClientConfig"/> here yields JSON that round-trips into
-    /// the same record on the API side without any adapter.
-    /// </summary>
+    // Mirrors SecretsBootstrapService.FirebaseClientJsonOptions so records round-trip 1:1.
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -57,14 +29,9 @@ internal static class FirebasePhase
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    /// <summary>
-    /// Reader for input files whose keys are snake_case: Google's
-    /// <c>google-services.json</c> and the FCM v1 service-account credential.
-    /// <c>RespectRequiredConstructorParameters</c> + <c>required</c> members on the
-    /// input DTOs let STJ raise a descriptive <see cref="JsonException"/> for any
-    /// missing required field, which the catch blocks below wrap into the phase's
-    /// <see cref="InvalidDataException"/> shape.
-    /// </summary>
+    // Snake_case inputs: google-services.json and the FCM service-account credential.
+    // RespectRequiredConstructorParameters + `required` members turn missing fields
+    // into a descriptive JsonException.
     private static readonly JsonSerializerOptions SnakeCaseReaderOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -72,15 +39,8 @@ internal static class FirebasePhase
         RespectRequiredConstructorParameters = true,
     };
 
-    /// <summary>
-    /// Reader for <c>firebase-web-config.json</c> — the Firebase console emits camelCase.
-    /// With <c>RespectRequiredConstructorParameters = true</c> the positional
-    /// <see cref="FirebaseWebClientConfig"/> constructor's parameters are all treated as
-    /// required (nullable-annotated params without a default value still count — see
-    /// <see cref="JsonSerializerOptions.RespectRequiredConstructorParameters"/> docs),
-    /// so a truncated console paste fails loudly at bootstrap instead of seeding a
-    /// half-populated row.
-    /// </summary>
+    // firebase-web-config.json is camelCase from the console; nullable positional params
+    // still count as required, so a truncated paste fails loudly at bootstrap.
     private static readonly JsonSerializerOptions CamelCaseReaderOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -120,16 +80,10 @@ internal static class FirebasePhase
         return Task.FromResult(result);
     }
 
-    /// <summary>
-    /// Parses a <c>google-services.json</c> into <see cref="GoogleServicesFile"/> and
-    /// reshapes it into the flat <see cref="FirebaseAndroidClientConfig"/> the API
-    /// deserialises. Extracts the first <c>client[0]</c> entry — multi-app Firebase
-    /// projects that ship several <c>google-services.json</c> variants should point
-    /// <see cref="FirebaseSection.AndroidConfigPath"/> at the specific file the Android
-    /// build consumes. Field presence is enforced by <c>required</c> on the DTO; only
-    /// the two array-non-empty checks stay explicit because STJ can't express "at
-    /// least one element".
-    /// </summary>
+    /// <summary>Reshapes <c>google-services.json</c> into <see cref="FirebaseAndroidClientConfig"/>.
+    /// Uses <c>client[0]</c> — multi-app projects should point at the file their Android
+    /// build actually consumes. Array-non-empty checks stay explicit (STJ can't express
+    /// "at least one element" via <c>required</c>).</summary>
     private static string? ParseAndroid(string path, string outputDir, PhaseLogger logger)
     {
         var resolved = ResolveOptional(path, outputDir, "androidConfigPath", logger);
@@ -161,12 +115,8 @@ internal static class FirebasePhase
         }
     }
 
-    /// <summary>
-    /// Parses <c>GoogleService-Info.plist</c> via <see cref="XDocument"/>. Extracts the
-    /// standard iOS Firebase keys and emits the snake_case JSON the API deserialises
-    /// into <see cref="FirebaseIosClientConfig"/>. STORAGE_BUCKET and CLIENT_ID are optional —
-    /// missing entries are emitted as JSON <c>null</c>.
-    /// </summary>
+    /// <summary>Parses <c>GoogleService-Info.plist</c> into <see cref="FirebaseIosClientConfig"/>.
+    /// STORAGE_BUCKET / CLIENT_ID are optional; missing entries serialise as JSON null.</summary>
     private static string? ParseIos(string path, string outputDir, PhaseLogger logger)
     {
         var resolved = ResolveOptional(path, outputDir, "iosConfigPath", logger);
@@ -200,15 +150,9 @@ internal static class FirebasePhase
         }
     }
 
-    /// <summary>
-    /// Deserialises <c>firebase-web-config.json</c> (the flat camelCase blob emitted by
-    /// the Firebase console) directly into the shared
-    /// <see cref="FirebaseWebClientConfig"/> record and re-serialises it under the
-    /// snake_case wire policy. Every positional parameter of the record — including the
-    /// nullable-annotated <c>StorageBucket</c> — is treated as required by STJ
-    /// (see <see cref="CamelCaseReaderOptions"/>), so a truncated console paste fails
-    /// at bootstrap instead of seeding a half-populated row.
-    /// </summary>
+    /// <summary>Camel→snake re-serialise of <c>firebase-web-config.json</c> into
+    /// <see cref="FirebaseWebClientConfig"/>. Every positional param (including nullable
+    /// <c>StorageBucket</c>) is required — a truncated console paste fails at bootstrap.</summary>
     private static string? ReadWebPassthrough(string path, string outputDir, PhaseLogger logger)
     {
         var resolved = ResolveOptional(path, outputDir, "webConfigPath", logger);
@@ -227,14 +171,9 @@ internal static class FirebasePhase
         }
     }
 
-    /// <summary>
-    /// FCM v1 service-account JSON passthrough. Validates the file parses as JSON and
-    /// carries the two fields the FirebaseAdmin SDK's <c>GoogleCredential.FromJson</c>
-    /// requires (<c>type</c>, <c>project_id</c>) so an obviously-wrong file surfaces at
-    /// bootstrap time; the rest of the credential shape is trusted to the SDK. The raw
-    /// file bytes are returned verbatim — the credential must not be reshaped or the
-    /// SDK's signature verification fails.
-    /// </summary>
+    /// <summary>FCM v1 service-account JSON passthrough. Validates the two fields
+    /// FirebaseAdmin's <c>GoogleCredential.FromJson</c> requires; the raw bytes are
+    /// returned verbatim (any reshape breaks the SDK's signature verification).</summary>
     private static string? ReadServiceAccount(string path, string outputDir, PhaseLogger logger)
     {
         var resolved = ResolveOptional(path, outputDir, "serviceAccountPath", logger);
@@ -255,13 +194,9 @@ internal static class FirebasePhase
         return raw;
     }
 
-    /// <summary>
-    /// Extracts a &lt;dict&gt; child sequence (alternating &lt;key&gt; and value elements) into a
-    /// flat map. Only string / bool values are surfaced — the iOS plist keys we care
-    /// about are all strings, and any &lt;array&gt; / nested &lt;dict&gt; entries the operator's
-    /// file may carry are ignored rather than raising, so a slightly-augmented Firebase
-    /// download doesn't fail the phase.
-    /// </summary>
+    /// <summary>Flattens a &lt;dict&gt;'s alternating key/value children into a string map.
+    /// Only strings and booleans are captured; arrays and nested dicts are ignored so an
+    /// augmented Firebase download doesn't fail the phase.</summary>
     private static Dictionary<string, string> ReadPlistDictionary(XElement dict)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -281,12 +216,8 @@ internal static class FirebasePhase
         return map;
     }
 
-    /// <summary>
-    /// Resolves an optional path from <see cref="FirebaseSection"/>. Blank / whitespace
-    /// values are the supported "skip this input" shape; non-blank values must resolve
-    /// to an existing file or the phase throws (a typo in the path shouldn't silently
-    /// disable push).
-    /// </summary>
+    /// <summary>Blank → skip; non-blank must resolve to a file (a typo shouldn't silently
+    /// disable push).</summary>
     private static string? ResolveOptional(string path, string outputDir, string fieldName, PhaseLogger logger)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -305,21 +236,12 @@ internal static class FirebasePhase
         return resolved;
     }
 
-    // ------------------------------------------------------------------------------------
-    // Input DTOs — private because they exist purely as a STJ deserialization target for
-    // Google's operator-supplied file shapes. `required` + RespectRequiredConstructorParameters
-    // does the presence-checking that used to be hand-written null-guards; the phase
-    // then converts each DTO into the shared FirebaseAndroidClientConfig record before
-    // emitting the seed row. The Web input has no DTO — it deserialises directly into
-    // FirebaseWebClientConfig because Google's flat camelCase shape matches the record
-    // 1:1.
-    // ------------------------------------------------------------------------------------
+    // STJ deserialisation targets for Google's file shapes. `required` +
+    // RespectRequiredConstructorParameters replaces hand-written null-guards. The Web input
+    // deserialises directly into FirebaseWebClientConfig because its camelCase matches 1:1.
 
-    /// <summary>
-    /// Top-level shape of Google's <c>google-services.json</c>. Only the fields the
-    /// phase forwards into <see cref="FirebaseAndroidClientConfig"/> are modelled;
-    /// everything else (analytics config, oauth clients, etc.) is ignored.
-    /// </summary>
+    /// <summary>Only the fields the phase forwards into <see cref="FirebaseAndroidClientConfig"/>
+    /// are modelled; analytics/oauth/etc. are ignored.</summary>
     private sealed class GoogleServicesFile
     {
         public required GoogleServicesProjectInfo ProjectInfo { get; init; }
@@ -349,13 +271,8 @@ internal static class FirebasePhase
         public required string CurrentKey { get; init; }
     }
 
-    /// <summary>
-    /// Minimal projection of the FCM v1 service-account credential — just the two
-    /// fields the phase checks before seeding the row. Both are <c>required</c> so a
-    /// non-service-account JSON blob (or a truncated one) triggers a
-    /// <see cref="JsonException"/> at deserialization time. The full credential shape
-    /// is trusted to the FirebaseAdmin SDK, which parses the raw JSON at API startup.
-    /// </summary>
+    /// <summary>Minimal projection: two required fields whose absence triggers a
+    /// <see cref="JsonException"/>. The full credential is trusted to FirebaseAdmin at API startup.</summary>
     private sealed class ServiceAccountStub
     {
         public required string Type { get; init; }
@@ -363,13 +280,9 @@ internal static class FirebasePhase
     }
 }
 
-/// <summary>
-/// Immutable bag returned by <see cref="FirebasePhase.RunAsync"/> and threaded into
-/// <see cref="DatabaseBootstrap.PostgresSeedOptions"/> by <see cref="DatabaseInitPhase"/>.
-/// Every field is nullable — <c>null</c> means "operator didn't configure this input"
-/// and the matching seed row will end up with an empty selector, so
-/// <see cref="DatabaseBootstrap.PostgresSeeder"/> skips it entirely.
-/// </summary>
+/// <summary>Result bag threaded into <see cref="DatabaseBootstrap.PostgresSeedOptions"/>.
+/// Null → operator didn't configure this input; <see cref="DatabaseBootstrap.PostgresSeeder"/>
+/// skips the matching row.</summary>
 internal sealed record FirebaseSeedInputs(
     string? AndroidClientJson,
     string? IosClientJson,

@@ -2,26 +2,13 @@ namespace Interfold.Contracts.Configuration.Validation;
 
 using System.ComponentModel.DataAnnotations;
 
-/// <summary>
-/// Requires a string configuration value to parse as an absolute HTTP or HTTPS URI
-/// (see <see cref="Uri.TryCreate(string, UriKind, out Uri)"/> with
-/// <see cref="UriKind.Absolute"/>). Null and empty values are accepted by default so
-/// this attribute stacks cleanly on optional properties like <c>OtlpEndpoint</c> and
-/// <c>AvatarPublicBase</c>. Combine with <see cref="RequiredAttribute"/> when the
-/// value is mandatory.
-///
-/// Mirrors the bootstrapper's <c>ValidateAbsoluteHttpUri</c>/<c>ValidateOptionalAbsoluteHttpUri</c>
-/// helpers so both sides of the bootstrap → API boundary enforce the same "absolute
-/// http(s) URL" contract in identical language.
-/// </summary>
+/// <summary>Requires an absolute http/https URI string. Null/empty is accepted by default;
+/// combine with <c>[Required]</c> when mandatory. Mirrors the bootstrapper's
+/// <c>ValidateAbsoluteHttpUri</c> helpers so both sides enforce the same contract.</summary>
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false)]
 public sealed class AbsoluteHttpUriAttribute : ValidationAttribute
 {
-    /// <summary>
-    /// When <c>true</c>, whitespace-only strings are treated the same as empty (skipped).
-    /// Defaults to <c>true</c> to match .NET's environment-variables provider surfacing
-    /// unset OCTOCON_* variables as empty strings rather than null.
-    /// </summary>
+    /// <summary>Whitespace-only counts as empty when true (default).</summary>
     public bool AllowEmpty { get; init; } = true;
 
     /// <inheritdoc />
@@ -61,12 +48,8 @@ public sealed class AbsoluteHttpUriAttribute : ValidationAttribute
         return ValidationResult.Success;
     }
 
-    /// <summary>
-    /// Pure-logic core check reused by both this <see cref="ValidationAttribute"/> and the
-    /// bootstrapper's runtime validator so a change to the "what counts as absolute http(s)"
-    /// rule lands on both sides in one place. Whitespace/empty returns <c>false</c>; callers
-    /// that treat blank as "field disabled" should short-circuit before calling this.
-    /// </summary>
+    /// <summary>Pure-logic core check reused by the bootstrapper's runtime validator.
+    /// Whitespace/empty → false; callers that treat blank as "disabled" short-circuit first.</summary>
     public static bool IsAbsoluteHttpUri(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

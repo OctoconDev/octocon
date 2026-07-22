@@ -12,43 +12,17 @@ using Interfold.Infrastructure.Coordination;
 
 namespace Interfold.Api.UnitTests;
 
-/// <summary>
-/// Golden-byte guardrail on the scoped-id wire boundaries. Each fact below pins one
-/// wire boundary that a stray <see cref="ScopedSystemId"/>.<c>RawId</c> swap (or any
-/// regression that de-scopes an id before it hits persistence, a JWT, an event bus
-/// filter, or a socket topic) would silently corrupt. If any of these fail, do NOT
-/// "adjust the expected value" — treat it as a real wire-format break and audit the
-/// diff for the offending site.
-/// </summary>
+// Golden-byte guardrail on the scoped-id wire boundaries. Each fact below pins one
+// wire boundary a stray ScopedSystemId.RawId swap would silently corrupt. If any
+// fail, treat as a real wire-format break, do not "adjust the expected value".
 public sealed class WireByteFreezeTests
 {
-    // Canonical shape: "nam:abcdefg" is the byte-form every wire boundary emits for a
-    // NAM-region principal. Every test in this file constructs its id from these two
-    // constants so a search for the literal points every reviewer at the same spot.
     private const string CanonicalScoped = "nam:abcdefg";
     private const string CanonicalRaw = "abcdefg";
 
-    // ---------------- 1. EncryptionKey.DeriveKey — golden path ---------------------
-
-    /// <summary>
-    /// DeriveKey is a KDF: same inputs must produce the same output, and any accidental
-    /// change to the wire form of <c>systemId</c> (e.g. handing the raw id to the KDF
-    /// instead of the scoped one) would orphan every existing recovery code. This test
-    /// pins:
-    ///   * determinism across two calls with the same inputs, and
-    ///   * scoped-vs-raw sensitivity — dropping the region prefix changes the derived key.
-    /// The exact bytes are re-derived each run rather than hard-coded so a Konscious
-    /// upstream tweak can't lock us into a stale expectation; the scoped-vs-raw
-    /// inequality below is the wire-form freeze.
-    /// </summary>
     [Test]
     public async Task DeriveKey_IsDeterministic_AndScopeSensitive()
     {
-        // DeriveKey speaks wrappers end-to-end. The wire-form freeze is enforced by the
-        // wrapper types at the call boundary — a caller who constructs
-        // `new SystemId(CanonicalRaw)` gets a different derived key than
-        // `new SystemId(CanonicalScoped)`, which is exactly the scoped-vs-raw sensitivity
-        // this test pins.
         const string pepper = "test-pepper";
         RecoveryCode recoveryCode = new("test-code");
         EncryptionSalt salt = new(Convert.ToBase64String(Encoding.UTF8.GetBytes("known-salt-16b!!")));
@@ -65,15 +39,6 @@ public sealed class WireByteFreezeTests
             .Because("Argon2id hash_len is pinned at 32 in EncryptionKey.DeriveKey.");
     }
 
-    // ---------------- 2. AuthHelper.CreateToken — JWT sub emission -----------------
-
-    /// <summary>
-    /// The JWT <c>sub</c> claim is the one place a scoped-id string crosses the trust
-    /// boundary out of the process; <c>InterfoldPrincipalMiddleware</c> requires it to
-    /// arrive back as a scoped composite on the inbound side. This test pins that
-    /// <c>AuthHelper.CreateToken</c> emits the composite verbatim when handed a
-    /// <see cref="SystemId"/> whose <c>Value</c> is the scoped form.
-    /// </summary>
     [Test]
     public async Task CreateToken_EmitsScopedSubClaim()
     {
@@ -95,14 +60,6 @@ public sealed class WireByteFreezeTests
             .Because("The JWT sub claim is a wire boundary; the middleware ParseScoped requires the region prefix and would 401 an unscoped emission.");
     }
 
-    // ---------------- 3. SystemTopic.ToWireString — Phoenix topic ------------------
-
-    /// <summary>
-    /// Phoenix topics are matched as opaque strings on the socket. If ToWireString drops
-    /// the region prefix (e.g. because someone swapped <c>Value</c> for <c>RawId</c>), the
-    /// subscriber joined on the scoped topic never matches the publisher's payload and
-    /// every downstream projection event goes silently unread.
-    /// </summary>
     [Test]
     public async Task SystemTopic_ToWireString_EmitsScopedComposite()
     {
@@ -113,17 +70,6 @@ public sealed class WireByteFreezeTests
             .Because("SystemTopic emits the scoped composite verbatim; any change to that prefix breaks Phoenix topic matching for existing sockets.");
     }
 
-    // ---------------- 4. InProcessEventBus — idempotent routing --------------------
-
-    /// <summary>
-    /// The bus's <c>Subscription.TargetSystemId</c> is <see cref="ScopedSystemId"/>? and
-    /// the publisher-side <see cref="ITargetedClusterEvent.TargetSystemId"/> is
-    /// <see cref="ScopedSystemId"/>; the filter compares scoped-to-scoped by
-    /// record-struct equality. This test pins the scoped-to-scoped match — the
-    /// load-bearing single-region happy path every WebSocket push takes. The subscriber
-    /// is always well-formed because <c>WebSocketHandler</c> composes the scoped
-    /// composite from the JWT sub before it reaches the bus.
-    /// </summary>
     [Test]
     public async Task InProcessEventBus_ScopedToScopedMatchDelivers()
     {
@@ -148,12 +94,6 @@ public sealed class WireByteFreezeTests
         await enumerator.DisposeAsync();
     }
 
-    /// <summary>
-    /// Cross-region regression pin: a subscriber joined on one region's scoped composite
-    /// must NOT receive events published under a different region's scoped composite,
-    /// even when the raw id is identical. A strip-then-compare shape would deliver this
-    /// false positive because both sides normalise to the same raw id.
-    /// </summary>
     [Test]
     public async Task InProcessEventBus_CrossRegionScopedTargetsDoNotBleedAcross()
     {
@@ -171,9 +111,6 @@ public sealed class WireByteFreezeTests
 
         await bus.PublishAsync(new AlterCreatedEvent(eurScoped, new(42)), cts.Token);
 
-        // The cross-region publish must NOT wake this subscriber. Wait until the cts
-        // fires (i.e. no delivery in 2 s); MoveNextAsync will observe the cancellation
-        // and return false without ever surfacing the eur-target event to the nam sub.
         var moved = await enumerator.MoveNextAsync();
         await Assert.That(moved).IsFalse()
             .Because("A NAM-scoped subscriber must not receive an EUR-scoped publish even when the raw ids match — a strip-then-compare shape would deliver this cross-region false positive.");
@@ -181,14 +118,6 @@ public sealed class WireByteFreezeTests
         await enumerator.DisposeAsync();
     }
 
-    // ---------------- 5. ScopedSystemId JSON — verbatim wire form ------------------
-
-    /// <summary>
-    /// The JSON converter must emit exactly <c>Value</c> (no object wrapper). Any change
-    /// here re-serialises every scoped-id payload in the wire contract set (command
-    /// envelopes, event payloads) and would break clients that don't decode the wrapped
-    /// form. This is the byte-freeze on the JSON boundary.
-    /// </summary>
     [Test]
     public async Task ScopedSystemId_JsonRoundTrip_IsByteExact()
     {
@@ -202,8 +131,6 @@ public sealed class WireByteFreezeTests
         await Assert.That(roundTripped.Value).IsEqualTo(CanonicalScoped)
             .Because("A round-trip must preserve Value exactly; a divergence here means the converter reserialised through RawId or an object shape.");
     }
-
-    // ---------------- helpers ------------------------------------------------------
 
     private static (string PrivatePem, string PublicPem) GenerateEs256Pem()
     {

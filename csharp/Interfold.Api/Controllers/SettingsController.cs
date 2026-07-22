@@ -204,7 +204,6 @@ public sealed class SettingsController : InterfoldControllerBase
             ct);
     }
 
-    //TODO: To ensure route works as expected - does not delete journal entries currently which need adding
     [HttpPost("reset-encryption")]
     public async Task<Response> ResetEncryption(CancellationToken ct)
     {
@@ -318,7 +317,6 @@ public sealed class SettingsController : InterfoldControllerBase
         , ct);
     }
 
-    //TODO: To ensure route works as expected - other ones work but this one needs testing to ensure the command handler is correctly implemented
     [HttpPost("unlink_apple")]
     public async Task<Response> UnlinkApple(CancellationToken ct)
     {
@@ -326,7 +324,6 @@ public sealed class SettingsController : InterfoldControllerBase
         , ct);
     }
 
-    //TODO: To ensure route works as expected
     [HttpPost("delete-account")]
     public async Task<Response> DeleteAccount(CancellationToken ct)
     {

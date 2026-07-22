@@ -1,76 +1,51 @@
 namespace Interfold.DatabaseBootstrap;
 
-/// <summary>
-/// Input contract for <see cref="PostgresSeeder.BootstrapAsync"/>. Mirrors the data the
-/// bootstrapper carries in its <c>BootstrapConfig</c> + <c>GeneratedSecrets</c> and the data
-/// the test fixtures hand-feed via deterministic constants — both flows converge here.
-/// </summary>
-/// <param name="InitUser">Bootstrap superuser created by initdb (hard-coded to <c>db_init</c>
-/// in the AppHost via <c>POSTGRES_USER</c>). Used for everything in steps 1–3 + the final
-/// scramble step.</param>
-/// <param name="InitPassword">Password matching <see cref="InitUser"/> at the time the seeder
-/// runs. Production callers source this from <c>GeneratedSecrets.PostgresInitPassword</c>;
-/// test callers pin a deterministic value via the fixture <c>Args</c>.</param>
-/// <param name="AppUser">Application role created here as <c>NOSUPERUSER NOCREATEDB NOCREATEROLE</c>.
-/// Only role that appears in the compose connection string.</param>
+/// <summary>Input contract for <see cref="PostgresSeeder.BootstrapAsync"/>. Populated
+/// from <c>BootstrapConfig</c> + <c>GeneratedSecrets</c> in production and hand-fed
+/// deterministic constants by test fixtures.</summary>
+/// <param name="InitUser">initdb bootstrap superuser (hard-coded <c>db_init</c>).</param>
+/// <param name="InitPassword">Password for <see cref="InitUser"/> during the seed run.</param>
+/// <param name="AppUser">App role — <c>NOSUPERUSER NOCREATEDB NOCREATEROLE</c>; the only
+/// role in the compose connection string.</param>
 /// <param name="AppPassword">Password for <see cref="AppUser"/>.</param>
-/// <param name="AdminUser">Admin role created here as <c>SUPERUSER</c>. By convention
-/// <c>&lt;app&gt;_admin</c>. Owns the application database (see <see cref="DefaultDatabase"/>) and
-/// the <c>internal</c> schema.</param>
+/// <param name="AdminUser">Admin role (<c>SUPERUSER</c>); owns the app database and the
+/// <c>internal</c> schema.</param>
 /// <param name="AdminPassword">Password for <see cref="AdminUser"/>.</param>
-/// <param name="DefaultDatabase">Application database created/owned by the admin role. Defaults
-/// to <c>interfold</c> (sourced from <c>BootstrapConfig.PostgresDatabase</c> in the bootstrapper
-/// flow, and the AppHost <c>Parameters:postgres-db</c> parameter in dev / test). Operators on a
-/// shared cluster can override it to any safe Postgres identifier.</param>
-/// <param name="GoogleOAuthClientSecret">Seeded into <c>internal.secrets</c> as
-/// <c>oauth:google:client_secret</c>. Empty values are skipped (matches
-/// <c>DatabaseInitPhase</c>'s <c>string.IsNullOrEmpty</c> filter).</param>
-/// <param name="DiscordOAuthClientSecret">Same shape as the Google secret, key
-/// <c>oauth:discord:client_secret</c>.</param>
-/// <param name="AppleOAuthClientSecret">Same shape as the Google secret, key
-/// <c>oauth:apple:client_secret</c>. Apple Sign-In uses a JWT-derived client secret;
-/// operators that haven't enrolled in Apple's developer program leave this empty and
-/// the seeder skips it (matching Google/Discord's behaviour).</param>
+/// <param name="DefaultDatabase">Application database, owned by the admin role.
+/// Defaults to <c>interfold</c>; overridable for shared clusters.</param>
+/// <param name="GoogleOAuthClientSecret">Seeded as <c>oauth:google:client_secret</c>.
+/// Empty values skip the row.</param>
+/// <param name="DiscordOAuthClientSecret">Seeded as <c>oauth:discord:client_secret</c>.</param>
+/// <param name="AppleOAuthClientSecret">Seeded as <c>oauth:apple:client_secret</c>.</param>
 /// <param name="EncryptionPepper">Seeded as <c>encryption:pepper</c>.</param>
-/// <param name="ScyllaContactPoints">Seeded as <c>scylla:contact_points</c>. Self-hosted callers
-/// pass the container alias (e.g. <c>scylla</c>); tests pass the resolved endpoint host.</param>
+/// <param name="ScyllaContactPoints">Seeded as <c>scylla:contact_points</c>.</param>
 /// <param name="ScyllaLocalDatacenter">Seeded as <c>scylla:local_datacenter</c>.</param>
-/// <param name="ScyllaAppUser">Seeded as <c>scylla:username</c>. Matches the app user that
-/// <see cref="ScyllaSeeder"/> creates on the same run.</param>
+/// <param name="ScyllaAppUser">Seeded as <c>scylla:username</c>; matches the app user
+/// that <see cref="ScyllaSeeder"/> creates on the same run.</param>
 /// <param name="ScyllaAppPassword">Seeded as <c>scylla:password</c>.</param>
 /// <param name="ScyllaPort">Seeded as <c>scylla:port</c>.</param>
-/// <param name="ScyllaAdminUser">Seeded as <c>scylla:admin_username</c>.
-/// <c>ScyllaMigrationService</c> reads it to apply keyspace-level DDL.</param>
+/// <param name="ScyllaAdminUser">Seeded as <c>scylla:admin_username</c>; consumed by
+/// <c>ScyllaMigrationService</c> for keyspace-level DDL.</param>
 /// <param name="ScyllaAdminPassword">Seeded as <c>scylla:admin_password</c>.</param>
-/// <param name="JwtRsa256PrivateKeyPem">RSA-2048 JWT signing private key (PEM, PKCS#8).
-/// Seeded as <c>auth:jwt_rsa256_private_pem</c>. The API reads this via
-/// <c>SecretsBootstrapService</c> on startup — there is no on-disk fallback any more.
-/// Tests stub the row directly via <c>ISecretsStore</c>.</param>
-/// <param name="JwtEs256PrivateKeyPem">ES256 JWT signing private key (PEM, SEC1).
-/// Seeded as <c>auth:jwt_es256_private_pem</c>. Same handling as the RSA key above.</param>
-/// <param name="DeepLinkSecret">HMAC signing secret for the phase-F deep-link token exchange.
-/// Seeded as <c>auth:deep_link_secret</c>. Auto-generated by <c>SecretsPhase</c>; no
-/// operator-facing knob.</param>
-/// <param name="LeafPfxPassword">Password that unlocks the leaf PFX certificate consumed by
-/// Kestrel. Seeded as <c>certs:leaf_pfx_password</c>. The API's bootstrap fetches it via a
-/// transient <c>ISecretsStore</c> before Kestrel binds.</param>
-/// <param name="ScrambleInitUserPassword">When true the seeder finishes by
-/// <c>ALTER ROLE db_init WITH PASSWORD '&lt;random 48 chars&gt;'</c> so the .env value is stale
-/// in-cluster. Production: <c>true</c>. Tests: <c>false</c> (we want re-running the fixture
-/// in the same session to be able to authenticate as db_init again on idempotent retries).</param>
-/// <param name="FirebaseAndroidClientJson">Optional normalised JSON payload seeded as
-/// <c>firebase:client:android</c>. Consumed by <c>SecretsBootstrapService</c> on startup
-/// and deserialised into <c>FirebaseClientConfiguration.Android</c>. Empty / null skips
-/// the row so unconfigured deployments produce 503 on the matching endpoint.</param>
-/// <param name="FirebaseIosClientJson">Optional normalised JSON payload seeded as
-/// <c>firebase:client:ios</c>. Same handling as the Android field above.</param>
-/// <param name="FirebaseWebClientJson">Optional normalised JSON payload seeded as
-/// <c>firebase:client:web</c>. Same handling as the Android field above.</param>
-/// <param name="FcmServiceAccountJson">Optional Firebase FCM v1 service-account
-/// credential JSON (the private key). Seeded as <c>fcm:service_account_json</c> and
-/// read directly by the <c>IFCMService</c> DI factory in
-/// <c>ClusterServiceCollectionExtensions</c> — when absent the factory falls back to
-/// <c>NullFCMService</c> so notifications become no-ops rather than errors.</param>
+/// <param name="JwtRsa256PrivateKeyPem">RSA-2048 JWT signing key (PEM, PKCS#8),
+/// seeded as <c>auth:jwt_rsa256_private_pem</c>. No on-disk fallback in the API.</param>
+/// <param name="JwtEs256PrivateKeyPem">ES256 JWT signing key (PEM, SEC1), seeded as
+/// <c>auth:jwt_es256_private_pem</c>.</param>
+/// <param name="DeepLinkSecret">HMAC secret for the phase-F deep-link exchange, seeded
+/// as <c>auth:deep_link_secret</c>. Auto-generated by <c>SecretsPhase</c>.</param>
+/// <param name="LeafPfxPassword">Password for the Kestrel leaf PFX, seeded as
+/// <c>certs:leaf_pfx_password</c>.</param>
+/// <param name="ScrambleInitUserPassword"><c>true</c> in production so the .env value
+/// goes stale in-cluster after seeding; <c>false</c> in tests so idempotent retries
+/// can still authenticate as db_init.</param>
+/// <param name="FirebaseAndroidClientJson">Optional; seeded as
+/// <c>firebase:client:android</c>. Null/empty skips the row and the matching endpoint
+/// returns 503.</param>
+/// <param name="FirebaseIosClientJson">Optional; seeded as <c>firebase:client:ios</c>.</param>
+/// <param name="FirebaseWebClientJson">Optional; seeded as <c>firebase:client:web</c>.</param>
+/// <param name="FcmServiceAccountJson">Optional Firebase FCM v1 service-account JSON,
+/// seeded as <c>fcm:service_account_json</c>. Absent → the DI factory returns
+/// <c>NullFCMService</c> so notifications no-op instead of erroring.</param>
 public sealed record PostgresSeedOptions(
     string InitUser,
     string InitPassword,

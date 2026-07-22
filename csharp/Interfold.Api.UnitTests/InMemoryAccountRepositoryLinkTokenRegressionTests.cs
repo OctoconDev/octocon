@@ -8,22 +8,9 @@ using Interfold.Api.UnitTests.Support;
 
 namespace Interfold.Api.UnitTests;
 
-/// <summary>
-/// Regression suite for <see cref="InMemoryAccountRepository"/>'s link-token map. Each
-/// test targets one previously-latent failure mode:
-///
-///   * Bug A — no TTL on the reverse-map; a stale entry stayed resolvable indefinitely
-///     even though the Scylla adapter enforced a 5-minute expiry.
-///   * Bug B — <c>ResolveSystemIdByLinkTokenAsync</c> missed the scrub on miss, so a
-///     re-issued deterministic-hash token would silently adopt a dangling pointer.
-///   * Bug C — the reverse-map value was built via hand-concat
-///     (<c>region + ":" + systemId.Value</c>), which double-prefixed any already-scoped
-///     input to <c>"nam:nam:abcdefg"</c> and broke <c>ClearLinkTokenAsync</c>.
-///
-/// All three were invisible when exercised through the controller layer because the
-/// controller normalised the id first. Direct-repository coverage is the guard against
-/// reintroduction.
-/// </summary>
+// Regression suite for InMemoryAccountRepository's link-token map. Each test pins a
+// previously-latent failure mode: TTL parity with Scylla, resolve-miss forward-scrub,
+// and Compose-vs-hand-concat double-prefix on the reverse-map key.
 public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 {
     private static readonly SystemId RawSystemId = new("nam:abcdefg");
@@ -31,13 +18,6 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 
 
 
-    // ---------------- Bug A — TTL honoured on Resolve --------------------
-
-    /// <summary>
-    /// A link token issued at T+0 must not resolve after the TTL window has elapsed.
-    /// The InMemory adapter needs the same 5-minute expiry as Scylla; without it the
-    /// test would silently return the systemId at T+1h.
-    /// </summary>
     [Test]
     public async Task ResolveSystemIdByLinkTokenAsync_TokenPastTtl_ReturnsNull()
     {
@@ -47,7 +27,6 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
 
         var token = await repo.GetOrCreateLinkTokenAsync(RawSystemId);
 
-        // Advance to just past the 5-minute TTL window.
         clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
 
         var resolved = await repo.ResolveSystemIdByLinkTokenAsync(token);
@@ -55,11 +34,6 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
             .Because("Bug A regression: a stale token past the 5-minute TTL must not resolve — otherwise the InMemory adapter diverges from Scylla's expiry contract.");
     }
 
-    /// <summary>
-    /// Symmetric TTL: the same expiry applies to <c>GetLinkTokenAsync</c>, which would
-    /// otherwise advertise a token that <c>ResolveSystemIdByLinkTokenAsync</c> then
-    /// refuses.
-    /// </summary>
     [Test]
     public async Task GetLinkTokenAsync_TokenPastTtl_ReturnsNull()
     {
@@ -75,14 +49,9 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
             .Because("Bug A regression: GetLinkTokenAsync must respect the same 5-minute TTL as ResolveSystemIdByLinkTokenAsync so a client-side check cannot diverge from the server-side gate.");
     }
 
-    // ---------------- Bug B — miss scrubs the reverse map ----------------
-
-    /// <summary>
-    /// The deterministic-hash token derivation means the same systemId always produces
-    /// the same reverse-map key. A miss on the reverse map (nonexistent or expired) must
-    /// scrub the forward pointer so the next <c>GetOrCreateLinkTokenAsync</c> re-issues
-    /// rather than silently adopting a dangling reverse-map pointer.
-    /// </summary>
+    // Deterministic-hash tokens produce the same reverse-map key for the same systemId;
+    // a resolve miss must scrub the forward pointer so the next GetOrCreate re-issues
+    // rather than adopting a dangling reverse-map pointer.
     [Test]
     public async Task ResolveSystemIdByLinkTokenAsync_ExpiredMiss_ScrubsForwardPointer()
     {
@@ -93,26 +62,17 @@ public sealed class InMemoryAccountRepositoryLinkTokenRegressionTests
         var originalToken = await repo.GetOrCreateLinkTokenAsync(RawSystemId);
         clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
 
-        // Miss on the expired token — this is the scrub trigger.
         var resolvedAfterExpiry = await repo.ResolveSystemIdByLinkTokenAsync(originalToken);
         await Assert.That(resolvedAfterExpiry).IsNull()
             .Because("Setup for bug B: the expired token must first be rejected so the scrub branch fires.");
 
-        // A subsequent GetLinkTokenAsync must not report the stale forward pointer.
         var stalePointer = await repo.GetLinkTokenAsync(RawSystemId);
         await Assert.That(stalePointer).IsNull()
             .Because("Bug B regression: a resolve-side miss must scrub the forward pointer so GetLinkTokenAsync doesn't hand out a token whose reverse-map entry was just refused.");
     }
 
-    // ---------------- Bug C — no double-prefix, ClearLinkToken works ----
-
-    /// <summary>
-    /// The reverse-map key must go through <c>ScopedSystemId.Compose</c>, not
-    /// <c>region + ":" + systemId.Value</c>. Hand-concatenation would double-prefix an
-    /// already-scoped input to <c>"nam:nam:abcdefg"</c> and break the round-trip through
-    /// <c>ClearLinkTokenAsync</c>, which looks up the reverse-map by the forward-map
-    /// token and expects to find the record it wrote.
-    /// </summary>
+    // Reverse-map key must go through ScopedSystemId.Compose, not hand-concat — otherwise
+    // an already-scoped input becomes "nam:nam:abcdefg" and ClearLinkTokenAsync misses.
     [Test]
     public async Task GetOrCreateLinkTokenAsync_AlreadyScopedInput_NoDoublePrefix_AndClearRoundTrips()
     {

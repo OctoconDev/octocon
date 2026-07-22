@@ -12,18 +12,9 @@ using Interfold.Infrastructure.InMemory.Repository;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-/// <summary>
-/// Shared harness for the SP / PK <see cref="ICommandHandler{TCommand,TResult}"/> dispatch
-/// tests. The two <c>Import*CommandHandlerDispatchTests</c> classes drive the same three
-/// scenarios (fresh dispatch, concurrent-collapse dedupe, empty-token rejection) but must
-/// stay per-kind so each side keeps its kind-specific assertions (e.g. PK asserts
-/// <c>RecoveryCode is null</c>). This scenario owns the wiring: an in-memory operation
-/// repository, an in-process job queue wrapped by <see cref="CapturingQueue"/>, and a
-/// caller-supplied handler factory + envelope factory. Test bodies then call
-/// <see cref="DispatchAsync"/> and assert against the returned result and the exposed
-/// <see cref="Capture"/> collection — no per-file <c>NewHandler</c> / <c>NewEnvelope</c>
-/// tuples to keep in lockstep.
-/// </summary>
+// Shared harness for the SP / PK ICommandHandler dispatch tests. Owns the wiring
+// (in-memory repo + in-process queue + CapturingQueue) so per-kind test bodies only
+// call DispatchAsync and assert.
 internal sealed class ImportDispatchScenario<TCommand> : IAsyncDisposable
     where TCommand : notnull
 {
@@ -44,12 +35,6 @@ internal sealed class ImportDispatchScenario<TCommand> : IAsyncDisposable
     public CapturingQueue Capture { get; }
     public ICommandHandler<TCommand, ImportDispatchCommandResult> Handler { get; }
 
-    /// <summary>
-    /// Invokes the handler with a fresh envelope built from
-    /// (<paramref name="idempotencyKey"/>, <paramref name="token"/>). Returns the handler's
-    /// <see cref="CommandExecutionResult{T}"/> so callers can assert Accepted / Result /
-    /// Status against their kind's specific expectations.
-    /// </summary>
     public Task<CommandExecutionResult<ImportDispatchCommandResult>> DispatchAsync(
         string idempotencyKey = "idem-1",
         string token = "synthetic-token")
@@ -58,12 +43,6 @@ internal sealed class ImportDispatchScenario<TCommand> : IAsyncDisposable
     public ValueTask DisposeAsync() => Queue.DisposeAsync();
 }
 
-/// <summary>
-/// Convenience factories for the two production handler shapes so the SP / PK test files
-/// don't have to hand-instantiate the repository + queue + capture triple; centralising the
-/// wiring means a future change to the handler constructor surface touches one line here
-/// instead of two twin file bodies.
-/// </summary>
 internal static class ImportDispatchScenario
 {
     public static readonly ScopedSystemId SpSystemId

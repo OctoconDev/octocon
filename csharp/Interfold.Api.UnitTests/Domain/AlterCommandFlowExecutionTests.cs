@@ -11,23 +11,10 @@ using Interfold.Domain.Alters;
 
 namespace Interfold.Api.UnitTests.Domain;
 
-/// <summary>
-/// Regression harness for the <see cref="UpdateAlterCommandHandler"/> reject
-/// branches — specifically the AlterNotFound path, which had zero direct
-/// coverage before this file. PR #12 review comment #15.
-///
-/// <para>
-/// The invariant these tests pin is the same "don't leak downstream side effects
-/// when validation fails" contract that
-/// <see cref="PollCommandFlowExecutionTests"/> pins for <c>PollCommandFlow</c>:
-/// when the alter doesn't exist, the handler must not call <c>UpdateAsync</c>
-/// and must not publish <c>AlterUpdatedEvent</c> on the cluster event bus. A
-/// future regression that flattens the reject-early check (e.g. by evaluating
-/// mutate/publish arguments eagerly) would silently produce spurious writes
-/// and events that HTTP-level tests wouldn't catch because the handler still
-/// returns the correct <c>alter:not_found</c> conflict.
-/// </para>
-/// </summary>
+// Regression harness for UpdateAlterCommandHandler's reject branches. Same "no side
+// effects when validation fails" contract PollCommandFlowExecutionTests pins for the
+// poll flow — a future eager-argument evaluation would spuriously write + publish
+// while HTTP-level tests still see the correct alter:not_found conflict.
 public sealed class AlterCommandFlowExecutionTests
 {
     private static readonly ScopedSystemId Principal =
@@ -35,12 +22,6 @@ public sealed class AlterCommandFlowExecutionTests
 
     private static readonly AlterId AnyAlterId = new(5);
 
-    /// <summary>
-    /// The core coverage gap #15 flagged: an update against a non-existent alter
-    /// must short-circuit before touching <c>UpdateAsync</c> and before publishing
-    /// <c>AlterUpdatedEvent</c>. ExistsAsync itself must be called exactly once so
-    /// the reject path is provable.
-    /// </summary>
     [Test]
     public async Task UpdateAlter_MissingAlter_RejectsWithNotFoundAndDoesNotMutateOrPublish()
     {
@@ -69,13 +50,6 @@ public sealed class AlterCommandFlowExecutionTests
         }
     }
 
-    /// <summary>
-    /// The alter exists, but the repository update races and returns <c>false</c>.
-    /// The handler must reject with <c>alter:update_failed</c>, must have called
-    /// <c>UpdateAsync</c> exactly once, and must NOT publish (there is no
-    /// accepted state to broadcast). Symmetrical to the equivalent Poll assertion
-    /// so both flows keep matching invariants.
-    /// </summary>
     [Test]
     public async Task UpdateAlter_ExistsButMutationReturnsFalse_RejectsWithUpdateFailedAndDoesNotPublish()
     {
@@ -97,12 +71,6 @@ public sealed class AlterCommandFlowExecutionTests
         }
     }
 
-    /// <summary>
-    /// Happy path: existing alter, successful update, no alias in payload → the
-    /// repository is called once, the event bus is called once, the result is
-    /// accepted. Pins that the reject branches above haven't accidentally been
-    /// wired to catch the accept case too.
-    /// </summary>
     [Test]
     public async Task UpdateAlter_HappyPath_CallsMutateOncePublishesOnceAndAccepts()
     {
@@ -122,10 +90,6 @@ public sealed class AlterCommandFlowExecutionTests
         }
     }
 
-    // -----------------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------------
-
     private static UpdateAlterCommand NewMutatingPayload(string newName) =>
         new()
         {
@@ -143,12 +107,8 @@ public sealed class AlterCommandFlowExecutionTests
             OccurredAt: DateTimeOffset.UtcNow,
             Payload: payload);
 
-    /// <summary>
-    /// Counting fake for <see cref="IAlterRepository"/> — only the members the
-    /// UpdateAlterCommandHandler path can reach are implemented; the rest throw
-    /// so a future test that accidentally exercises an unrelated method fails
-    /// loudly rather than silently returning defaults.
-    /// </summary>
+    // Only the members reachable from UpdateAlterCommandHandler are implemented; the
+    // rest throw so an unrelated method call fails loudly rather than returning defaults.
     private sealed class CountingAlterRepository : IAlterRepository
     {
         public bool Exists { get; set; }

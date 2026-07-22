@@ -97,8 +97,7 @@ internal static class DatabaseTransientRetry
         var exponent = Math.Min(attempt - 1, MaxBackoffExponent);
         var baseTicks = initialDelay.Ticks * (1L << exponent);
         var cappedTicks = Math.Min(baseTicks, maxDelay.Ticks);
-        // Jitter over [capped/2, capped] to spread reconnect storms without ever waiting
-        // longer than the configured cap.
+        // Jitter [capped/2, capped] to spread reconnect storms.
         var lower = cappedTicks / 2L;
         var jitteredTicks = Random.Shared.NextInt64(lower, cappedTicks + 1);
         return TimeSpan.FromTicks(jitteredTicks);

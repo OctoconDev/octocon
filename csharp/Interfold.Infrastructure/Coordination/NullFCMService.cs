@@ -4,10 +4,8 @@ using Interfold.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Coordination;
 
-/// <summary>
-/// No-op <see cref="IFCMService"/> used until a real Firebase/FCM client is configured.
-/// Logs at Debug level so the notification pipeline can be tested end-to-end without real tokens.
-/// </summary>
+/// <summary>No-op <see cref="IFCMService"/> for deployments without a configured FCM
+/// credential. Debug-level log so the notification pipeline is testable without real tokens.</summary>
 public sealed class NullFCMService(ILogger<NullFCMService> logger) : IFCMService
 {
     public Task NotifyFrontingChangedAsync(

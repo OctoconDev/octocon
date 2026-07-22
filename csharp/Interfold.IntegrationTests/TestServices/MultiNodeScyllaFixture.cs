@@ -20,42 +20,12 @@ using TUnit.Aspire;
 
 namespace Interfold.IntegrationTests.TestServices;
 
-/// <summary>
-/// TUnit.Aspire fixture that manages a 7-node multi-DC ScyllaDB cluster via the AppHost,
-/// running alongside the session-shared <see cref="SharedDbFixture"/> rather than spinning up
-/// a duplicate Postgres instance.
-/// </summary>
-/// <remarks>
-/// <para>
-/// The fixture runs in its own Aspire host (separate AppHost args, separate port range) so the
-/// 7-region Scylla topology doesn't collide with <see cref="SharedDbFixture"/>'s single-node
-/// Scylla. We pass <c>Parameters:include-postgres=false</c> so the multi-DC host doesn't start
-/// a redundant msg-db — the session-shared <see cref="SharedDbFixture"/> already owns the
-/// canonical Postgres + seeded <c>internal.secrets</c> rows.
-/// </para>
-/// <para>
-/// <see cref="ScyllaMigrationService.MigrateAsync"/> reads the Scylla admin credentials from
-/// <c>internal.secrets</c> via <see cref="ISecretsStore"/>, so we depend on
-/// <see cref="SharedDbFixture"/> through a <see cref="ClassDataSourceAttribute{T}"/> property
-/// to guarantee that seed work is finished before this fixture's
-/// <see cref="WaitForResourcesAsync"/> tries to migrate the multi-DC cluster. The dependency
-/// also flips <see cref="RequiredFixtures.NeedMultiNodeScylla"/> on through the same
-/// scheduled-test inspection that drives Scylla / Cassandra toggles.
-/// </para>
-/// <para>
-/// Multi-node clusters take longer to gossip-bootstrap than the single-node fixture, so the
-/// resource timeout is bumped to five minutes; the tests under <c>Topology/</c> are intentionally
-/// run in their own scheduled set during CI to avoid prolonging the API-test critical path.
-/// </para>
-/// </remarks>
+/// <summary>7-node multi-DC ScyllaDB cluster in its own Aspire host, sharing Postgres +
+/// seeded internal.secrets with <see cref="SharedDbFixture"/> via a ClassDataSource dependency
+/// so multi-DC migrations see the same credentials as the single-node runs.</summary>
 public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Interfold_AppHost>
 {
-    /// <summary>
-    /// Injected by TUnit so the SharedDbFixture (and its seeded <c>internal.secrets</c> rows)
-    /// are guaranteed to be in place before <see cref="WaitForResourcesAsync"/> starts the
-    /// multi-DC migration step. Not used at <see cref="Args"/>-evaluation time — that getter
-    /// runs before property injection — so we keep <c>include-postgres=false</c> hardcoded.
-    /// </summary>
+    /// <summary>Session-shared dependency that owns Postgres + secrets seeding.</summary>
     [ClassDataSource<SharedDbFixture>(Shared = SharedType.PerTestSession)]
     public required SharedDbFixture SharedDb { get; init; }
 
@@ -64,8 +34,6 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
 
     protected override string[] Args =>
     [
-        // Drives a 7-region multi-DC Scylla layout in this fixture's own Aspire host. Postgres
-        // lives in SharedDbFixture's host instead — see class-level remarks.
         $"{AppHostParameterKeys.IncludePostgres}=false",
         $"{AppHostParameterKeys.IncludeScylla}=true",
         $"{AppHostParameterKeys.IncludeCassandra}=false",
@@ -73,43 +41,26 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
         $"{AppHostParameterKeys.IncludeApi}=false",
         $"{AppHostParameterKeys.IncludeWeb}=false",
         $"{AppHostParameterKeys.PersistentContainers}=false",
-        // Distinct port range so the Aspire host can run side-by-side with SharedDbFixture
-        // without the Aspire test-mode port allocator complaining about reuse. SharedDbFixture
-        // claims 14200 / 19042 / 19043; this fixture claims 39042.
+        // Distinct port so Aspire test-mode allocator doesn't collide with SharedDbFixture.
         $"{AppHostParameterKeys.PortsScylla}=39042",
-        // postgres-* parameters intentionally omitted — they're only consumed by the msg-db
-        // container, which include-postgres=false skips entirely.
         $"{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}",
         $"{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}",
         $"{AppHostParameterKeys.EncryptionPrivateKey}=TEST"
     ];
 
-    // Multi-DC Scylla startup itself takes ~2 minutes, then SeedScyllaAsync, the per-keyspace
-    // migrations, and the gossip-readiness wait stack on top. The wrapper enforces this
-    // timeout against the entire WaitForResourcesAsync override (not just the base
-    // ResourceNotificationService wait), so we need enough budget for the slowest legitimate
-    // path. With the per-node CQL health-check chain in the AppHost serialising joins (see
-    // ScyllaContainerNameWatcher / DockerExecCqlProbe), each non-seed node only starts after
-    // the previous node's CQL listener accepts — that adds ~30-60 s per non-seed node × 6
-    // non-seed nodes ≈ +5 min on top of the previous ~5-minute steady state. 15 minutes
-    // leaves headroom for the slowest legitimate sequential bring-up plus migration time.
+    // 15 min covers slowest legitimate path: gossip bootstrap + sequential per-node CQL health
+    // gating (~30-60s per non-seed node × 6) + migrations.
     protected override TimeSpan ResourceTimeout => TimeSpan.FromMinutes(15);
     protected override bool EnableTelemetryCollection => false;
 
-    // SharedDbFixture (and the AppHost's behaviour when include-api=false) provide no Aspire-
-    // level health checks for the multi-DC cluster either, so AllHealthy would hang waiting on
-    // resources that never report Healthy. We drive readiness via ResourceNotificationService
-    // explicitly in WaitForResourcesAsync — same pattern as SharedDbFixture.
+    // No Aspire health checks fire under include-api=false; readiness is driven directly
+    // via ResourceNotificationService in WaitForResourcesAsync.
     protected override ResourceWaitBehavior WaitBehavior => ResourceWaitBehavior.None;
 
     public override async Task InitializeAsync()
     {
-        // Raise fs.aio-max-nr before any Scylla node starts, sized for the full session
-        // (this fixture's 7 nodes + SharedDbFixture's optional 1). SharedDbFixture also calls
-        // EnsureAsync with the same total — whichever runs first sets the limit; the second
-        // call short-circuits via HostAioPrerequisite's `_appliedFor` cache. Without this the
-        // 3rd Scylla container onwards crashes with "Could not initialize seastar (...AIO)"
-        // and the multi-DC cluster only ever reaches a 2-node gossip view.
+        // Raise fs.aio-max-nr session-wide before any Scylla node starts; without it the
+        // 3rd container onwards fails seastar AIO init and the cluster stalls at 2 nodes.
         await HostAioPrerequisite
             .EnsureAsync(HostAioPrerequisite.TotalScyllaNodesForSession())
             .ConfigureAwait(false);
@@ -149,32 +100,18 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
             await notifications.WaitForResourceAsync($"scylla-{region}", KnownResourceStates.Running, cancellationToken);
         }
 
-        // Seed the Scylla 7-DC cluster (creates test_admin_user + test_app_user, locks down
-        // the default cassandra superuser). Independent of Postgres — uses the default
-        // cassandra/cassandra entry point. SharedDbFixture's own SeedScyllaAsync ran the same
-        // sequence against its single-node cluster; the credentials are identical so the
-        // migration step below can authenticate with the admin creds stored in
-        // SharedDbFixture's internal.secrets.
+        // Seed via default cassandra/cassandra; identical creds to SharedDbFixture so the
+        // migration step below authenticates with the same admin row in internal.secrets.
         var scEndpoint = App.GetEndpoint("scylla-nam", "cql");
         await DbInitHelper.WaitForScyllaAsync(scEndpoint.Host, scEndpoint.Port, cancellationToken);
         await DbInitHelper.SeedScyllaAsync(
             scEndpoint.Host, scEndpoint.Port, BuildScyllaSeedOptions(), cancellationToken);
 
-        // Block until all seven DCs are visible from `nam`'s system.peers BEFORE we attempt
-        // any NetworkTopologyStrategy DDL. Each Scylla container reports
-        // KnownResourceStates.Running as soon as its CQL listener binds, but gossip-bootstrap
-        // (the protocol that propagates peer + DC metadata across the cluster) and the
-        // ranges-streaming bootstrap that follows finish asynchronously after that. Running
-        // ScyllaMigrationService before gossip converges produces "host did not reply"
-        // OperationTimedOutException because the migration's CREATE KEYSPACE statements
-        // require quorum across DCs that the coordinator hasn't fully discovered yet.
+        // Container Running only means the CQL listener bound; gossip + range streaming
+        // finish asynchronously and NetworkTopologyStrategy DDL needs cross-DC quorum first.
         await WaitForGossipPropagationAsync(scEndpoint, regions, cancellationToken);
 
-        // Run the Scylla migrations against the 7-DC cluster. ScyllaMigrationService reads the
-        // admin credentials from internal.secrets (populated by SharedDbFixture's
-        // SeedPostgresAsync) but takes the contact points / port via IConfiguration so we can
-        // point it at this fixture's multi-DC endpoint instead of SharedDbFixture's single-node
-        // one.
+        // Migrations use SharedDbFixture's internal.secrets creds but the multi-DC endpoint.
         var persistenceConfig = new PersistenceConfiguration
         {
             Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
@@ -210,10 +147,7 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
         string[] expectedRegions,
         CancellationToken cancellationToken)
     {
-        // 5 minutes leaves headroom for the slowest DinD environments where Scylla's gossip
-        // bootstrap can take 30-45 seconds per node to fully propagate. The wrapper enforces
-        // ResourceTimeout (currently 10 minutes) on this whole method, so the budget here plus
-        // earlier seed/migration work needs to fit within that envelope.
+        // 5 min covers slowest DinD gossip (30-45 s/node) within the outer ResourceTimeout.
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
         Exception? lastError = null;
         HashSet<string> lastObserved = new(StringComparer.OrdinalIgnoreCase);

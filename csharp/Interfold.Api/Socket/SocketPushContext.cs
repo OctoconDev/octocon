@@ -33,44 +33,23 @@ public sealed class SocketPushContext
 
     public WebSocket Socket { get; }
 
-    /// <summary>
-    /// The scoped composite form of the socket's principal, parsed from the JWT sub
-    /// inside <c>WebSocketHandler.IsSocketJoinTokenAuthorizedAsync</c>. Fed to
+    /// <summary>Scoped composite of the socket's principal, fed to
     /// <see cref="Interfold.Domain.Abstractions.IClusterEventBus.SubscribeAsync{TEvent}"/>
-    /// by <see cref="SocketEventPumpRunner.RunAllAsync"/> so the pump's ~38
-    /// subscriptions filter on the scoped composite rather than the raw topic id.
-    /// This is the only "who is this socket bound to" surface on the context — socket
-    /// event handlers route on <c>evt.TargetSystemId</c> fed into
-    /// <see cref="TryGetSystemTopic"/>, never on the context's own bound id.
-    ///
-    /// <para>
-    /// Nullable because it's <see langword="null"/> for anonymous sockets that never
-    /// completed a system-topic join. Every downstream consumer handles null (the bus's
-    /// target filter treats it as "no filter").
-    /// </para>
-    /// </summary>
+    /// so pump subscriptions filter on it. Null for anonymous / unjoined sockets (bus
+    /// treats null as "no filter").</summary>
     public ScopedSystemId? JoinedScopedSystemId { get; }
     public ConcurrentDictionary<string, byte> JoinedTopics { get; }
     public ConcurrentDictionary<string, string?> TopicJoinReference { get; }
     public ConcurrentDictionary<string, bool> TopicReplyAsArrayFrame { get; }
     public SemaphoreSlim SendGate { get; }
     public CancellationToken CancellationToken { get; }
-    /// <summary>
-    /// The origin of the HTTP request that upgraded to this WebSocket
-    /// (e.g. <c>https://api.example.com</c>). Used to qualify relative avatar URLs.
-    /// </summary>
+    /// <summary>Origin of the upgrading HTTP request; used to qualify relative avatar URLs.</summary>
     public string? RequestOrigin { get; }
 
     public ILogger? Logger { get; }
 
-    /// <summary>
-    /// Time source for socket event handlers that need to synthesize a "now"-ish timestamp
-    /// (e.g. <c>FriendshipSocketEventHandlers</c>'s fallback placeholder models when the
-    /// authoritative row hasn't landed yet). Defaults to <see cref="TimeProvider.System"/>
-    /// so callers that construct the context without wiring one (unit-test scaffolds) keep
-    /// working; production paths inject the DI-registered singleton so time-freezing tests
-    /// stay possible.
-    /// </summary>
+    /// <summary>Defaults to <see cref="TimeProvider.System"/> so unit-test scaffolds work;
+    /// production paths inject the DI singleton for time-freezing tests.</summary>
     public TimeProvider TimeProvider { get; }
 
     public bool TryGetSystemTopic(SystemId systemId, out string topic, out string? joinRef, out bool asArray)
@@ -108,12 +87,8 @@ public sealed class SocketPushContext
             CancellationToken,
             SendGate);
 
-    /// <summary>
-    /// Sends <paramref name="payload"/> to the socket's system topic only when the socket
-    /// has joined that topic; silently no-ops otherwise. Use this in event handlers that
-    /// consist of nothing but the four-line topic-guard followed by a single
-    /// <see cref="SendAsync{TPayload}"/> call, collapsing both lines into one expression.
-    /// </summary>
+    /// <summary>Sends <paramref name="payload"/> when the socket has joined the target's
+    /// topic; no-op otherwise.</summary>
     public Task SendIfJoinedAsync<TPayload>(SystemId targetSystemId, string eventName, TPayload payload)
     {
         if (!TryGetSystemTopic(targetSystemId, out var topic, out var joinRef, out var asArray))
@@ -121,11 +96,8 @@ public sealed class SocketPushContext
         return SendAsync(topic, joinRef, asArray, eventName, payload);
     }
 
-    /// <summary>
-    /// Fetches an entity and, when present, wraps it into a socket payload and sends it on
-    /// the joined system topic. Silently no-ops when the socket hasn't joined the target
-    /// topic or when <paramref name="fetch"/> returns <see langword="null"/>.
-    /// </summary>
+    /// <summary>Fetches and pushes when both the topic is joined and <paramref name="fetch"/>
+    /// returns non-null.</summary>
     public async Task PushIfJoinedAsync<TEntity, TPayload>(
         SystemId systemId,
         string eventName,

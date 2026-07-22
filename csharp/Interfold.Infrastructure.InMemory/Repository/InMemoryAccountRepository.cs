@@ -11,24 +11,13 @@ namespace Interfold.Infrastructure.InMemory.Repository;
 
 public sealed class InMemoryAccountRepository : IAccountRepository
 {
-    /// <summary>
-    /// TTL for link tokens — matches the 5-minute expiry the Scylla port enforces so both
-    /// adapters have the same "get" contract.
-    /// </summary>
+    // Matches the Scylla port's 5-minute link-token expiry.
     private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
 
-    /// <summary>
-    /// Reverse map value: scoped systemId + expiry, so
-    /// <see cref="ResolveSystemIdByLinkTokenAsync"/> honours the TTL and stale entries can
-    /// be scrubbed lazily on the first read that sees them expired.
-    /// </summary>
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
-    // Per-system dicts key on ScopedSystemId (record-struct with ordinal equality on
-    // Value). The identity-side dicts (_systemBy{Discord,Email,Apple}) key on raw string
-    // via StringComparer.OrdinalIgnoreCase — the identity wrappers themselves are
-    // ordinal-strict and would lose the case-insensitive lookup contract for email if
-    // used directly as the key.
+    // Identity-side reverse dicts key on raw string to preserve
+    // StringComparer.OrdinalIgnoreCase (needed for email); the wrappers are ordinal-strict.
     private readonly ConcurrentDictionary<ScopedSystemId, Username> _usernameBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, string> _descriptionBySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, AvatarUrl> _avatarBySystem = new();
@@ -44,8 +33,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
 
     private readonly IEncryptionStateRepository? _encryptionStates;
     private readonly IRegionContext _regionContext;
-    // Injectable clock so unit tests can exercise the TTL branch without a 5-minute wall
-    // wait. Defaults to TimeProvider.System — no scheduled work runs on the repository.
     private readonly TimeProvider _timeProvider;
 
     public InMemoryAccountRepository(
@@ -94,12 +81,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         var scoped = ResolveScoped(systemId);
         var now = _timeProvider.GetUtcNow();
 
-        // Deterministic token derivation: "same system → same token" is a contract the
-        // integration tests lean on. Every call refreshes the expiry so a live client
-        // that keeps calling get-or-create doesn't spuriously expire. The derived hash
-        // is wrapped as LinkToken inside the GetOrAdd factory so the token spends zero
-        // time as a bare string local — every downstream reference goes through the
-        // redacting wrapper.
+        // Deterministic derivation: same system → same token (integration-test contract).
+        // Wrapping inside GetOrAdd keeps the derived hash off the stack as a bare string.
         var token = _linkTokenBySystem.GetOrAdd(systemKey, static key =>
         {
             var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key.Value));
@@ -119,8 +102,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<LinkToken?>(null);
         }
 
-        // Honour the TTL on the read path so a client that only calls "get" never sees a
-        // token that ResolveSystemIdByLinkTokenAsync would then refuse.
+        // Honour TTL so "get" never returns a token Resolve would then refuse.
         if (_systemByLinkToken.TryGetValue(token, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
         {
             return Task.FromResult<LinkToken?>(token);
@@ -137,9 +119,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             return Task.FromResult<SystemId?>(null);
         }
 
-        // Check TTL on lookup; on miss (nonexistent or expired) scrub BOTH sides so the
-        // deterministic-token derivation doesn't leave a dangling pointer that a later
-        // GetOrCreate would silently re-adopt.
+        // On miss/expired, scrub both sides — deterministic derivation would re-adopt
+        // a dangling pointer.
         if (_systemByLinkToken.TryGetValue(linkToken, out var entry) && entry.ExpiresAt > _timeProvider.GetUtcNow())
         {
             return Task.FromResult<SystemId?>(entry.Scoped.AsSystemId());
@@ -173,11 +154,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
                 : null);
     }
 
-    // Every ProviderIdentity-keyed public entry point below dispatches to the same three
-    // generic helpers (FindOrCreateIdentifier / LinkIdentifier / UnlinkIdentifier) with
-    // per-branch dictionary + raw-value-extractor lambdas. Keeping the dispatch here and
-    // the storage-agnostic body in the generic means adding a fourth provider takes only a
-    // new dict pair + a fourth MatchOrThrow arm — not a fresh copy of the three-way body.
+    // ProviderIdentity dispatch → shared FindOrCreate/Link/Unlink helpers below.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
         => identity.MatchOrThrow(
             discordId => FindOrCreateIdentifier(discordId, _discordBySystem, _systemByDiscord, static id => id.Value),
@@ -212,8 +189,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
             _systemByLinkToken.TryRemove(token, out _);
         }
 
-        // Delete = the union of every Unlink* — same forward/reverse dict pattern, so route
-        // through the shared helper rather than open-code the three identical blocks.
         UnlinkIdentifier(systemId, _discordBySystem, _systemByDiscord, static id => id.Value);
         UnlinkIdentifier(systemId, _emailBySystem, _systemByEmail, static e => e.Value);
         UnlinkIdentifier(systemId, _appleBySystem, _systemByApple, static id => id.Value);
@@ -257,12 +232,8 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         AvatarUrl? avatarUrl = _avatarBySystem.TryGetValue(systemKey, out var a) ? a : null;
         AvatarSource? avatarSource = _avatarSourceBySystem.TryGetValue(systemKey, out var s) ? s : null;
 
-        // Same existence check as GetPublicProfileAsync — an account is considered
-        // "present" when any of the identity-bearing fields are set. Falling back on the
-        // internal Discord/Email/Apple pointers keeps the two projections in agreement:
-        // a system that returns non-null from GetPublicProfileAsync must also return
-        // non-null here, otherwise PublicSystemsController.Show would 404 rows that
-        // SystemMustExistAttribute happily lets through.
+        // Presence check must agree with GetPublicProfileAsync — otherwise
+        // PublicSystemsController.Show 404s rows SystemMustExistAttribute lets through.
         var hasIdentity = username is not null
             || description is not null
             || avatarUrl is not null
@@ -287,19 +258,13 @@ public sealed class InMemoryAccountRepository : IAccountRepository
     private ScopedSystemId ResolveScoped(SystemId systemId)
         => ScopedSystemId.Compose(_regionContext.ResolveUserRegion(systemId), systemId);
 
-    /// <summary>
-    /// Drop a link-token from both maps. Used by the two read paths that discover a stale
-    /// or missing entry — the deterministic-token hash means a re-issued token can't bury
-    /// a stale mapping, so lazy scrub on read is the guardrail against dangling
-    /// reverse-map pointers.
-    /// </summary>
+    // Drop a link-token from both maps. Lazy scrub guards against dangling reverse-map
+    // pointers that deterministic-hash tokens would otherwise re-adopt.
     private void ScrubLinkToken(ScopedSystemId? systemKey = null, LinkToken? linkTokenValue = null)
     {
         if (linkTokenValue is { } token)
         {
             _systemByLinkToken.TryRemove(token, out _);
-            // Also drop the systemKey → token pointer if it still references this token
-            // (deterministic-hash tokens make this cheap; no scan of the entire dictionary).
             foreach (var kvp in _linkTokenBySystem)
             {
                 if (kvp.Value == token)
@@ -316,16 +281,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         }
     }
 
-    /// <summary>
-    /// Generic-typed find-or-create helper. <typeparamref name="TIdentity"/> is one of
-    /// <see cref="DiscordId"/>, <see cref="Email"/>, <see cref="AppleId"/>. Existing user:
-    /// unwrapped from the reverse map via <paramref name="extractRawValue"/> (raw string
-    /// key so <see cref="StringComparer.OrdinalIgnoreCase"/> semantics survive for email);
-    /// missing user: mint a fresh systemId + ScopedSystemId, write both dicts, seed the
-    /// encryption salt. Kept typed locally so <see cref="EnsureEncryptionSaltForSystem"/>
-    /// receives the wrapper directly and the return widens through <c>AsSystemId</c>
-    /// without a string round-trip.
-    /// </summary>
     private Task<SystemId?> FindOrCreateIdentifier<TIdentity>(
         TIdentity identifier,
         ConcurrentDictionary<ScopedSystemId, TIdentity> identifierBySystem,
@@ -353,12 +308,7 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return Task.FromResult<SystemId?>(scopedNew.AsSystemId());
     }
 
-    /// <summary>
-    /// Generic-typed unlink helper. Drops the (systemKey -&gt; identifier) forward pointer
-    /// and, if the removed identifier carried a non-empty raw value, the paired
-    /// (raw -&gt; systemKey) reverse pointer. Always returns true — parity with the Scylla
-    /// adapter, which treats "user has nothing to unlink" as an idempotent success.
-    /// </summary>
+    // Idempotent success matches the Scylla adapter — "nothing to unlink" is not an error.
     private bool UnlinkIdentifier<TIdentity>(
         SystemId systemId,
         ConcurrentDictionary<ScopedSystemId, TIdentity> identifierBySystem,
@@ -379,15 +329,6 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return true;
     }
 
-    /// <summary>
-    /// Generic-typed link helper. <typeparamref name="TIdentity"/> is one of
-    /// <see cref="DiscordId"/>, <see cref="Email"/>, <see cref="AppleId"/>; the
-    /// <paramref name="extractRawValue"/> accessor pulls the underlying string only where
-    /// it's needed for the reverse-map key (which stays string-typed to keep the
-    /// case-insensitive <see cref="StringComparer.OrdinalIgnoreCase"/> semantics for
-    /// email-and-friends). The three call-sites feed static lambdas so there is no
-    /// allocation per call.
-    /// </summary>
     private AccountLinkResult LinkIdentifier<TIdentity>(
         SystemId systemId,
         TIdentity identifier,
@@ -429,18 +370,13 @@ public sealed class InMemoryAccountRepository : IAccountRepository
         return AccountLinkResult.Success;
     }
 
-    /// <summary>
-    /// Seed a per-system encryption salt at first-touch by the FindOrCreate paths. Takes
-    /// <see cref="ScopedSystemId"/> so the "caller already resolved this to a scoped
-    /// composite" invariant is pinned at the type level.
-    /// </summary>
+    // Scoped param pins the "caller resolved to scoped composite" invariant at the type level.
     private void EnsureEncryptionSaltForSystem(ScopedSystemId scoped)
     {
         if (_encryptionStates is null)
             return;
 
-        // Mint via EncryptionSalt.NewRandom() so the raw base64 salt spends zero time as
-        // a bare local (ToString() on EncryptionSalt redacts; on a string it would not).
+        // EncryptionSalt.NewRandom() keeps the base64 salt off the stack as a bare string.
         _ = _encryptionStates.UpsertAsync(scoped.AsSystemId(), false, null, EncryptionSalt.NewRandom(), CancellationToken.None);
     }
 }

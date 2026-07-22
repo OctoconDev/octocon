@@ -12,9 +12,6 @@ using Interfold.Api.Helpers;
 
 namespace Interfold.Api.Auth;
 
-/// <summary>
-/// Encapsulates the validation result for JWT validation.
-/// </summary>
 public sealed class ValidationResult
 {
     public bool IsValid { get; }
@@ -32,14 +29,9 @@ public sealed class ValidationResult
     public static ValidationResult Failure(string errorMessage) => new(false, errorMessage, null);
 }
 
-/// <summary>
-/// Security-critical helper for validating ES256 JSON Web Tokens.
-/// </summary>
+/// <summary>ES256 JWT validation (signature + aud + exp).</summary>
 public static class JwtEs256Validator
 {
-    /// <summary>
-    /// Validates an ES256-signed JWT token signature, audience, and expiration.
-    /// </summary>
     public static Task<ValidationResult> ValidateAsync(
         string token,
         string keyPem,
@@ -58,7 +50,6 @@ public static class JwtEs256Validator
             if (parts.Length != 3)
                 return Task.FromResult(ValidationResult.Failure("Token is not a valid JWS compact token."));
 
-            // Check header
             string headerJson;
             try
             {
@@ -80,7 +71,6 @@ public static class JwtEs256Validator
                 return Task.FromResult(ValidationResult.Failure($"Algorithm '{header.Alg}' is not supported. Only ES256 is accepted."));
             }
 
-            // Verify signature
             var signingInput = Encoding.UTF8.GetBytes(parts[0] + "." + parts[1]);
             byte[] signatureBytes;
             try
@@ -112,7 +102,6 @@ public static class JwtEs256Validator
                 return Task.FromResult(ValidationResult.Failure("Invalid JWT signature."));
             }
 
-            // Parse payload
             string payloadJson;
             try
             {
@@ -126,13 +115,11 @@ public static class JwtEs256Validator
             using var doc = JsonDocument.Parse(payloadJson);
             var root = doc.RootElement;
 
-            // Check audience
             if (!root.TryGetProperty("aud", out var audProp) || audProp.GetString() != expectedAudience)
             {
                 return Task.FromResult(ValidationResult.Failure("Audience mismatch."));
             }
 
-            // Check expiration
             if (root.TryGetProperty("exp", out var expProp))
             {
                 if (expProp.TryGetInt64(out var expSeconds))
@@ -153,7 +140,6 @@ public static class JwtEs256Validator
                 return Task.FromResult(ValidationResult.Failure("Missing expiration claim."));
             }
 
-            // Construct ClaimsPrincipal
             var claims = new List<Claim>();
             if (root.TryGetProperty("sub", out var subProp))
             {
@@ -175,10 +161,8 @@ public static class JwtEs256Validator
         }
     }
 
-    /// <summary>
-    /// Validates only the signature of an ES256-signed JWT token using any of the provided verification keys.
-    /// Throws SecurityTokenInvalidSignatureException if the signature is invalid.
-    /// </summary>
+    /// <summary>Signature-only validation across any of the provided keys. Throws
+    /// <see cref="SecurityTokenInvalidSignatureException"/> when nothing matches.</summary>
     public static SecurityToken ValidateSignature(string token, string[] pems, bool useJsonWebToken)
     {
         if (string.IsNullOrWhiteSpace(token))
@@ -241,7 +225,6 @@ public static class JwtEs256Validator
             }
             catch (CryptographicException)
             {
-                // Key import failed, try next key
                 continue;
             }
 
@@ -265,7 +248,6 @@ public static class JwtEs256Validator
             }
             catch (CryptographicException)
             {
-                // Verification failed with this key, try next
                 continue;
             }
         }

@@ -10,13 +10,9 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-/// <summary>
-/// Async dispatcher for PluralKit imports — symmetrical to <see cref="ImportSpCommandHandler"/>.
-/// The real PK importer is still a stub (see <see cref="ImportJobs.PkImportJobRunner"/>),
-/// but the dispatch shape is identical so when the real importer lands it inherits the
-/// per-system mutex, the background-worker lifecycle, and the existing
-/// <c>pk_import_complete</c> / <c>pk_import_failed</c> WebSocket contract for free.
-/// </summary>
+/// <summary>Async dispatcher for PK imports — symmetrical to
+/// <see cref="ImportSpCommandHandler"/>. The real PK importer is still a stub, but the
+/// dispatch shape mirrors SP so the real importer inherits the mutex + lifecycle for free.</summary>
 public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, ImportDispatchCommandResult>
 {
     private readonly IImportOperationRepository _operations;
@@ -43,7 +39,6 @@ public sealed class ImportPkCommandHandler : ICommandHandler<ImportPkCommand, Im
 
         if (claim.IsNew)
         {
-            // PK doesn't have a recovery code — the contract carries a single token only.
             await _queue.EnqueueAsync(
                 new ImportJobItem(
                     claim.OperationId,

@@ -10,11 +10,7 @@ using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-/// <summary>
-/// Unit tests for <see cref="CertificatePhase.RunAsync"/>. The phase performs real X.509 work
-/// (generates an RSA root CA + leaf, exports PEM/PFX) — fast enough to keep inside the unit
-/// project so we get sub-second feedback on cert-related regressions.
-/// </summary>
+/// <summary>Real X.509 work (RSA root CA + leaf → PEM/PFX), fast enough to unit test.</summary>
 public sealed class CertificateGenerationTests
 {
     private static BootstrapOptions OptionsFor(string outputDir) => TestSupport.MakeOptions(
@@ -23,13 +19,9 @@ public sealed class CertificateGenerationTests
         skipPrereqs: true,
         nonInteractive: true);
 
-    // Default to trustStoreInstall=false so unit tests stay hermetic. With the previous default
-    // of `true`, CertificatePhase.InstallToTrustStoreAsync would File.Copy the generated root CA
-    // into /usr/local/share/ca-certificates/ and shell out to update-ca-certificates — fine when
-    // a developer happens to run the suite as root locally, but unprivileged CI runners trip
-    // straight into UnauthorizedAccessException on the copy. The trust-store install path is
-    // already covered by Interfold.Bootstrapper.IntegrationTests inside Docker; here we only
-    // want to exercise the pure-C# cert generation.
+    // trustStoreInstall=false keeps unit tests hermetic; true would shell to
+    // update-ca-certificates and trip UnauthorizedAccessException on unprivileged CI.
+    // Trust-store install is covered by the Docker integration tests.
     private static (BootstrapConfig Config, GeneratedSecrets Secrets) MakeInputs(
         string? rootCaName = null,
         int? certYears = null,
@@ -52,15 +44,8 @@ public sealed class CertificateGenerationTests
 
     private static X509Certificate2 LoadCert(string path) => X509CertificateLoader.LoadCertificateFromFile(path);
 
-    /// <summary>
-    /// Runs <see cref="CertificatePhase.RunAsync"/> against a fresh scratch dir and returns a
-    /// disposable bundle carrying the scratch path, the phase inputs, and convenience accessors
-    /// (<see cref="CertPhaseArtifacts.CertPath"/>) for the on-disk artefacts. Every arg-shape a
-    /// caller might vary is exposed as a named parameter so tests read as intent rather than as
-    /// scaffolding. The two tests that need the raw PEMs (LeafOutsideConstraintsFailsValidation)
-    /// or that capture a pre-run timestamp still route through here — they just read the PEM
-    /// via CertPath or capture the timestamp immediately before calling this method.
-    /// </summary>
+    /// <summary>Runs the phase against a scratch dir and returns a disposable artefact
+    /// bundle. Named parameters keep call sites intent-first.</summary>
     private static async Task<CertPhaseArtifacts> RunPhaseAsync(
         string? rootCaName = null,
         int? certYears = null,

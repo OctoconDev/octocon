@@ -5,34 +5,14 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Contracts.Models;
 
-/// <summary>
-/// Typed model of the poll <c>data</c> blob's interior.
-///
-/// <para>
-/// <b>Wire truth (confirmed against the Kotlin client, the only reader/writer of the
-/// interior).</b> The blob has two closed schemas selected by the poll's <c>type</c>:
-/// </para>
-/// <list type="bullet">
-///   <item>vote — <c>{"responses":[{"alter_id":&lt;int&gt;,"vote":"yes|no|abstain|veto","comment":&lt;string?&gt;}],"allow_veto":&lt;bool&gt;}</c></item>
-///   <item>choice — <c>{"choices":[{"id":&lt;string&gt;,"name":&lt;string&gt;}],"responses":[{"alter_id":&lt;int&gt;,"choice_id":&lt;string&gt;,"comment":&lt;string?&gt;}]}</c></item>
-/// </list>
-///
-/// <para>
-/// The client parses with <c>ignoreUnknownKeys</c> and every member defaulted, so unknown
-/// members are tolerated (historical Simply Plural imports wrote a legacy
-/// <c>{"options","votes"}</c> shape the client ignores). The transport contracts
-/// (<c>PollReadModel.Data</c>, <c>UpdatePollCommand.Data</c>) intentionally stay
-/// <see cref="JsonElement"/>: client-authored blobs flow verbatim into persisted command
-/// JSON and idempotency hashes, and a typed round-trip would normalise property order and
-/// drop unknown members, invalidating stored hashes. These records are for server-side
-/// producers/mutators only — <c>BuildPollData</c> (import) and
-/// <c>RemoveAlterFromPollsAsync</c> (alter deletion).
-/// </para>
-/// </summary>
-/// <summary>
-/// A choice-poll option id — opaque to the client, distinct from <c>PollId</c>/<c>TagId</c>
-/// so server-side mutators can't cross-wire them. JSON serializes as the raw string.
-/// </summary>
+// Server-side producer/mutator models for the poll `data` blob interior. Wire is
+// two closed schemas keyed by poll type:
+//   vote   → {"responses":[{"alter_id","vote","comment"}],"allow_veto":bool}
+//   choice → {"choices":[{"id","name"}],"responses":[{"alter_id","choice_id","comment"}]}
+// The transport contracts (PollReadModel.Data, UpdatePollCommand.Data) stay JsonElement
+// so client blobs flow verbatim into persisted command JSON + idempotency hashes.
+
+/// <summary>Choice-poll option id — opaque, distinct from PollId/TagId to prevent cross-wiring.</summary>
 [JsonConverter(typeof(PollChoiceIdJsonConverter))]
 public readonly record struct PollChoiceId
 {
@@ -62,11 +42,8 @@ public sealed record PollDataResponse(
     [property: JsonPropertyName("choice_id")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PollChoiceId? ChoiceId,
     [property: JsonPropertyName("comment")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Comment);
 
-/// <summary>
-/// The four vote spellings the client's <c>VoteType</c> enum can parse — any other value in
-/// a response would make the client's whole poll-list deserialization throw, so producers
-/// must drop unparseable votes rather than pass them through.
-/// </summary>
+/// <summary>The four vote spellings the client's <c>VoteType</c> enum accepts; producers
+/// MUST drop unparseable votes or the client's poll-list deserialise throws.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<VoteValue>))]
 public enum VoteValue
 {
@@ -83,10 +60,7 @@ public enum VoteValue
     Veto,
 }
 
-/// <summary>
-/// The vote-poll <c>data</c> shape. <c>allow_veto</c> is always written because the client
-/// declares it with a default but the server has the authoritative value.
-/// </summary>
+/// <summary>Vote-poll <c>data</c>. <c>allow_veto</c> is always written (server holds truth).</summary>
 public sealed record VotePollData(
     [property: JsonPropertyName("responses")] IReadOnlyList<PollDataResponse> Responses,
     [property: JsonPropertyName("allow_veto")] bool AllowVeto);
@@ -98,10 +72,7 @@ public sealed record ChoicePollData(
 
 public static class PollDataJson
 {
-    /// <summary>
-    /// Case-insensitive parse of a vote spelling. Returns null for null / empty / unknown
-    /// values so producers can drop unparseable votes (see <see cref="VoteValue"/>).
-    /// </summary>
+    /// <summary>Case-insensitive parse; null for null/empty/unknown so producers can drop.</summary>
     public static VoteValue? TryParseVoteValue(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
@@ -115,11 +86,9 @@ public static class PollDataJson
     public static JsonElement ToJsonElement<T>(T data)
         => JsonSerializer.SerializeToElement(data);
 
-    /// <summary>
-    /// Removes every entry of the top-level <c>responses</c> array whose <c>alter_id</c>
-    /// equals <paramref name="alterId"/>, preserving all other members (including unknown
-    /// ones) verbatim and in order. Returns false when nothing changed.
-    /// </summary>
+    /// <summary>Removes every top-level <c>responses[]</c> entry whose <c>alter_id</c>
+    /// matches, preserving all other members (including unknown ones) verbatim and in
+    /// order. Returns false when nothing changed.</summary>
     public static bool TryRemoveAlterResponses(JsonElement data, AlterId alterId, out JsonElement result)
     {
         result = data;

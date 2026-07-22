@@ -38,8 +38,7 @@ public sealed class InMemoryPollRepository : IPollRepository
         if (!TryGetStore(systemId, out var store))
             return Task.FromResult<IReadOnlyList<PollReadModel>>(Array.Empty<PollReadModel>());
 
-        // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
-        // to the historic string-backed PollId — Guid.CompareTo bytewise reorders differently.
+        // Sort by wire form (lowercase "N" hex) — Guid.CompareTo reorders differently.
         var list = store.Values
             .Select(ToReadModel)
             .OrderBy(p => p.Id.Value.ToString("N"), StringComparer.Ordinal)
@@ -105,9 +104,7 @@ public sealed class InMemoryPollRepository : IPollRepository
         return Task.FromResult(store.TryRemove(pollId, out _));
     }
 
-    // The data blob's confirmed shape (see PollDataJson) keeps per-alter votes in the
-    // top-level `responses` array as {"alter_id":<int>,...} entries; deleting an alter
-    // filters those entries while leaving every other member untouched.
+    // See PollDataJson for the blob shape (top-level "responses" array of alter votes).
     public Task RemoveAlterFromPollsAsync(SystemId systemId, AlterId alterId, CancellationToken cancellationToken = default)
     {
         if (!TryGetStore(systemId, out var store))

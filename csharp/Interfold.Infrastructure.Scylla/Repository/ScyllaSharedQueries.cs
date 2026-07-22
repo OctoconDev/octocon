@@ -7,17 +7,13 @@ using Interfold.Contracts.Models.Read;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
-/// <summary>
-/// Query/mapping helpers shared by the guarded (viewer-aware) read paths of the alter,
-/// tag, and fronting repositories — previously byte-identical private copies in each.
-/// </summary>
+/// <summary>Query helpers shared by the viewer-aware read paths in the alter, tag, and
+/// fronting repositories.</summary>
 internal static class ScyllaSharedQueries
 {
-    /// <summary>
-    /// Resolves the viewer's friendship level toward <paramref name="ownerSystemId"/>:
-    /// null viewer → null (public-only), self-view → <see cref="FriendshipLevel.TrustedFriend"/>,
-    /// otherwise the <c>global.friendships</c> row's level (null when not friends).
-    /// </summary>
+    /// <summary>Viewer's friendship level toward <paramref name="ownerSystemId"/>: null
+    /// viewer → null, self-view → <see cref="FriendshipLevel.TrustedFriend"/>, otherwise
+    /// the <c>global.friendships</c> row's level (null when not friends).</summary>
     public static async Task<FriendshipLevel?> ResolveFriendshipLevelAsync(
         ISession session,
         IScyllaKeyspaceResolver keyspaceResolver,
@@ -44,10 +40,8 @@ internal static class ScyllaSharedQueries
         return row is null ? null : row.GetValue<short>("level").FromCode<FriendshipLevel>();
     }
 
-    /// <summary>
-    /// Joins an alter's stored field-value UDTs against the system's field definitions,
-    /// emitting one entry per definition (null value when the alter hasn't filled it in).
-    /// </summary>
+    /// <summary>Joins stored field-value UDTs against the system's field definitions,
+    /// emitting one entry per definition (null value when the alter didn't fill it in).</summary>
     public static IReadOnlyList<AlterPublicFieldReadModel> ResolveAlterFields(
         IEnumerable<AlterFieldUdt>? alterFields,
         IReadOnlyList<SettingsFieldReadModel> definitions)
@@ -57,10 +51,7 @@ internal static class ScyllaSharedQueries
             return [];
         }
 
-        // Materialise the stored UDTs into a dict keyed by field id so the per-definition
-        // projection is O(N + M) rather than O(N * M) — matters once a system has more
-        // than a handful of fields since the LINQ FirstOrDefault we used to run allocated
-        // and scanned the sequence for every definition.
+        // Dict lookup — O(N + M), not O(N * M) like the previous LINQ FirstOrDefault.
         var byFieldId = alterFields?.ToDictionary(x => x.Id, x => x.Value);
         return definitions
             .Select(def => new AlterPublicFieldReadModel(

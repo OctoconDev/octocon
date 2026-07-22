@@ -4,21 +4,11 @@ using Interfold.Infrastructure.InMemory.Repository;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-/// <summary>
-/// Pins the async-dispatch contract of <see cref="Interfold.Domain.Settings.ImportPkCommandHandler"/>.
-/// PK is the stub-importer twin of the SP path — but the dispatch shape is identical, and
-/// re-asserting it here means a future regression in either handler stays loud rather than
-/// silently breaking the other platform's lifecycle. Shared skeleton lives in
-/// <see cref="ImportDispatchScenario{TCommand}"/>; per-kind extras (recovery-code contract
-/// leak guard, cross-kind concurrency invariant) stay inline here where they belong.
-/// </summary>
+// PK dispatch is the stub-importer twin of SP; re-asserting the shape here keeps a
+// regression in either handler loud. Per-kind extras (recovery-code contract, cross-kind
+// concurrency) stay inline; shared skeleton is ImportDispatchScenario.
 public sealed class ImportPkCommandHandlerDispatchTests
 {
-    /// <summary>
-    /// PK dispatch under the same shape as SP: fresh claim, queued result, exactly one
-    /// enqueued item carrying the PK kind. Also pins that PK does NOT carry a recovery
-    /// code through to the queue item (PK's auth model is token-only).
-    /// </summary>
     [Test]
     public async Task HandleAsync_FreshDispatch_ReturnsQueuedAndEnqueuesOnePkItem()
     {
@@ -38,11 +28,6 @@ public sealed class ImportPkCommandHandlerDispatchTests
         }
     }
 
-    /// <summary>
-    /// Same per-system collapse story as SP, but for the PK kind. Pins that the LWT
-    /// mutex partitions on (system, kind) — a PK dispatch that lands while another PK
-    /// is in flight collapses correctly.
-    /// </summary>
     [Test]
     public async Task HandleAsync_ConcurrentPkDispatch_CollapsesOntoSameOperation()
     {
@@ -61,12 +46,8 @@ public sealed class ImportPkCommandHandlerDispatchTests
         }
     }
 
-    /// <summary>
-    /// SP and PK for the same system run independently — the LWT mutex partitions on
-    /// (system, kind), not just system. Pins that a user can SP-import and PK-import
-    /// concurrently without artificial serialisation. Kept inline (not on the shared
-    /// scenario) because it uniquely needs two handlers sharing one repository.
-    /// </summary>
+    // LWT mutex partitions on (system, kind) — SP and PK for the same system run
+    // independently. Inline (not on the shared scenario) because it needs two handlers.
     [Test]
     public async Task HandleAsync_SpAndPk_SameSystem_BothClaimDistinctSlots()
     {
@@ -95,11 +76,6 @@ public sealed class ImportPkCommandHandlerDispatchTests
         await queue.DisposeAsync();
     }
 
-    /// <summary>
-    /// Empty token is rejected without touching the repository or queue, mirroring the
-    /// SP handler. Pins that input validation lives at the same layer for both
-    /// platforms.
-    /// </summary>
     [Test]
     public async Task HandleAsync_EmptyToken_RejectsWithoutClaimingOrEnqueuing()
     {

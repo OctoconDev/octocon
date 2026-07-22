@@ -587,44 +587,11 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await ws.CloseTestDoneAsync(token);
     }
 
-    /// <summary>
-    /// Regression test for the docker-deployment crash documented at
-    /// csharp/Interfold.Api/Socket/WebSocketHandler.cs:444 — the WebSocket "endpoint"
-    /// relay used to build its outbound URL from the inbound request's
-    /// <c>Scheme</c> + <c>Host</c>, which in published docker compose stacks crashed
-    /// because the inbound Host is the operator-facing hostname + host-mapped port
-    /// (e.g. <c>pineapple.local:5001</c>) that the container itself can neither resolve
-    /// in DNS nor reach (port 5001 is the docker port-mapping host-side; the
-    /// container listens on <c>ASPNETCORE_HTTP(S)_PORTS</c> internally — default
-    /// 5100/5101, configurable via <c>Ports:api-container-http(s)</c>).
-    ///
-    /// This test pins the proxy's contract by simulating the production topology:
-    /// the WebSocket upgrade arrives with <c>Host: pineapple.local:99999</c>, then an
-    /// <c>endpoint</c> frame is relayed through the proxy. The
-    /// <see cref="InterfoldWebApplicationFactory.OutboundHttpUriRecorder"/> records
-    /// every URI the proxy passes to <c>HttpClient.SendAsync</c>; the assertions
-    /// confirm the recorded URI targets the local Kestrel listener, NOT the operator
-    /// hostname/port from the inbound request. Without this guard, reverting the
-    /// fix at WebSocketHandler.cs:444 to <c>{Request.Scheme}://{Request.Host}{path}</c>
-    /// would pass every other test in the suite because TestServer routes by path
-    /// (it ignores the URI authority) — only this URI-recording assertion can
-    /// distinguish the loopback target from the operator-facing one.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Pure unit coverage of the URL-composition helper itself lives in
-    /// <c>Interfold.Api.UnitTests/Socket/ResolveLoopbackBaseUriTests.cs</c>; this
-    /// integration test layers on top of those by exercising the full upgrade →
-    /// join → endpoint → outbound HttpClient pipeline so a regression in the call
-    /// site (independent of the helper's correctness) still surfaces here.
-    /// </para>
-    /// <para>
-    /// <c>[NotInParallel("websocket-uri-recorder")]</c> serialises this test against
-    /// any other test that mutates <see cref="InterfoldWebApplicationFactory.OutboundHttpUriRecorder"/>
-    /// on the same <c>PerTestSession</c> factory instance. Keep the key in sync with
-    /// any future tests that adopt the same hook.
-    /// </para>
-    /// </remarks>
+    /// <summary>Regression for the docker-deployment crash: the WebSocket endpoint relay
+    /// used to build its outbound URL from the inbound Host (operator-facing hostname +
+    /// host-mapped port), which the container can neither resolve nor reach. Recorder
+    /// asserts the proxy dials the loopback Kestrel listener, not the operator authority
+    /// — TestServer routes by path so only URI-recording distinguishes the two.</summary>
     [Test, NotInParallel("websocket-uri-recorder")]
     public async Task Api_UserSocketEndpoint_ProxiesToLocalListener_RegardlessOfInboundHostHeader(CancellationToken token)
     {
@@ -637,20 +604,15 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         try
         {
             var wsClient = fixture.Factory.Server.CreateWebSocketClient();
-            // Simulate the production topology: the operator's reverse proxy / docker
-            // port mapping fronts the container, so the upgrade request's Host header
-            // is the operator-facing hostname + host-side port. The literal value from
-            // the crash report this test guards against is `pineapple.local:5001`. The
-            // internal Kestrel port differs (5100/5101 by default) and the hostname
-            // is not in the container's DNS namespace; the proxy MUST ignore both.
+            // Simulate the production topology: inbound Host is the operator-facing
+            // hostname + host-side port; the internal Kestrel port differs (5100/5101 by
+            // default) and the hostname isn't in the container's DNS. The proxy MUST
+            // ignore both.
             //
-            // Port must be a valid TCP port (0-65535) because the Phase-0 Host-
-            // forwarding fix in WebSocketHandler.HandleEndpointProxyAsync assigns
-            // `Request.Host.Value` to the inner HttpRequestMessage's `Headers.Host`
-            // property, whose setter validates the value via ParserHelpers.CheckValidHost.
-            // Under TestServer the URI authority is otherwise unobservable, so picking
-            // the real operator-facing port from the crash report is both valid AND
-            // the most faithful reproduction of the production scenario.
+            // Port must be a valid TCP port because HandleEndpointProxyAsync assigns
+            // Request.Host.Value to Headers.Host, whose setter validates via
+            // ParserHelpers.CheckValidHost. The real crash-report values are both valid
+            // AND the most faithful reproduction of the production scenario.
             const string operatorFacingHost = "pineapple.local";
             const int hostSideMappedPort = 5001;
             wsClient.ConfigureRequest = request =>
@@ -663,17 +625,11 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
 
             await JoinTopicAsync(ws, topic, socketToken, token);
 
-            // POST /api/systems/me/alters is the same call exercised by the existing
-            // endpoint-proxy fanout tests above — a known-good relay target that
-            // returns 201 with a JSON body. Choosing an established endpoint keeps
-            // this test's signal focused on the URI-composition regression rather
-            // than on controller-level wiring.
+            // Known-good relay target (returns 201) keeps signal on URI composition, not
+            // controller wiring. The endpoint also fires alter_created which interleaves
+            // with phx_reply; SendEndpointAndCaptureAsync handles either order.
             var endpointFrame = PhxEndpointFrame.Build(topic, "POST", "/api/systems/me/alters", new { name = "LoopbackProbeAlter" }, "2");
 
-            // POST /api/systems/me/alters triggers an alter_created domain-event push that
-            // arrives interleaved with the endpoint phx_reply on the same socket. The shared
-            // ReceiveReplyAndPushAsync helper handles either ordering — the same pattern the
-            // existing endpoint-proxy fanout tests above use.
             var (replyFrame, _) = await ws.SendEndpointAndCaptureAsync(endpointFrame, SocketEventNames.Alters.Created, token);
             await Assert.That(replyFrame).IsNotNull()
                 .Because("Expected a phx_reply for the endpoint proxy call.");

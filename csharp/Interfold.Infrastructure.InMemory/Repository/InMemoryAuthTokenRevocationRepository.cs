@@ -3,12 +3,8 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
-/// <summary>
-/// In-memory implementation of JWT token revocation tracking for testing and development.
-/// Stores tokens in a static dictionary keyed by JTI so that tokens remain accessible
-/// even when the DI container is rebuilt (e.g., WebApplicationFactory host recreation
-/// during parallel test execution).
-/// </summary>
+/// <summary>In-memory JWT revocation store. Static-keyed so tokens survive
+/// WebApplicationFactory host recreation during parallel test runs.</summary>
 public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocationRepository
 {
     private static readonly Lock s_lock = new();
@@ -58,7 +54,6 @@ public sealed class InMemoryAuthTokenRevocationRepository : IAuthTokenRevocation
                 return Task.FromResult(false);
             }
 
-            // Token is valid if: not revoked AND not expired
             var isValid = record.RevokedAt is null && record.ExpiresAt > DateTimeOffset.UtcNow;
             return Task.FromResult(isValid);
         }

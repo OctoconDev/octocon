@@ -11,45 +11,31 @@ using Npgsql;
 
 namespace Interfold.Infrastructure.Postgres;
 
-/// <summary>
-/// Applies embedded SQL migrations at startup using admin credentials from ISecretsStore.
-/// Derives the admin connection string from the app connection + admin password from secrets.
-/// Runs before the app accepts traffic (IHostedLifecycleService.StartingAsync).
-/// </summary>
-/// <remarks>
-/// Each migration is tracked in <c>internal.schema_migrations</c> by version + SHA-256
-/// checksum. On startup the runner reads the ledger, skips any file whose checksum matches
-/// an existing row, and fails fast if a previously-applied file's content has drifted. The
-/// migration body and the ledger insert are executed inside the same transaction so a partial
-/// failure leaves no orphan ledger row behind. The ledger table itself is bootstrapped by the
-/// runner (not a `.sql` migration) so the very first run can still record `000_*` correctly.
-/// </remarks>
+/// <summary>Applies embedded SQL migrations at startup under
+/// <see cref="IHostedLifecycleService.StartingAsync"/> using admin credentials from
+/// <see cref="ISecretsStore"/>. Ledger is <c>internal.schema_migrations</c> keyed on
+/// version + SHA-256 checksum; migration body and ledger insert commit together, so a
+/// partial failure leaves no orphan row. Content drift on a previously-applied file
+/// fails fast.</summary>
 public sealed class PostgresMigrationService(
     IOptions<PersistenceConfiguration> options,
     ISecretsStore secretsStore,
     ILogger<PostgresMigrationService> logger) : IHostedLifecycleService
 {
-    // Advisory lock key used to serialize migrations across concurrent hosts sharing the same DB.
+    // Serialises concurrent hosts sharing the same DB.
     private const long MigrationAdvisoryLockId = 8675309_2024_0001;
 
     public Task StartingAsync(CancellationToken cancellationToken) =>
         MigrateAsync(options.Value, secretsStore, logger, cancellationToken);
 
-    /// <summary>
-    /// Externally invocable entry point that runs the embedded SQL migrations using admin
-    /// credentials from <paramref name="secretsStore"/>. The integration test
-    /// <c>SharedDbFixture</c> calls this once per test session so the per-test
-    /// <c>InterfoldWebApplicationFactory</c> doesn't need to rebuild migrations on every host.
-    /// Idempotent: each migration is tracked in <c>internal.schema_migrations</c> and skipped
-    /// on subsequent runs.
-    /// </summary>
+    /// <summary>Idempotent migration entry point. Exposed as a static so
+    /// <c>SharedDbFixture</c> can migrate once per test session instead of on every host build.</summary>
     public static async Task MigrateAsync(
         PersistenceConfiguration options,
         ISecretsStore secretsStore,
         ILogger logger,
         CancellationToken cancellationToken)
     {
-        // Build admin connection from app connection + admin credentials from secrets store
         var adminUsername = await secretsStore.GetAsync(SecretsStoreKeys.PostgresAdminUsername, cancellationToken);
         var adminPassword = await secretsStore.GetAsync(SecretsStoreKeys.PostgresAdminPassword, cancellationToken);
         if (string.IsNullOrWhiteSpace(adminUsername) ||
@@ -70,7 +56,6 @@ public sealed class PostgresMigrationService(
         await using var connection = new NpgsqlConnection(adminConnectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Acquire session-level advisory lock to prevent concurrent migration runs
         await using (var lockCmd = new NpgsqlCommand("SELECT pg_advisory_lock(@key)", connection))
         {
             lockCmd.Parameters.AddWithValue("key", MigrationAdvisoryLockId);
@@ -178,11 +163,8 @@ public sealed class PostgresMigrationService(
             .ToList();
     }
 
-    /// <summary>
-    /// Ensures the <c>internal</c> schema and the <c>internal.schema_migrations</c> ledger
-    /// table exist. Runs unconditionally on every startup — both statements are idempotent
-    /// and the runner relies on the ledger being queryable before the per-file loop starts.
-    /// </summary>
+    // Ledger table is bootstrapped by the runner (not a .sql migration) so the first
+    // run can record 000_* correctly.
     private static async Task EnsureLedgerAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
     {
         const string ddl = """

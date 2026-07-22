@@ -25,8 +25,6 @@ public sealed class InMemoryTagRepository : ITagRepository
     private readonly IRegionContext _regionContext;
     private readonly IFriendshipRepository? _friendships;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<TagId, TagState>> _bySystem = new();
-    // Keyed on the (ScopedSystemId, TagId) tuple rather than a hand-concatenated
-    // "{systemKey}:{tagId}" string — ValueTuple gives structural equality for free.
     private readonly ConcurrentDictionary<(ScopedSystemId System, TagId TagId), ConcurrentDictionary<BareAlter, bool>> _alterMemberships = new();
 
     public InMemoryTagRepository(IRegionContext regionContext)
@@ -148,8 +146,7 @@ public sealed class InMemoryTagRepository : ITagRepository
            if (!TryGetStore(systemKey, out var store))
                return Task.FromResult<IReadOnlyList<TagReadModel>>(Array.Empty<TagReadModel>());
 
-           // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
-           // to the historic string-backed TagId — Guid.CompareTo bytewise reorders differently.
+           // Sort by wire form (lowercase "N" hex) — Guid.CompareTo reorders differently.
             var rows = store.Values
                 .OrderBy(x => x.TagId.Value.ToString("N"), StringComparer.Ordinal)
                 .Select(x => MapTagReadModel(x, GetAlterIds(systemKey, x.TagId), systemId))
@@ -277,6 +274,4 @@ public sealed class InMemoryTagRepository : ITagRepository
 
     private bool TryGetAlterMembers(ScopedSystemId systemKey, TagId tagId, out ConcurrentDictionary<BareAlter, bool> members)
         => _alterMemberships.TryGetValue((systemKey, tagId), out members!);
-
-    // Delegates to the shared static that also serves the Alter and Fronting repos —
 }

@@ -6,21 +6,16 @@ using Interfold.Contracts.Validation;
 
 namespace Interfold.Api.UnitTests.Validation;
 
-/// <summary>
-/// Pure-attribute behaviour for <see cref="ValidAlterIdAttribute"/>. Mirrors the
-/// <c>AbsoluteHttpUriAttribute</c> / <c>AbsolutePathAttribute</c> tests in
-/// <c>Interfold.Bootstrapper.UnitTests.SharedValidationBoundsTests</c>: exercise the
-/// static <see cref="ValidAlterIdAttribute.IsValid"/> core check plus the DataAnnotation
-/// wrapper so an accidental range edit trips one fast unit test rather than the
-/// controller-side model-binding pipeline.
-/// </summary>
+// Pure-attribute behaviour for ValidAlterIdAttribute. Mirrors the AbsoluteHttpUri /
+// AbsolutePath tests in Interfold.Bootstrapper.UnitTests: exercises IsValid + the
+// DataAnnotation wrapper so an accidental range edit trips a fast unit test.
 public sealed class ValidAlterIdAttributeTests
 {
     [Test]
     [Arguments((short)1)]
     [Arguments((short)2)]
     [Arguments((short)1000)]
-    [Arguments(short.MaxValue)] // top of the Cassandra smallint column
+    [Arguments(short.MaxValue)]
     public async Task IsValid_AcceptsInRangeIds(short value)
     {
         await Assert.That(ValidAlterIdAttribute.IsValid(new AlterId(value))).IsTrue();
@@ -32,10 +27,8 @@ public sealed class ValidAlterIdAttributeTests
     [Arguments(short.MinValue)]
     public async Task IsValid_RejectsNegativeAndZeroIds(short value)
     {
-        // Values outside [short.MinValue, short.MaxValue] are now type-system-blocked
-        // via the smallint-typed AlterId constructor, so only null / zero / negatives
-        // reach this runtime check. Deserialising an out-of-range JSON number surfaces
-        // as a JsonException from AlterIdJsonConverter (see AlterIdJsonTests).
+        // Out-of-range JSON numbers surface as a JsonException in AlterIdJsonConverter;
+        // only null / zero / negatives reach this runtime check.
         await Assert.That(ValidAlterIdAttribute.IsValid(new AlterId(value))).IsFalse();
     }
 
@@ -80,27 +73,18 @@ public sealed class ValidAlterIdAttributeTests
         await Assert.That(attr.GetValidationResult(new AlterId(5), ctx)).IsEqualTo(ValidationResult.Success);
     }
 
+    // InvalidModelStateResponseFactory matches this exact string via
+    // ValidationErrorCodeRegistry to preserve the wire-visible `invalid_alter_id` code.
     [Test]
     public async Task Attribute_ErrorMessageIsInvalidAlterIdSentinel()
     {
-        // The InvalidModelStateResponseFactory in Program.cs matches this exact string
-        // via ValidationErrorCodeRegistry to preserve the wire-visible `invalid_alter_id`
-        // ErrorCode. Changing it here without updating the registry silently downgrades
-        // the wire code to the generic `bad_request` fallback.
         var attr = new ValidAlterIdAttribute();
         await Assert.That(attr.ErrorMessage).IsEqualTo("Invalid alter ID.");
     }
 
-    // -----------------------------------------------------------------------------
-    // Record end-to-end sanity: the request records that carry [ValidAlterId] must
-    // (a) round-trip `{"id": 5}` / `{"alter_id": 5}` through System.Text.Json, and
-    // (b) expose the attribute on the *primary-constructor parameter* — not on the
-    // compiler-generated property — because ASP.NET Core MVC's ObjectModelValidator
-    // hard-throws on records with validation metadata on properties
-    // (ThrowIfRecordTypeHasValidationOnProperties). Reflecting on the parameter
-    // instead of using Validator.TryValidateObject (which only walks properties)
-    // mirrors what MVC actually reads at model-binding time.
-    // -----------------------------------------------------------------------------
+    // MVC hard-throws on records with validation metadata on properties
+    // (ThrowIfRecordTypeHasValidationOnProperties); reflect the primary-constructor
+    // parameter here to mirror what MVC reads at model-binding time.
 
     [Test]
     public async Task FrontStartRequest_JsonWithValidId_DeserializesAndValidatesViaParameterAttribute()
@@ -145,26 +129,18 @@ public sealed class ValidAlterIdAttributeTests
             .Because("AllowNull only unlocks null; explicit 0 still trips the range check.");
     }
 
+    // Fails fast if the attribute drifts back onto the property (would surface as 500
+    // from ThrowIfRecordTypeHasValidationOnProperties in an integration test).
     [Test]
     public async Task JournalAlterRequest_ParameterCarriesValidAlterIdAttribute()
-        // Positive assertion that the attribute is discoverable on the constructor
-        // parameter. If the attribute drifts back onto the property this test fails
-        // fast, before an integration test surfaces the 500 from
-        // ThrowIfRecordTypeHasValidationOnProperties.
         => await Assert.That(GetParameterAttribute<JournalAlterRequest>("AlterId")).IsNotNull();
 
     [Test]
     public async Task TagAlterRequest_ParameterCarriesValidAlterIdAttribute()
         => await Assert.That(GetParameterAttribute<TagAlterRequest>("AlterId")).IsNotNull();
 
-    /// <summary>
-    /// Runs the same check MVC's parameter-binding validator does: pull the
-    /// <see cref="ValidAlterIdAttribute"/> off the primary constructor parameter
-    /// (not the compiler-generated property) and evaluate it against
-    /// <paramref name="value"/>. Falls back to a hard failure if the attribute
-    /// isn't there so the caller sees a clear "attribute went missing" signal
-    /// rather than a silent success.
-    /// </summary>
+    // Mirrors MVC's parameter-binding validator: attribute off the constructor parameter,
+    // not the compiler-generated property. Missing attribute → false (loud signal).
     private static bool ValidateRecordParameter<T>(string parameterName, object? value)
     {
         var attr = GetParameterAttribute<T>(parameterName);

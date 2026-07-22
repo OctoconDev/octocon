@@ -2,28 +2,12 @@ using Interfold.Contracts.Models.ImportOperations;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-/// <summary>
-/// Pins the async-dispatch contract of <see cref="Interfold.Domain.Settings.ImportSpCommandHandler"/>.
-/// The handler is the choke point that previously ran the entire SP importer synchronously —
-/// and inside a Polly-retried POST that produced 2-3× duplicate imports on the Pi 4. These
-/// tests pin its new shape:
-///
-/// <list type="bullet">
-///   <item>A successful dispatch claims a slot via the repository and enqueues exactly one job.</item>
-///   <item>A concurrent dispatch for the same system observes <c>Status = "running"</c>, returns the same operation_id, and does NOT enqueue a second job (the load-bearing dedupe invariant against the bug class).</item>
-///   <item>An empty token is rejected without claiming a slot.</item>
-/// </list>
-/// The three scenarios drive <see cref="ImportDispatchScenario{TCommand}"/>, whose PK twin
-/// runs the same shape — any regression in the shared skeleton fails both files at once.
-/// </summary>
+// Async-dispatch contract for ImportSpCommandHandler. Guards against the duplicate-import
+// bug class: fresh dispatch enqueues once; concurrent dispatch collapses to Running with
+// the same operation_id; empty token rejects without claiming a slot. Shared skeleton is
+// ImportDispatchScenario so regressions fail both the SP and PK files at once.
 public sealed class ImportSpCommandHandlerDispatchTests
 {
-    /// <summary>
-    /// First dispatch for a clean system: handler returns <c>queued</c> and enqueues a job
-    /// item carrying the correct kind + token. The operation_id in the result must equal
-    /// the queued item's operation_id so the worker and the HTTP caller agree on the
-    /// correlation handle.
-    /// </summary>
     [Test]
     public async Task HandleAsync_FreshDispatch_ReturnsQueuedAndEnqueuesOneItem()
     {
@@ -45,12 +29,8 @@ public sealed class ImportSpCommandHandlerDispatchTests
         }
     }
 
-    /// <summary>
-    /// A second dispatch arriving while the first is still in flight (no terminal yet)
-    /// must collapse — same operation_id, no second enqueue. This is the test that
-    /// directly guards against the duplicate-SP-import bug class: any number of repeated
-    /// HTTP attempts (Polly retry, browser retry, double click) produce exactly one run.
-    /// </summary>
+    // Direct guard against the duplicate-SP-import bug class: repeated HTTP attempts
+    // (Polly retry, browser retry, double click) produce exactly one worker run.
     [Test]
     public async Task HandleAsync_ConcurrentDispatch_CollapsesOntoSameOperationAndDoesNotReenqueue()
     {
@@ -71,11 +51,6 @@ public sealed class ImportSpCommandHandlerDispatchTests
         }
     }
 
-    /// <summary>
-    /// Empty token is invalid input — handler rejects before touching the repository or
-    /// the queue. This avoids burning a slot on garbage input and keeps the conflict
-    /// shape consistent with the rest of the settings command surface.
-    /// </summary>
     [Test]
     public async Task HandleAsync_EmptyToken_RejectsWithoutClaimingOrEnqueuing()
     {

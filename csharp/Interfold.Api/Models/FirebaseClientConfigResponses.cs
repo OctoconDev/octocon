@@ -2,20 +2,10 @@ using System.Text.Json.Serialization;
 
 namespace Interfold.Api.Models;
 
-/// <summary>
-/// Response body returned by <c>GET /api/settings/firebase-config?platform=…</c>. The
-/// three concrete variants map 1:1 to the platform-specific shapes the mobile / wasm
-/// clients feed into their Firebase init calls. STJ polymorphism emits a discriminator
-/// property <c>type</c> as the first field so the client's kotlinx-serialization sealed
-/// hierarchy can dispatch on it without a wrapper envelope.
-/// </summary>
-/// <remarks>
-/// The wire field names are snake_case because
-/// <c>JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower</c>
-/// is set globally in <c>Program.cs</c>. The C# properties stay PascalCase; STJ does the
-/// name transformation on write. The discriminator value ("android" / "ios" / "web")
-/// matches the <c>platform</c> query parameter the client requested.
-/// </remarks>
+/// <summary>Response body for <c>GET /api/settings/firebase-config?platform=…</c>.
+/// The three variants map 1:1 to the client-side Firebase init shapes; STJ emits a
+/// <c>type</c> discriminator ("android"/"ios"/"web") matching the query parameter so
+/// the client's kotlinx-serialization sealed hierarchy dispatches without a wrapper.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(FirebaseAndroidConfigResponse), typeDiscriminator: "android")]
 [JsonDerivedType(typeof(FirebaseIosConfigResponse), typeDiscriminator: "ios")]

@@ -4,23 +4,10 @@ using System.Net.Sockets;
 
 namespace Interfold.Bootstrapper.Configuration;
 
-/// <summary>
-/// Discrete shape of one <see cref="DeploymentSection.Hosts"/> entry. The kind determines how
-/// the entry flows through downstream consumers:
-/// <list type="bullet">
-///   <item><b>Dns</b>: emitted as a <c>dNSName</c> in the leaf SAN and in the root-CA Name
-///         Constraints permittedSubtrees. Wildcards (<c>*.example.com</c>) are preserved
-///         on the SAN side; <see cref="Phases.CertificatePhase.StripWildcardPrefix"/>
-///         collapses them for the Name Constraints subtree (where wildcards are illegal).</item>
-///   <item><b>Ipv4 / Ipv6</b>: emitted as an <c>iPAddress</c> in the leaf SAN, and as an
-///         <c>iPAddress</c> Name Constraints subtree with an all-ones mask (<c>/32</c> /
-///         <c>/128</c>) per RFC 5280 §4.2.1.10.</item>
-///   <item><b>Ipv4Cidr / Ipv6Cidr</b>: emitted only as an <c>iPAddress</c> Name Constraints
-///         subtree with the operator-supplied prefix length. CIDR entries are deliberately
-///         excluded from the leaf SAN (a leaf cert can only serve a single host) and from
-///         derived URL primary-host selection (no canonical URL form for a network range).</item>
-/// </list>
-/// </summary>
+/// <summary>Shape of one <see cref="DeploymentSection.Hosts"/> entry. Dns → dNSName SAN +
+/// Name Constraints subtree. Ipv4/Ipv6 → iPAddress SAN + subtree with all-ones mask. CIDRs
+/// → subtree only; excluded from the leaf SAN (leaf serves a single host) and from primary-host
+/// derivation (no canonical URL form for a network range).</summary>
 internal enum HostKind
 {
     Dns,
@@ -30,13 +17,9 @@ internal enum HostKind
     Ipv6Cidr,
 }
 
-/// <summary>
-/// Parsed representation of one <see cref="DeploymentSection.Hosts"/> entry. <see cref="Raw"/>
-/// preserves the operator's original input for error messages and round-trip display;
-/// <see cref="DnsName"/> is set for <see cref="HostKind.Dns"/> entries; <see cref="Ip"/> is set
-/// for every IP-shaped kind. <see cref="PrefixLength"/> is the address bit-length (32 or 128) for
-/// single-IP kinds and the operator-supplied prefix for CIDR kinds.
-/// </summary>
+/// <summary>Parsed host entry. <see cref="Raw"/> preserves operator input for error
+/// messages. <see cref="PrefixLength"/> is 32/128 for single-IP kinds; the operator prefix
+/// for CIDR.</summary>
 internal sealed record HostEntry(
     string Raw,
     HostKind Kind,
@@ -48,13 +31,8 @@ internal sealed record HostEntry(
     public bool IsLeafEligible => HostParser.IsLeafEligible(Kind);
 }
 
-/// <summary>
-/// Classifier + parser for <see cref="DeploymentSection.Hosts"/> entries. The single
-/// <see cref="Parse"/> entry point is the authoritative validation surface; downstream consumers
-/// (<see cref="Phases.CertificatePhase"/>, <see cref="Phases.ConfigPhase"/>,
-/// <see cref="Phases.PublishPhase"/>) pattern-match on <see cref="HostKind"/> rather than
-/// re-parsing the raw string.
-/// </summary>
+/// <summary>Authoritative host classifier. Callers pattern-match on <see cref="HostKind"/>
+/// instead of re-parsing the raw string.</summary>
 internal static class HostParser
 {
     public const int Ipv4Bits = 32;
@@ -62,29 +40,13 @@ internal static class HostParser
 
     public static bool IsCidr(HostKind k) => k is HostKind.Ipv4Cidr or HostKind.Ipv6Cidr;
 
-    /// <summary>
-    /// Whether this kind contributes a leaf-cert SAN entry. CIDR entries never do — a leaf cert
-    /// can only serve a specific host, and a CIDR is a network range. CIDR entries are also
-    /// ineligible to be the URL "primary host" used by <see cref="Phases.ConfigPhase.ResolveDerivedDefaults"/>.
-    /// </summary>
+    /// <summary>Non-CIDR kinds contribute a leaf-cert SAN and are eligible as the primary host.</summary>
     public static bool IsLeafEligible(HostKind k) => k is HostKind.Dns or HostKind.Ipv4 or HostKind.Ipv6;
 
-    /// <summary>
-    /// Parses one raw entry into a <see cref="HostEntry"/>. Throws <see cref="FormatException"/>
-    /// with an operator-actionable message on any malformed input. Precedence:
-    /// <list type="number">
-    ///   <item>Slash-bearing inputs are CIDR; left side must be an IP literal, right side a
-    ///         prefix length within the address family's range.</item>
-    ///   <item>Slash-free inputs are tried as IP literals first (so a numeric input like
-    ///         <c>192.168.1.42</c> never accidentally classifies as a DNS name).</item>
-    ///   <item>Anything else is treated as a DNS name and subjected to the lightweight
-    ///         RFC 1035 check (<c>length &lt;= 253</c>, no whitespace, optional leading
-    ///         <c>*.</c> wildcard).</item>
-    /// </list>
-    /// URL-style square brackets around a bare IPv6 literal (e.g. <c>[::1]</c>) are tolerated so
-    /// operators pasting from a URL don't trip on the bracket form; CIDR inputs must use the
-    /// unbracketed canonical form (<c>fe80::/64</c>).
-    /// </summary>
+    /// <summary>Precedence: slash → CIDR; else IP literal; else DNS (RFC 1035-ish check).
+    /// Bracketed IPv6 literals (<c>[::1]</c>) accepted; CIDR must use unbracketed
+    /// (<c>fe80::/64</c>). Throws <see cref="FormatException"/> with an operator-actionable
+    /// message on malformed input.</summary>
     public static HostEntry Parse(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
@@ -144,11 +106,8 @@ internal static class HostParser
         var addr = ip.GetAddressBytes();
         if (!IsHostBitsZero(addr, prefix))
         {
-            // RFC 5280 §4.2.1.10 requires host bits outside the mask to be zero in iPAddress
-            // permittedSubtree entries. We surface this as a fix-it rather than silently
-            // normalising, because "I typed 192.168.1.42/24" usually means the operator meant
-            // a single host (/32) but wrote a network prefix - silently snapping to .0/24 would
-            // quietly broaden the Name Constraints scope past what they intended.
+            // RFC 5280 §4.2.1.10: host bits beyond the mask MUST be zero. Fix-it rather than
+            // silently snap — "192.168.1.42/24" usually means /32, not the whole /24.
             var canonical = new IPAddress(MaskAddress(addr, prefix)).ToString();
             var singleHost = $"{ip}/{maxPrefix}";
             throw new FormatException(
@@ -162,10 +121,7 @@ internal static class HostParser
 
     private static void ValidateDnsName(string name)
     {
-        // Lightweight RFC 1035-shaped check matching the prior Validate() rule: rejects obvious
-        // typos (spaces, over-long inputs) without pulling in a full DNS-grammar library. The
-        // surrounding flow has already tried IP parsing, so anything reaching here is genuinely
-        // a candidate DNS name.
+        // Enough to reject typos (spaces, over-long); IP-literal parsing already ran upstream.
         var probe = name.StartsWith("*.", StringComparison.Ordinal) ? name[2..] : name;
         if (probe.Length == 0)
         {
@@ -181,11 +137,8 @@ internal static class HostParser
         }
     }
 
-    /// <summary>
-    /// Returns the netmask for a given prefix length, in network-byte-order, as
-    /// <paramref name="byteLength"/> bytes. <paramref name="byteLength"/> is the address-byte
-    /// count (4 for IPv4, 16 for IPv6); <paramref name="prefix"/> the bit count to set.
-    /// </summary>
+    /// <summary>Network-byte-order netmask. <paramref name="byteLength"/> is the address-byte
+    /// count (4 for IPv4, 16 for IPv6); <paramref name="prefix"/> the bit count to set.</summary>
     public static byte[] BuildNetmask(int byteLength, int prefix)
     {
         if (prefix < 0 || prefix > byteLength * 8)
@@ -206,11 +159,7 @@ internal static class HostParser
         return result;
     }
 
-    /// <summary>
-    /// Returns true if every bit beyond the prefix is zero in <paramref name="addr"/>. Encodes
-    /// the RFC 5280 §4.2.1.10 "host bits MUST be zero" requirement for iPAddress permittedSubtree
-    /// entries.
-    /// </summary>
+    /// <summary>RFC 5280 §4.2.1.10 "host bits MUST be zero" check for iPAddress subtrees.</summary>
     public static bool IsHostBitsZero(byte[] addr, int prefix)
     {
         var mask = BuildNetmask(addr.Length, prefix);
@@ -224,10 +173,8 @@ internal static class HostParser
         return true;
     }
 
-    /// <summary>
-    /// Address bytes ANDed with the netmask for <paramref name="prefix"/>. Used to render the
-    /// canonical network address when surfacing a host-bits-set fix-it to the operator.
-    /// </summary>
+    /// <summary>Address ANDed with the netmask — used to render the canonical network
+    /// address in a host-bits-set fix-it.</summary>
     public static byte[] MaskAddress(byte[] addr, int prefix)
     {
         var mask = BuildNetmask(addr.Length, prefix);
@@ -239,12 +186,8 @@ internal static class HostParser
         return result;
     }
 
-    /// <summary>
-    /// Produces the iPAddress GeneralName payload for one NameConstraints permittedSubtree
-    /// entry: <c>address || mask</c> in network-byte-order per RFC 5280 §4.2.1.10. 8 octets for
-    /// IPv4 (4 addr + 4 mask), 32 octets for IPv6 (16 + 16). Caller must restrict this to
-    /// IP-backed entries (Ipv4 / Ipv6 / Ipv4Cidr / Ipv6Cidr); throws otherwise.
-    /// </summary>
+    /// <summary>iPAddress GeneralName payload: <c>address || mask</c> per RFC 5280 §4.2.1.10
+    /// (8 octets IPv4, 32 IPv6). Throws on non-IP kinds.</summary>
     public static byte[] ToNameConstraintSubtreeBytes(HostEntry entry)
     {
         if (entry.Ip is null)
@@ -260,11 +203,8 @@ internal static class HostParser
         return combined;
     }
 
-    /// <summary>
-    /// Renders a host as the host portion of a URL. IPv6 literals are bracket-wrapped per
-    /// RFC 3986 §3.2.2 so the result is a valid URI authority; DNS names and IPv4 literals
-    /// are returned verbatim. Throws on CIDR entries — they have no canonical URL form.
-    /// </summary>
+    /// <summary>URI authority host portion. IPv6 bracket-wrapped per RFC 3986 §3.2.2;
+    /// throws on CIDR (no canonical URL form).</summary>
     public static string ToUrlHost(HostEntry entry) => entry.Kind switch
     {
         HostKind.Dns => entry.DnsName!,
@@ -274,12 +214,8 @@ internal static class HostParser
             $"HostEntry '{entry.Raw}' ({entry.Kind}) has no URL host representation"),
     };
 
-    /// <summary>
-    /// Selects the first leaf-eligible (non-CIDR) entry as the "primary host" used for the
-    /// leaf cert subject CN, nginx <c>server_name</c>, and the <c>{scheme}://primary</c> URL
-    /// derivations in <see cref="Phases.ConfigPhase.ResolveDerivedDefaults"/>. Returns
-    /// <c>null</c> when no leaf-eligible entry exists (all CIDR or empty input).
-    /// </summary>
+    /// <summary>First non-CIDR entry — leaf CN, nginx <c>server_name</c>, and URL derivation
+    /// primary. Null when the list is all-CIDR or empty.</summary>
     public static HostEntry? PickPrimary(IEnumerable<HostEntry> entries) =>
         entries.FirstOrDefault(e => e.IsLeafEligible);
 }

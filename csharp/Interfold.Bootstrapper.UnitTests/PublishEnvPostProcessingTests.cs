@@ -6,24 +6,8 @@ using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-/// <summary>
-/// Unit tests for <see cref="PublishPhase.BuildEnvReplacements"/>. The pure function returns the
-/// keys the bootstrapper plans to substitute into the Aspire-emitted <c>.env</c>; the integration
-/// tests confirm that those same keys are present in the <em>real</em> emitted file, but this
-/// unit-level check catches drift in either direction at sub-second speed.
-///
-/// Key-count history: after the JWT / OAuth-secret / leaf-PFX-password migration into
-/// <c>internal.secrets</c> the parameter dict shrunk from 10 to 6 keys; <c>POSTGRES_DB</c>
-/// (operator-tunable application database name) bumped it back to 7; the three OAuth
-/// client IDs (public per-provider identifiers paired with the secrets in
-/// <c>internal.secrets</c>) brought it to 10. The five API-runtime keys
-/// (<c>SCYLLA_KEYSPACE</c>, <c>OAUTH_CALLBACK_BASE_URL</c>, <c>JWT_AUTHORITY</c>,
-/// <c>JWT_AUDIENCE</c>, <c>CORS_ALLOWED_ORIGINS</c>) brought it to 15. The API bind-mount
-/// set dropped from two (<c>/keys</c> + <c>/certs</c>) to one (<c>/certs</c>). The nine
-/// operator tuning keys (<c>NODE_GROUP</c>, two avatar paths, <c>OTLP_ENDPOINT</c>, the
-/// nullable socket batch threshold, and the four DB-retry / hydration tuning ints)
-/// brought the parameter dict to 24 and the single-mode total to 24 + 1 + 1 = 26.
-/// </summary>
+/// <summary>Sub-second drift check on <see cref="PublishPhase.BuildEnvReplacements"/>. Integration
+/// tests cover the emitted file end-to-end; these lock the pure key set.</summary>
 public sealed class PublishEnvPostProcessingTests
 {
     private static (BootstrapConfig Config, GeneratedSecrets Secrets) MakeInputs(
@@ -35,22 +19,16 @@ public sealed class PublishEnvPostProcessingTests
             DatabaseMode = databaseMode,
             ApiImage = apiImage ?? "ghcr.io/azyyyyyy/interfold-api:latest",
         };
-        // BootstrapConfig.Deployment.Hosts has no default placeholder, so populate it explicitly
-        // here. Without this the ResolveDerivedDefaults call below has nothing to seed
-        // CallbackBaseUrl / JwtAuthority / CorsAllowedOrigins from, and the required-keys check
-        // (which asserts post-derivation non-emptiness) would fail.
+        // Deployment.Hosts has no placeholder; without a seed ResolveDerivedDefaults has
+        // nothing to feed CallbackBaseUrl / JwtAuthority / CorsAllowedOrigins from.
         config.Deployment.Hosts = ["api.example.com"];
-        // OAuth client secrets flow through PostgresSeedOptions into internal.secrets;
-        // they no longer appear in the env replacements. Setting them here only exercises
-        // the irrelevant config path.
+        // OAuth client secrets flow into internal.secrets, not env; setting exercises the
+        // irrelevant path.
         config.OAuth.GoogleClientSecret = "google-secret-from-config";
         config.OAuth.DiscordClientSecret = "discord-secret-from-config";
 
-        // BuildEnvReplacements assumes ConfigPhase has already run ResolveDerivedDefaults
-        // (Validate runs it on every config). Mirror that here so the unit tests exercise
-        // the same post-derivation snapshot the runtime sees, without depending on the
-        // full Validate path (the publish tests intentionally allow exotic combinations
-        // like exotic apiImage strings that Validate would reject).
+        // Mirror ConfigPhase.Validate's post-derivation snapshot without invoking the full
+        // Validate (publish tests deliberately allow shapes Validate would reject).
         ConfigPhase.ResolveDerivedDefaults(config);
         return (config, SecretsPhase.Generate());
     }
@@ -59,15 +37,12 @@ public sealed class PublishEnvPostProcessingTests
     public async Task BuildEnvReplacementsProducesAllRequiredParameterKeys()
     {
         var (config, secrets) = MakeInputs();
-        // Pin all three OAuth IDs so the non-empty assertion below is meaningful; the
-        // empty-IDs-still-emit-keys behaviour is locked down by a dedicated test below.
+        // Pin all three OAuth IDs so IsNotEmpty is meaningful; empty-still-emits behaviour
+        // has its own test below.
         config.OAuth.GoogleClientId = "google-client-id";
         config.OAuth.DiscordClientId = "discord-client-id";
         config.OAuth.AppleClientId = "apple-client-id";
-        // Same shape for the four optional / nullable tuning fields — pin non-empty
-        // values here so the IsNotEmpty assertion stays meaningful for all required
-        // keys; the matching empty-still-emits-key behaviour is locked down by
-        // BuildEnvReplacementsEmitsEmptyTuningSlotsForNullables below.
+        // Pin the four nullable tuning fields for the same reason.
         config.Storage.AvatarStorageRoot = "/var/lib/interfold/avatars";
         config.Storage.AvatarPublicBase = "https://cdn.example.com/avatars/";
         config.Observability.OtlpEndpoint = "http://localhost:4317";
@@ -86,29 +61,14 @@ public sealed class PublishEnvPostProcessingTests
             "SCYLLA_USER",
             "SCYLLA_PASSWORD",
             "ENCRYPTION_PRIVATE_KEY",
-            // Public per-provider OAuth identifiers - paired with the per-provider secrets that
-            // live in internal.secrets. The matching scheme registration on the API side is
-            // gated on the client ID being non-empty; the bootstrapper writes whatever
-            // BootstrapConfig.OAuth.*ClientId says, including the empty string (see
-            // BuildEnvReplacementsEmitsEmptyOAuthClientIdsWhenNotConfigured below).
             "GOOGLE_OAUTH_CLIENT_ID",
             "DISCORD_OAUTH_CLIENT_ID",
             "APPLE_OAUTH_CLIENT_ID",
-            // API runtime config — bootstrapper-managed, sourced from BootstrapConfig
-            // (ScyllaKeyspace + ApiRuntime.*). All five are post-derivation non-empty
-            // (MakeInputs runs ResolveDerivedDefaults).
             "SCYLLA_KEYSPACE",
             "OAUTH_CALLBACK_BASE_URL",
             "JWT_AUTHORITY",
             "JWT_AUDIENCE",
             "CORS_ALLOWED_ORIGINS",
-            // Operator tuning knobs — five of these have non-null defaults on
-            // BootstrapConfig (NodeGroup "auxiliary"; DbRetry attempts/initial/max =
-            // 3/100/1500; HydrationMaxConcurrency = 8) and so always land here non-empty.
-            // The four nullable-or-empty-allowed fields (Avatar* / OTLP / socket
-            // threshold) are pinned non-empty above to keep the IsNotEmpty assertion
-            // meaningful; their "blank still emits the key" behaviour is locked down by
-            // BuildEnvReplacementsEmitsEmptyTuningSlotsForNullables below.
             "NODE_GROUP",
             "AVATAR_STORAGE_ROOT",
             "AVATAR_PUBLIC_BASE",
@@ -144,12 +104,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsCarriesOAuthClientIdsFromConfig()
     {
-        // Pin the contract: BuildEnvReplacements copies the operator's BootstrapConfig.OAuth.*ClientId
-        // values verbatim into the env-replacement dict. Each provider's ID lands on the matching
-        // OCTOCON_*_OAUTH_CLIENT_ID env var via the Parameters:*-oauth-client-id wiring in
-        // PublishInProcessAsync (and the ConfigureApiSelfHostEnv WithEnvironment calls in
-        // InterfoldAppHost), so a drift between BootstrapConfig field name and Aspire parameter
-        // name would surface as either a missing key here or a value mismatch.
+        // Contract: OAuth client IDs copy verbatim into the env dict; a rename either side
+        // shows up as a missing key or value mismatch here.
         var (config, secrets) = MakeInputs();
         config.OAuth.GoogleClientId = "google-client-from-config.apps.googleusercontent.com";
         config.OAuth.DiscordClientId = "1234567890";
@@ -167,14 +123,9 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsEmitsEmptyOAuthClientIdsWhenNotConfigured()
     {
-        // Empty client IDs are a valid "I'm not using this provider" signal — the API's
-        // scheme registrar skips schemes whose OCTOCON_*_OAUTH_CLIENT_ID is empty. The
-        // bootstrapper must still emit explicit empty-string entries (rather than omitting
-        // the keys) so the Aspire-emitted blank `.env` lines get rewritten as `KEY=`
-        // instead of triggering the "blank value left unfilled" operator warning in
-        // ApplyReplacementsToEnvFile.
+        // Empty client IDs mean "provider disabled"; keys MUST still emit as `KEY=` so
+        // ApplyReplacementsToEnvFile doesn't warn on unfilled blanks.
         var (config, secrets) = MakeInputs();
-        // (defaults are already empty for all three IDs)
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
@@ -189,9 +140,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsCarriesPostgresDatabaseNameFromConfig()
     {
-        // POSTGRES_DB is operator-tunable via BootstrapConfig.PostgresDatabase; the env
-        // replacement must use the configured value verbatim so the API connection string
-        // (Database=<value>) lines up with the database DatabaseInitPhase actually creates.
+        // POSTGRES_DB must round-trip verbatim so the API connection string lines up with
+        // the database DatabaseInitPhase actually creates.
         var (config, secrets) = MakeInputs();
         config.PostgresDatabase = "my_custom_db";
 
@@ -211,21 +161,15 @@ public sealed class PublishEnvPostProcessingTests
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
         var total = replacements.Parameters.Count + replacements.BindMounts.Count;
-        // Single mode: 24 parameter keys (7 infra + 3 OAuth client IDs + 5 API runtime
-        // + 9 operator tuning: NODE_GROUP, two avatar paths, OTLP_ENDPOINT, socket
-        // threshold, four DB-retry/hydration ints) + 1 API bind mount (/certs)
-        // + 1 Scylla rackdc bind mount = 26.
+        // Single mode: 24 param keys + 2 bind mounts (/certs, scylla rackdc) = 26.
         await Assert.That(total).IsEqualTo(26);
     }
 
     [Test]
     public async Task BuildEnvReplacementsCarriesApiRuntimeFromConfig()
     {
-        // Pin the contract: BuildEnvReplacements copies BootstrapConfig.ScyllaKeyspace and
-        // every ApiRuntime field verbatim into the env replacements. Each value lands on
-        // the matching OCTOCON_* env var via Parameters:scylla-keyspace / oauth-callback-base-url
-        // / jwt-authority / jwt-audience / cors-allowed-origins (see PublishInProcessAsync) and
-        // the WithEnvironment calls in InterfoldAppHost.ConfigureApiSelfHostEnv.
+        // ScyllaKeyspace + every ApiRuntime field must round-trip verbatim; a typo either
+        // side surfaces here as a missing key or value mismatch.
         var (config, secrets) = MakeInputs();
         config.ScyllaKeyspace = ScyllaKeyspace.Eur;
         config.ApiRuntime.CallbackBaseUrl = "https://callback.example.com";
@@ -240,8 +184,7 @@ public sealed class PublishEnvPostProcessingTests
             .IsEqualTo("https://callback.example.com");
         await Assert.That(replacements.Parameters["JWT_AUTHORITY"]).IsEqualTo("https://issuer.example.com");
         await Assert.That(replacements.Parameters["JWT_AUDIENCE"]).IsEqualTo("custom-aud");
-        // CorsAllowedOrigins lands on OCTOCON_CORS_ALLOWED_ORIGINS as a comma-separated string;
-        // the API's CORS startup block splits on the same character.
+        // Comma-separated on OCTOCON_CORS_ALLOWED_ORIGINS; API CORS startup splits on ','.
         await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
             .IsEqualTo("https://app.example.com,https://admin.example.com");
     }
@@ -249,10 +192,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsDerivesApiRuntimeFromDeploymentWhenUnset()
     {
-        // The bootstrapper's contract: leaving apiRuntime.* empty derives the values from
-        // deployment.hosts + deployment.webHttps via ConfigPhase.ResolveDerivedDefaults
-        // (which MakeInputs runs on every config). The derived defaults must round-trip
-        // through BuildEnvReplacements unchanged so the .env reflects what the menu showed.
+        // Blank apiRuntime.* is derived from deployment.hosts + deployment.webHttps via
+        // ResolveDerivedDefaults; the derivation must round-trip through publish unchanged.
         var config = new BootstrapConfig
         {
             Deployment =
@@ -261,39 +202,31 @@ public sealed class PublishEnvPostProcessingTests
                 WebHttps = true,
             },
         };
-        // ResolveDerivedDefaults runs explicitly here (rather than reusing MakeInputs, which
-        // hands you ghcr.io defaults) so we exercise the empty-apiRuntime path.
+        // Run derivation explicitly (MakeInputs would inject non-blank defaults) to exercise
+        // the empty-apiRuntime path.
         ConfigPhase.ResolveDerivedDefaults(config);
         var secrets = SecretsPhase.Generate();
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
-        // The API URL is always https + :{Ports.ApiHttps} in self-host because the API
-        // container's Kestrel default endpoint binds to the bootstrapper-issued leaf PFX
-        // unconditionally (independent of Deployment.WebHttps, which only governs the web
-        // container). Default Ports.ApiHttps=5001 here.
+        // API URL is always https + Ports.ApiHttps (5001) — Kestrel binds the leaf PFX
+        // regardless of Deployment.WebHttps, which only governs the web container.
         await Assert.That(replacements.Parameters["OAUTH_CALLBACK_BASE_URL"])
             .IsEqualTo("https://api.example.com:5001");
         await Assert.That(replacements.Parameters["JWT_AUTHORITY"])
             .IsEqualTo("https://api.example.com:5001");
-        // JwtAudience has a hardcoded property-initialiser default ("octocon"); not derived.
+        // JwtAudience is a property-initialiser default, not derived.
         await Assert.That(replacements.Parameters["JWT_AUDIENCE"]).IsEqualTo("octocon");
-        // CORS represents the SPA / native-client origins; scheme follows WebHttps and port
-        // follows Ports.WebHttps (8081 default) — one entry per non-CIDR host.
+        // CORS: scheme=WebHttps, port=Ports.WebHttps (8081), one entry per non-CIDR host.
         await Assert.That(replacements.Parameters["CORS_ALLOWED_ORIGINS"])
             .IsEqualTo("https://api.example.com:8081,https://admin.example.com:8081");
-        // ScyllaKeyspace's hardcoded default lives on the field itself, not in derivation.
         await Assert.That(replacements.Parameters["SCYLLA_KEYSPACE"]).IsEqualTo("nam");
     }
 
     [Test]
     public async Task BuildEnvReplacementsCarriesTuningFromConfig()
     {
-        // Pin the contract: every operator tuning field round-trips through
-        // BuildEnvReplacements verbatim. Each lands on the matching OCTOCON_* env var
-        // via Parameters:* (see PublishInProcessAsync) and the WithEnvironment calls
-        // in InterfoldAppHost.ConfigureApiSelfHostEnv — a typo in either layer would
-        // show up here as a missing key or a value mismatch.
+        // Every operator tuning field must round-trip verbatim.
         var (config, secrets) = MakeInputs();
         config.Cluster.NodeGroup = NodeGroup.Primary;
         config.Storage.AvatarStorageRoot = "/srv/avatars";
@@ -323,32 +256,10 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsKeepsAvatarStorageRootBlankSoAppHostCanSubstituteDefault()
     {
-        // Phase-1 of the "avatars in a bootstrapped instance" change moved the
-        // default avatar-storage-path substitution from the bootstrapper into the
-        // AppHost (InterfoldAppHost.cs: DefaultContainerAvatarStorageRoot constant +
-        // effectiveAvatarStorageRoot resolution + matching WithVolume mount).
-        //
-        // The contract this test pins: when the operator leaves
-        // BootstrapConfig.Storage.AvatarStorageRoot blank, the rendered .env line
-        // for AVATAR_STORAGE_ROOT MUST stay blank (i.e. `AVATAR_STORAGE_ROOT=`), NOT
-        // get pre-filled with `/app/data/avatars`. Two reasons:
-        //
-        //   1. The AppHost reads the .env value AND falls back to its constant when
-        //      the value is blank — pre-filling would short-circuit that fallback
-        //      and remove the AppHost's only signal that the operator wants the
-        //      managed-volume codepath (the same signal the AppHost uses to gate
-        //      `api.WithVolume("interfold_avatars", ...)`).
-        //   2. Pinning the default in two places (bootstrapper + AppHost) means a
-        //      future path change has to land in both — drift is silent. Keeping
-        //      the default exclusively in the AppHost makes it the single source
-        //      of truth.
-        //
-        // A sibling check on the matching live behaviour (AppHost wires both the
-        // env var AND the volume to the same path) lives in the AppHost integration
-        // tests, not here — the bootstrapper unit tests stay scoped to .env content.
+        // Blank AVATAR_STORAGE_ROOT must round-trip blank. The AppHost owns the default
+        // (DefaultContainerAvatarStorageRoot) and reads blank as "use my constant + managed
+        // volume"; pre-filling here would kill that signal and duplicate the default.
         var (config, secrets) = MakeInputs();
-        // Default for Storage.AvatarStorageRoot is empty string; leave it untouched
-        // so this test exercises the "operator did not configure it" path exactly.
         await Assert.That(config.Storage.AvatarStorageRoot).IsEqualTo(string.Empty)
             .Because("Pre-condition: this test only makes sense when the config-side default is blank.");
 
@@ -363,15 +274,9 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task BuildEnvReplacementsEmitsEmptyTuningSlotsForNullables()
     {
-        // The four "disabled when empty" tuning fields (Avatar*, OtlpEndpoint, socket
-        // threshold) must still emit explicit empty-string entries when unset — rather
-        // than being omitted — so the Aspire-emitted blank `.env` lines get rewritten
-        // as `KEY=` instead of triggering the "blank value left unfilled" warning in
-        // ApplyReplacementsToEnvFile. The API binders normalise the resulting empty
-        // env vars to null on read (ApplyStorage / ApplyObservability via NullIfEmpty,
-        // socket via TryParseInt) so the not-configured branches still fire.
+        // "Disabled when empty" tuning fields must emit `KEY=` (not be omitted); API binders
+        // normalise the empty vars back to null so the not-configured branches still fire.
         var (config, secrets) = MakeInputs();
-        // (defaults: Avatar* empty, OtlpEndpoint empty, BatchBytesThreshold null)
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
@@ -384,9 +289,7 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.Parameters["OTLP_ENDPOINT"]).IsEqualTo(string.Empty);
         await Assert.That(replacements.Parameters["SOCKET_BATCH_BYTES_THRESHOLD"]).IsEqualTo(string.Empty);
 
-        // The five non-nullable tuning fields fall back to their BootstrapConfig
-        // property-initialiser defaults so the API container sees the same values it
-        // would have used pre-bootstrapper from its compile-time fallbacks.
+        // Non-nullable tuning fields fall back to their property-initialiser defaults.
         await Assert.That(replacements.Parameters["NODE_GROUP"]).IsEqualTo("auxiliary");
         await Assert.That(replacements.Parameters["DB_RETRY_ATTEMPTS"]).IsEqualTo("3");
         await Assert.That(replacements.Parameters["DB_RETRY_INITIAL_DELAY_MS"]).IsEqualTo("100");
@@ -403,15 +306,14 @@ public sealed class PublishEnvPostProcessingTests
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
-        // The /keys bind mount was removed — JWT signing material now lives in internal.secrets.
+        // /keys was removed — JWT signing material lives in internal.secrets now.
         await Assert.That(replacements.BindMounts.ContainsKey("interfold-api:/keys")).IsFalse();
 
         var apiCerts = replacements.BindMounts["interfold-api:/certs"];
         await Assert.That(Path.IsPathFullyQualified(apiCerts)).IsTrue();
         await Assert.That(apiCerts).StartsWith(outputDir);
 
-        // The single-mode Scylla rackdc mount lives under the bootstrapper's baseDir (where the
-        // release tarball drops the bundled rackdc.* files), not under outputDir.
+        // Scylla rackdc lives under baseDir (tarball drop location), not outputDir.
         var scyllaRackdc = replacements.BindMounts["scylla:/etc/scylla/cassandra-rackdc.properties"];
         await Assert.That(Path.IsPathFullyQualified(scyllaRackdc)).IsTrue();
         await Assert.That(scyllaRackdc).StartsWith(baseDir);
@@ -439,8 +341,6 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task TranslateDatabaseModeSingleProducesScyllaSingleTopology()
     {
-        // single mode is the default and what most installs run. PublishPhase wires the trio
-        // straight into the AppHost config, so this assertion pins the mapping byte-for-byte.
         var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Single);
 
         await Assert.That(includeScylla).IsTrue();
@@ -452,8 +352,6 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task TranslateDatabaseModeMultiProducesScyllaMultiTopology()
     {
-        // multi mode keeps Cassandra off and flips topology to multi - this is the only
-        // route to the 7-region Scylla layout from the bootstrapper.
         var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Multi);
 
         await Assert.That(includeScylla).IsTrue();
@@ -465,9 +363,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task TranslateDatabaseModeCassandraSwapsBackends()
     {
-        // cassandra mode is the only configuration that disables Scylla entirely.
-        // Topology stays "single" because the cassandra branch in InterfoldAppHost
-        // ignores topology, but emitting "single" keeps the parameter set well-formed.
+        // Cassandra mode disables Scylla entirely; topology "single" is filler (the
+        // cassandra branch in InterfoldAppHost ignores topology).
         var (includeScylla, includeCassandra, topology) = PublishPhase.TranslateDatabaseMode(DatabaseMode.Cassandra);
 
         await Assert.That(includeScylla).IsFalse();
@@ -501,10 +398,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task TranslateDatabaseModeRejectsUnknownValue()
     {
-        // ConfigPhase.Validate is the operator-facing rejection point, but the helper
-        // also throws so internal callers that bypass validation surface a clear error
-        // instead of silently emitting an empty parameter set. Casting outside the enum
-        // range simulates the "someone bypassed the type system" scenario.
+        // Fail-fast for callers that bypass ConfigPhase.Validate.
         var ex = Assert.Throws<InvalidOperationException>(() => PublishPhase.TranslateDatabaseMode((DatabaseMode)999));
 
         await Assert.That(ex.Message).Contains("databaseMode");
@@ -528,10 +422,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task IncludeWebOnlyDoesNotAddOctoconWebBindMounts()
     {
-        // includeWeb=true, webHttps=false is the HTTP-only debug variant: the wasm container
-        // ships in the compose stack but nginx never reads a leaf cert, so neither the /certs
-        // bind mount nor the nginx envsubst template bind mount belong in the .env. (The
-        // include-vs-TLS-mount asymmetry is the whole point of decoupling these two toggles.)
+        // HTTP-only debug variant: nginx never reads a leaf cert, so neither cert nor
+        // template mounts belong in .env. Include-vs-TLS-mount decoupling is intentional.
         var (config, secrets) = MakeInputs();
         config.Deployment.IncludeWeb = true;
         config.Deployment.WebHttps = false;
@@ -547,11 +439,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task IncludeWebAndWebHttpsBothOnAddsCertsAndNginxTemplateBindMounts()
     {
-        // The explicit "both flags on" combination — operator opts in to both the container and
-        // TLS termination at it. Same wiring as the webHttps-only-on path (the includeWeb=true
-        // doesn't change the bind-mount set), just locking the contract down so a future
-        // refactor that gates the mounts on the OR of the two flags doesn't accidentally drop
-        // them in either input shape.
+        // Locks the "both flags on" shape so a future OR-gated refactor can't silently drop
+        // the mounts in either input form.
         var (config, secrets) = MakeInputs();
         config.Deployment.IncludeWeb = true;
         config.Deployment.WebHttps = true;
@@ -575,9 +464,8 @@ public sealed class PublishEnvPostProcessingTests
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, baseDir, outputDir);
 
-        // /certs is shared with the API: both services bind-mount {outputDir}/certs/, so the leaf
-        // PFX (read by Kestrel) and the leaf CRT/KEY (read by nginx) come from the same on-disk
-        // material rotated by CertificatePhase.
+        // API + web share {outputDir}/certs so Kestrel's PFX and nginx's CRT/KEY come from
+        // the same CertificatePhase output.
         await Assert.That(replacements.BindMounts.ContainsKey("octocon-web:/certs")).IsTrue();
         var webCerts = replacements.BindMounts["octocon-web:/certs"];
         await Assert.That(Path.IsPathFullyQualified(webCerts)).IsTrue();
@@ -585,8 +473,7 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.BindMounts["interfold-api:/certs"]).IsEqualTo(webCerts)
             .Because("API and web tiers must read from the same on-disk certs directory");
 
-        // The nginx template lives next to the bootstrapper binary (baseDir), not under outputDir,
-        // mirroring how cassandra-rackdc.* properties are shipped.
+        // nginx template lives next to the binary (baseDir), mirroring rackdc props.
         const string nginxKey = "octocon-web:/etc/nginx/templates/default.conf.template";
         await Assert.That(replacements.BindMounts.ContainsKey(nginxKey)).IsTrue();
         var nginxTemplate = replacements.BindMounts[nginxKey];
@@ -598,13 +485,9 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task ApiImageOverrideDoesNotLeakIntoEnvReplacements()
     {
-        // The API container image flows through Aspire's `Parameters:api-image` configuration
-        // (which Aspire bakes into the compose YAML as a `image:` line), NOT through the .env.
-        // This test pins that contract: changing config.ApiImage must not change the env
-        // replacement keys or values — only the compose YAML.
+        // ApiImage flows via Aspire Parameters:api-image into compose YAML, not .env.
         var (configA, secretsA) = MakeInputs(apiImage: "ghcr.io/azyyyyyy/interfold-api:v1.2.3");
         var (configB, secretsB) = MakeInputs(apiImage: "private-registry.example.com/api:custom-tag");
-        // Pin secrets so the only difference is ApiImage.
         secretsB.PostgresPassword = secretsA.PostgresPassword;
         secretsB.PostgresInitPassword = secretsA.PostgresInitPassword;
         secretsB.PostgresAdminPassword = secretsA.PostgresAdminPassword;
@@ -615,7 +498,6 @@ public sealed class PublishEnvPostProcessingTests
         var a = PublishPhase.BuildEnvReplacements(configA, secretsA, "/base", "/out");
         var b = PublishPhase.BuildEnvReplacements(configB, secretsB, "/base", "/out");
 
-        // Every key on both sides should map to the same value.
         await Assert.That(a.Parameters.Count).IsEqualTo(b.Parameters.Count);
         foreach (var kv in a.Parameters)
         {
@@ -623,7 +505,6 @@ public sealed class PublishEnvPostProcessingTests
             await Assert.That(b.Parameters[kv.Key]).IsEqualTo(kv.Value);
         }
 
-        // And no key named anything image-y appears in either set.
         foreach (var key in a.Parameters.Keys)
         {
             await Assert.That(key.Contains("IMAGE", StringComparison.OrdinalIgnoreCase)).IsFalse()
@@ -634,10 +515,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task WebServerNameSkipsCidrEntries()
     {
-        // nginx accepts DNS names and bare IPs as server_name but does NOT accept CIDR
-        // notation. PickServerName must walk past any CIDR entries to the first leaf-eligible
-        // host. Order matters here — the CIDR comes first in the list so the test fails loudly
-        // if PickServerName falls back to `_` or yields the CIDR string instead of skipping.
+        // nginx server_name accepts DNS and IPs but not CIDRs; PickServerName must skip.
         var serverName = PublishPhase.PickServerName(["192.168.1.0/24", "api.example.com"]);
         await Assert.That(serverName).IsEqualTo("api.example.com");
     }
@@ -645,10 +523,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task WebServerNameFallsBackToCatchAllWhenAllCidr()
     {
-        // Defence-in-depth: ConfigPhase.Validate already rejects an all-CIDR list, but the
-        // direct InterfoldAppHost.Configure path (dev callers that bypass the bootstrapper)
-        // doesn't run Validate. PickServerName must still produce a working server_name in
-        // that branch — `_` is the nginx catch-all that accepts any Host header.
+        // Direct InterfoldAppHost.Configure callers skip Validate; `_` is nginx's catch-all.
         var serverName = PublishPhase.PickServerName(["10.0.0.0/8", "fe80::/64"]);
         await Assert.That(serverName).IsEqualTo("_");
     }
@@ -656,8 +531,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task WebServerNamePicksIpLiteralAsServerName()
     {
-        // LAN-only deployments (no DNS) must end up with the bare IP as server_name. nginx
-        // happily accepts dotted-quad and bracketed-or-bare IPv6 there.
+        // LAN-only deployments (no DNS) get the bare IP; nginx accepts dotted-quad + v6.
         var serverName = PublishPhase.PickServerName(["192.168.1.42"]);
         await Assert.That(serverName).IsEqualTo("192.168.1.42");
     }
@@ -665,13 +539,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task StampCassandraPullPolicyNeverInsertsPolicyAfterImageLine()
     {
-        // The stamper's job: after the `image: "${CASSANDRA_IMAGE}"` line, insert
-        // `pull_policy: never` at the same indent so `docker compose pull` skips the
-        // service instead of failing on the non-registry-backed tag. Docker Compose's
-        // pull command explicitly skips services with pull_policy: never — the
-        // integration test in UpdateImagesCassandraModeTests confirms the observable
-        // "Skipped" behaviour end-to-end; this unit test locks down the file mutation
-        // shape.
+        // Inserts `pull_policy: never` at the image indent so `docker compose pull` skips
+        // the non-registry-backed tag. End-to-end behaviour tested in UpdateImagesCassandraModeTests.
         var tmp = Path.Combine(Path.GetTempPath(), $"compose-stamp-{Guid.NewGuid():N}.yaml");
         try
         {
@@ -706,9 +575,7 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task StampCassandraPullPolicyNeverIsIdempotent()
     {
-        // Re-running `bootstrap publish` (or `bootstrap` itself) is a supported operator
-        // action — the stamper must not double-stamp. Idempotency here means: calling the
-        // stamper twice in a row lands exactly one `pull_policy: never` line, not two.
+        // Reruns of `bootstrap publish` must not double-stamp.
         var tmp = Path.Combine(Path.GetTempPath(), $"compose-stamp-idem-{Guid.NewGuid():N}.yaml");
         try
         {
@@ -740,12 +607,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task StampCassandraPullPolicyNeverIsNoOpWhenCassandraAnchorAbsent()
     {
-        // Defensive branch: a scylla-mode compose file (no ${CASSANDRA_IMAGE} anchor)
-        // handed to the stamper by accident must leave the file untouched rather than
-        // throwing or corrupting a random service block. The publish path only calls
-        // the stamper when CassandraImagePhase.IsCassandraDeployment(config) is true,
-        // so this is belt-and-braces — but it's cheap coverage and keeps the stamper
-        // safe to call in any future context (e.g. an operator running it manually).
+        // No ${CASSANDRA_IMAGE} anchor → leave the file alone; keeps the stamper safe
+        // to call from any future context.
         var tmp = Path.Combine(Path.GetTempPath(), $"compose-stamp-noop-{Guid.NewGuid():N}.yaml");
         try
         {
@@ -775,14 +638,8 @@ public sealed class PublishEnvPostProcessingTests
     [Test]
     public async Task EnumerateSharedAspireParametersConfigKeyMatchesEnvKeyKebabToUpperSnake()
     {
-        // Every entry in EnumerateSharedAspireParameters must maintain the Aspire pairing:
-        // the .env-side EnvKey is the upper-snake-cased form of the kebab-cased parameter name
-        // Aspire's compose publisher writes out. This test locks the pairing at unit-test speed
-        // so a hand-authored EnvKey typo (e.g. "SCYLLA-KEYSPACE" or "postgres_user") in the
-        // enumerator can't slip past into a shipped bootstrapper where it would silently blank
-        // the corresponding OCTOCON_* env var in the API container. The existing
-        // BuildEnvReplacementsProducesAllRequiredParameterKeys test above pins the wire keys
-        // themselves; this test pins the derivation rule so future additions stay honest.
+        // EnvKey must equal upper-snake(kebab parameter name); a hand-typed EnvKey would
+        // otherwise silently blank the corresponding OCTOCON_* env var.
         var (config, secrets) = MakeInputs();
 
         var seenConfigKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -795,19 +652,15 @@ public sealed class PublishEnvPostProcessingTests
             await Assert.That(seenEnvKeys.Add(envKey)).IsTrue()
                 .Because($"env-key '{envKey}' appears twice in EnumerateSharedAspireParameters");
 
-            // AppHostParameterKeys.ToParameterName strips the "Parameters:" prefix; it throws
-            // for anything else, so this call also asserts that every ConfigKey lives in the
-            // Parameters:* namespace (a graph-only Ports:* leaking into the shared enumerator
-            // would fail here with an ArgumentException).
+            // ToParameterName also enforces the "Parameters:*" namespace by throwing for
+            // graph-only Ports:* entries.
             var bareName = AppHostParameterKeys.ToParameterName(configKey);
             var expectedEnvKey = bareName.Replace('-', '_').ToUpperInvariant();
             await Assert.That(envKey).IsEqualTo(expectedEnvKey)
                 .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
         }
 
-        // Belt-and-braces count check — the current spec is 24 shared parameters. Any change to
-        // this count must be a deliberate edit to both this assertion AND the enumerator, which
-        // is exactly the drift-in-sync signal this whole extraction exists to enforce.
+        // Spec-frozen at 24 — bump this AND the enumerator together.
         await Assert.That(seenConfigKeys.Count).IsEqualTo(24)
             .Because("shared-parameter count is spec-frozen at 24; update BOTH the enumerator AND this assertion together");
     }

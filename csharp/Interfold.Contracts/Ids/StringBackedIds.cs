@@ -4,24 +4,14 @@ using System.Text.Json.Serialization;
 
 namespace Interfold.Contracts.Ids;
 
-// The Guid-backed entity IDs share the same shape. Each is a `readonly record struct`
-// wrapping a Guid, backed by a JsonConverter that emits the compact 32-char lowercase
-// hex form (Guid.ToString("N")). Wire byte-identical to the previous string-backed
-// spelling, so idempotency hashes and HTTP client contracts stay stable while the
-// per-repository `TryParseUuid` guards go away — validation happens once, at the
-// boundary (JsonConverter.Read and IParsable.TryParse route through
-// UuidString.TryParse which accepts both "N" and hyphenated Guid forms).
+// Guid-backed entity IDs: readonly record struct wrapping Guid, JSON emits the compact
+// 32-char lowercase hex form (Guid.ToString("N")). Read accepts both "N" and hyphenated
+// via UuidString.TryParse.
 
 /// <summary>Strongly-typed wrapper around a tag id (Guid, wire form is 32-char lowercase hex).</summary>
 [JsonConverter(typeof(TagIdJsonConverter))]
 public readonly record struct TagId(Guid Value) : IParsable<TagId>
 {
-    /// <summary>
-    /// The zero-Guid tag id — call sites can write <c>tagId == TagId.Empty</c> instead of
-    /// reaching through <c>.Value</c> to compare against <see cref="Guid.Empty"/>. Mirrors
-    /// <see cref="Guid.Empty"/> so the intent-checking idiom stays visible even after the
-    /// wrapper hides the underlying <see cref="Guid"/>.
-    /// </summary>
     public static readonly TagId Empty = new(Guid.Empty);
 
     public static explicit operator TagId(Guid value) => new(value);
@@ -46,9 +36,6 @@ public readonly record struct TagId(Guid Value) : IParsable<TagId>
 [JsonConverter(typeof(PollIdJsonConverter))]
 public readonly record struct PollId(Guid Value) : IParsable<PollId>
 {
-    /// <summary>
-    /// The zero-Guid poll id. See <see cref="TagId.Empty"/> for the general story.
-    /// </summary>
     public static readonly PollId Empty = new(Guid.Empty);
 
     public static explicit operator PollId(Guid value) => new(value);
@@ -73,9 +60,6 @@ public readonly record struct PollId(Guid Value) : IParsable<PollId>
 [JsonConverter(typeof(EntryIdJsonConverter))]
 public readonly record struct EntryId(Guid Value) : IParsable<EntryId>
 {
-    /// <summary>
-    /// The zero-Guid entry id. See <see cref="TagId.Empty"/> for the general story.
-    /// </summary>
     public static readonly EntryId Empty = new(Guid.Empty);
 
     public static explicit operator EntryId(Guid value) => new(value);
@@ -100,9 +84,6 @@ public readonly record struct EntryId(Guid Value) : IParsable<EntryId>
 [JsonConverter(typeof(FrontIdJsonConverter))]
 public readonly record struct FrontId(Guid Value) : IParsable<FrontId>
 {
-    /// <summary>
-    /// The zero-Guid front id. See <see cref="TagId.Empty"/> for the general story.
-    /// </summary>
     public static readonly FrontId Empty = new(Guid.Empty);
 
     public static explicit operator FrontId(Guid value) => new(value);
@@ -131,9 +112,6 @@ public readonly record struct FrontId(Guid Value) : IParsable<FrontId>
 [JsonConverter(typeof(FieldIdJsonConverter))]
 public readonly record struct FieldId(Guid Value) : IParsable<FieldId>
 {
-    /// <summary>
-    /// The zero-Guid field id. See <see cref="TagId.Empty"/> for the general story.
-    /// </summary>
     public static readonly FieldId Empty = new(Guid.Empty);
 
     public static explicit operator FieldId(Guid value) => new(value);
@@ -154,15 +132,9 @@ public readonly record struct FieldId(Guid Value) : IParsable<FieldId>
     }
 }
 
-/// <summary>
-/// Common JSON converter shape for the Guid-backed entity IDs above. Preserves the
-/// historic wire form (compact 32-char lowercase hex, <c>Guid.ToString("N")</c>) so
-/// persisted command payloads keep the same SHA-256 hash for idempotency replay and
-/// existing HTTP clients see byte-identical response bodies. Read accepts both "N"
-/// and hyphenated forms (<see cref="UuidString.TryParse"/>) so legacy persisted
-/// payloads deserialize. Concrete stubs stay <c>sealed</c> and are named individually
-/// because <c>[JsonConverter(typeof(...))]</c> requires a concrete class name.
-/// </summary>
+// Common JSON converter shape for the Guid-backed IDs above. Writes 32-char lowercase
+// hex; reads accept both "N" and hyphenated forms. Concrete stubs are named individually
+// because [JsonConverter(typeof(...))] requires a concrete class name.
 internal abstract class GuidIdJsonConverter<T> : JsonConverter<T>
 {
     protected abstract T Create(Guid value);

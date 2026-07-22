@@ -38,45 +38,24 @@ var builder = WebApplication.CreateBuilder(args);
 // --- Aspire ServiceDefaults (OTel, resilience, service discovery) ---
 builder.AddServiceDefaults();
 
-// Unified secrets snapshot: fetches every internal.secrets row the API's PostConfigure
-// patchers need (auth, Firebase client, FCM) plus the leaf PFX password, all before the
-// host builds. See SecretsPreBuildLoader for the Postgres-vs-InMemory branch + ordering
-// rationale. The returned snapshot is registered as a singleton instance below.
+// Fetches every internal.secrets row the API's PostConfigure patchers need before host build.
 var secretsSnapshot = SecretsPreBuildLoader.Load(builder.Configuration);
 
-//Database connections which have been implemented
 ScyllaServiceCollectionExtensions.Register();
 InMemoryServiceCollectionExtensions.Register();
 PostgresServiceCollectionExtensions.Register();
 
-// --- Configuration ---
-// Register every typed option (bound via AddInterfoldOptions) BEFORE we take any startup
-// snapshots — the CORS + persistence + cluster wiring below all read one-shot values that
-// must go through the IOptions pipeline so tests can override them via the
-// FactoryConfigurationProvider without a bespoke Bind*() helper.
+// Register typed options BEFORE the startup snapshots below so tests can override them
+// via the FactoryConfigurationProvider without a bespoke Bind*() helper.
 IOptionsMonitor<AuthenticationConfiguration>? authOptionsMonitor = null;
 builder.Services.AddInterfoldOptions();
 
-// Startup snapshots for the three purely-env-bound options. AuthenticationConfiguration is
-// deliberately absent: it goes through the AuthenticationSecretsPostConfigure pipeline which
-// pulls from an ISecretsSnapshot populated pre-Build by SecretsPreBuildLoader — probing it
-// here would resolve validation before the secret-store-sourced fields are patched in and
-// trip [Required] on the mandatory secret fields. The two probe consumers (JWT bearer
-// ValidAudience and AddInterfoldAuthChallengeSchemes) read directly from builder.Configuration
-// for the four env-bound values they need, below.
-//
-// ASP0000: BuildServiceProvider inside application code duplicates singleton graphs — that
-// is the intended cost here. The alternative (hand-maintained Bind*(IConfiguration)
-// helpers) reintroduces the drift that the options pipeline exists to eliminate.
-//
-// The probe SP is built off a CLONE of builder.Services in which the framework's factory
-// IConfiguration registration ("services.AddSingleton(_ => appConfiguration)", intentionally
-// set up so the SP owns configuration disposal) is swapped for a non-owning proxy. Without
-// that swap, disposing the probe SP would also dispose the shared ConfigurationManager, and
-// any subsequent ConfigureAppConfiguration callback — notably the one WebApplicationFactory<T>
-// registers during integration tests — would throw ObjectDisposedException at builder.Build()
-// when it tries to Add() a source to the disposed manager. See
-// StartupProbeConfigurationProxy for the full rationale.
+// AuthenticationConfiguration is deliberately absent from this probe: its patchers pull
+// from the pre-Build secrets snapshot; probing would trip [Required] before the patches
+// land. ASP0000 is intentional — the alternative is hand-maintained Bind*() helpers that
+// reintroduce the drift the options pipeline exists to eliminate.
+// The probe SP swaps in a non-owning IConfiguration proxy so disposing it doesn't dispose
+// the shared ConfigurationManager (which WebApplicationFactory<T> reuses in tests).
 PersistenceConfiguration persistenceConfig;
 CorsOptions corsOptions;
 ClusterConfiguration clusterConfig;
@@ -90,10 +69,7 @@ using (var probeProvider = probeServices.BuildServiceProvider(validateScopes: fa
     clusterConfig = probeProvider.GetRequiredService<IOptions<ClusterConfiguration>>().Value;
 }
 
-// Comma-separated allow-list from OCTOCON_CORS_ALLOWED_ORIGINS via IOptions<CorsOptions>;
-// blank falls back to allow-any (dev-only — production stacks must set it explicitly).
-// Trailing-slash trimming and de-dup live inside ApplyCors for parity with the ASP.NET Core
-// CORS matcher.
+// Allow-list from OCTOCON_CORS_ALLOWED_ORIGINS; blank = allow-any (dev-only).
 var configuredCorsOrigins = corsOptions.AllowedOrigins.ToArray();
 
 builder.Services.AddCors(options =>
@@ -114,31 +90,20 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Registered BEFORE persistence services so the snapshot (already populated pre-Build by
-// SecretsPreBuildLoader) is visible before migration services try to read admin creds /
-// OAuth secrets out of IConfiguration, and before ValidationHostedService dereferences
-// AuthenticationConfiguration / FirebaseClientConfiguration / FcmConfiguration to enforce
-// [Required] via .ValidateOnStart().
+// Register BEFORE persistence so the pre-Build secrets snapshot is visible when migration
+// services and ValidationHostedService (via [Required] + ValidateOnStart) read secrets.
 builder.Services.AddSingleton<ISecretsSnapshot>(secretsSnapshot);
 builder.Services.AddSingleton(secretsSnapshot);
 builder.Services.AddSingleton<IPostConfigureOptions<AuthenticationConfiguration>, AuthenticationSecretsPostConfigure>();
 builder.Services.AddSingleton<IPostConfigureOptions<FirebaseClientConfiguration>, FirebaseClientSecretsPostConfigure>();
 builder.Services.AddSingleton<IPostConfigureOptions<FcmConfiguration>, FcmSecretsPostConfigure>();
 
-// --- Dependency Injection ---
-// The snapshots above already reflect the env-bound IOptions<T> values; passing them into
-// the mode/role-scoped extension methods layers them onto the mode-registration lambdas
-// (which capture PersistenceConfiguration synchronously) while every other consumer still
-// resolves IOptions<PersistenceConfiguration> from the DI container.
 builder.Services.AddInterfoldCluster(clusterConfig.NodeGroup);
 builder.Services.AddInterfoldPersistence(persistenceConfig.Mode, persistenceConfig);
 builder.Services.AddInterfoldDomainHandlers();
 
-// --- Health Checks ---
-// Readiness checks fail fast (dependency dropped after boot); startup checks allow
-// longer for cold-start migrations. Timeouts and the "-ready"/"-startup" naming
-// convention live in HealthCheckExtensions.AddReadyAndStartup so any tweak stays
-// consistent across the persistence-mode branches.
+// Readiness fails fast; startup allows longer for cold-start migrations; naming convention
+// lives in HealthCheckExtensions.AddReadyAndStartup.
 var healthChecks = builder.Services.AddHealthChecks();
 
 if (persistenceConfig.Mode == PersistenceMode.ScyllaPostgres)
@@ -153,26 +118,17 @@ builder.Services.AddSingleton<SocketJoinRateLimiter>();
 
 builder.Services.AddTransient<HttpLoggingHandler>();
 
-// --- HTTP Client Factory (for OAuth token exchange, etc.) ---
 builder.Services.AddHttpClient<GoogleOAuthService>();
 builder.Services.AddHttpClient<DiscordOAuthService>();
 builder.Services.AddHttpClient<AppleOAuthService>();
 builder.Services.AddSimplyPluralImport();
 
-// Async-import worker stack. The queue itself is registered in
-// AddInterfoldCluster (it's a coordination primitive). Runners are per-kind and
-// resolve their concrete importer dependency from this graph. The hosted service
-// drains the queue, drives operation-row transitions, and publishes the
-// sp_import_complete / pk_import_complete events that the existing socket pump
-// relays to the WebSocket client.
+// Async-import queue lives in AddInterfoldCluster; this hosts the drain loop.
 builder.Services.AddSingleton<IImportJobRunner, PkImportJobRunner>();
 builder.Services.AddHostedService<ImportJobBackgroundService>();
 
-// Permissive-TLS named client for the WebSocket endpoint relay's self-call. The call
-// site (WebSocketHandler.HandleEndpointProxyAsync + ResolveLoopbackBaseUri) guarantees
-// a loopback destination; LoopbackHttpClient's XML doc covers why permissive validation
-// is the right call there. AllowAutoRedirect off because the relay targets the HTTPS
-// listener directly, so any redirect would be a bug to surface, not follow.
+// Loopback-only named client for the WebSocket relay's self-call (see LoopbackHttpClient).
+// AllowAutoRedirect off — relay targets HTTPS directly, any redirect is a bug.
 builder.Services.AddHttpClient(LoopbackHttpClient.Name)
     .ConfigurePrimaryHttpMessageHandler(static () => new SocketsHttpHandler
     {
@@ -183,19 +139,9 @@ builder.Services.AddHttpClient(LoopbackHttpClient.Name)
         },
     });
 
-// --- Auth ---
-// JWTs are self-issued post-OAuth (the provider only identifies the user); no external OIDC
-// authority to validate iss against, so issuer validation is off and we rely on aud + lifetime.
-// TODO: Look into how we can make this better WITHOUT breaking existing clients
-//
-// ValidAudience and the OAuth client IDs are env-bound values that must be read at
-// registration time to wire into the JWT handler / challenge schemes. We deliberately do
-// not resolve IOptions<AuthenticationConfiguration>.Value here — that would trigger
-// .ValidateOnStart() before AuthenticationSecretsPostConfigure patches in the [Required]
-// secret fields (already populated in the snapshot pre-Build by SecretsPreBuildLoader).
-// builder.Configuration is the same source ApplyAuthentication reads from, so this is
-// byte-identical to the options-pipeline probe for the four public fields we still need at
-// boot.
+// JWTs are self-issued post-OAuth; no external OIDC issuer to validate, so aud + lifetime only.
+// Read straight off builder.Configuration to avoid triggering .ValidateOnStart() before
+// AuthenticationSecretsPostConfigure patches in the [Required] secret fields.
 var jwtAudienceAtBoot = builder.Configuration[OctoconEnvKeys.JwtAudience] ?? "octocon";
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -207,28 +153,22 @@ builder.Services
             NameClaimType = "sub",
             ValidateIssuer = false,
             ValidateAudience = false,
-            ValidAudience = jwtAudienceAtBoot, //Has to be done at startup to wire into the JWT handler
+            ValidAudience = jwtAudienceAtBoot,
             ValidateLifetime = true,
             RequireExpirationTime = true,
             ClockSkew = TimeSpan.FromMinutes(1),
             ValidateIssuerSigningKey = false,
             RequireSignedTokens = true,
-            // authOptionsMonitor is assigned right after app.Build() and this closure only
-            // fires at request time (long after startup completes and PostConfigure has
-            // patched the ES256 verification key from the snapshot), so a null-forgive is
-            // safe here.
+            // authOptionsMonitor is assigned right after app.Build(); this closure only fires
+            // at request time so null-forgive is safe.
             SignatureValidator = (token, _) =>
                 ValidateJwtTokenSignatureForBearer(
                     token,
                     authOptionsMonitor!.CurrentValue)
         };
-        // JTI revocation check is wired after app.Build() to access IAuthTokenRevocationRepository
     });
 
-// OAuth challenge schemes are registered once at startup; only the client_id per provider is
-// per-deployment, and each ClientId is env-bound (ApplyAuthentication:275/277/279). Reading
-// builder.Configuration directly here mirrors that binding without materialising an
-// AuthenticationConfiguration snapshot — same rationale as jwtAudienceAtBoot above.
+// Same builder.Configuration read as jwtAudienceAtBoot for the same PostConfigure reason.
 builder.Services.AddInterfoldAuthChallengeSchemes(
     discordOAuthClientId: builder.Configuration[OctoconEnvKeys.DiscordOAuthClientId],
     googleOAuthClientId: builder.Configuration[OctoconEnvKeys.GoogleOAuthClientId],
@@ -258,12 +198,8 @@ builder.Services
         metrics.AddMeter(InterfoldMetrics.MeterName);
     });
 
-// --- MVC ---
-// The UnixSecondsModelBinderProvider is inserted at position 0 so it takes precedence
-// over MVC's built-in SimpleType / ComplexObject providers for UnixSeconds parameters.
-// Without the front-of-queue insert, MVC would try to shape UnixSeconds as a complex
-// object (looking for a `Value` constructor arg on the query string) instead of using
-// the string TryParse path our custom binder owns.
+// UnixSecondsModelBinderProvider at position 0 takes precedence over MVC's SimpleType /
+// ComplexObject providers for UnixSeconds parameters.
 builder.Services.AddControllers(mvcOptions =>
     {
         mvcOptions.ModelBinderProviders.Insert(0, new UnixSecondsModelBinderProvider());
@@ -271,24 +207,16 @@ builder.Services.AddControllers(mvcOptions =>
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-        // Ensure DateTime / DateTimeOffset are consistently emitted as UTC (single trailing 'Z')
         options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
         options.JsonSerializerOptions.Converters.Add(new UtcDateTimeOffsetConverter());
     });
 
-// Route DataAnnotations-driven 400s (e.g. `[ValidAlterId]` on request records) through
-// the same `ErrorResponse` shape the rest of the API returns, using
-// `ValidationErrorCodeRegistry` to preserve stable wire codes (`invalid_alter_id`,
-// falling back to `bad_request`). Without this the framework default is
-// `ValidationProblemDetails`, which the Kotlin client does not decode.
+// Route DataAnnotations 400s through ErrorResponse so the Kotlin client can decode them
+// (the default ValidationProblemDetails isn't supported).
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
     {
-        // Prefer the first field with an error so we can pair its message with the
-        // matching UnixSecondsBinding stash on HttpContext.Items. Falling back to a
-        // synthetic entry keeps the payload shape stable when ModelState is empty
-        // (defensive — the factory only runs when at least one error is present).
         var firstBadField = context.ModelState
             .FirstOrDefault(kv => kv.Value?.Errors.Count > 0
                 && !string.IsNullOrWhiteSpace(kv.Value.Errors[0].ErrorMessage));
@@ -296,10 +224,8 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options 
         var firstError = firstBadField.Value?.Errors[0].ErrorMessage
             ?? "The request payload was invalid.";
 
-        // UnixSecondsModelBinder stashes the intended ErrorCode string on HttpContext.Items
-        // under a well-known per-field key. Preferring it over the message-keyed registry
-        // preserves the invalid_end_anchor / invalid_anchor wire codes verbatim without
-        // requiring the human-readable message to be globally unique.
+        // Prefer the binder's stashed ErrorCode so invalid_end_anchor / invalid_anchor
+        // survive verbatim without needing globally unique messages.
         var stashedCode = context.HttpContext.Items[
             UnixSecondsBindingAttribute.ItemsKey(firstBadField.Key ?? string.Empty)] as string;
 
@@ -328,11 +254,8 @@ builder.Services.AddSwaggerGen(options =>
         var first = apiDescriptions.First();
         var route = first.RelativePath?.ToLowerInvariant();
 
-        // Normalise any route-parameter placeholder to a fixed sentinel so the allow-list is
-        // token-agnostic. Otherwise renaming a route parameter (e.g. `{id}` → `{alterId}` on
-        // AltersController.UploadAvatar*) silently pushes the route out of the allow-list and
-        // Swagger throws NotSupportedException on every doc generation — which propagates as
-        // an unhandled 500 through the ExceptionHandler pipeline on any request.
+        // Sentinelise route params so renaming (e.g. {id}→{alterId}) doesn't silently drop
+        // routes off the allow-list and crash Swagger doc generation.
         var normalisedRoute = route is null
             ? null
             : System.Text.RegularExpressions.Regex.Replace(route, @"\{[^/{}]+\}", "{*}");
@@ -388,18 +311,11 @@ builder.Services.AddExceptionHandler<ExceptionHandler>();
 
 var app = builder.Build();
 
-// Capture the monitor once so the JWT SignatureValidator closure has a stable handle. The
-// closure only fires at request time (after startup completes and PostConfigure has run),
-// so this assignment is safe even though the monitor's CurrentValue isn't dereferenced yet.
+// Stable handle for the JWT SignatureValidator closure; safe pre-request-time since
+// CurrentValue isn't dereferenced yet.
 authOptionsMonitor = app.Services.GetRequiredService<IOptionsMonitor<AuthenticationConfiguration>>();
 
-// Defer the ES256 verification-key log to ApplicationStarted so we don't dereference
-// IOptionsMonitor<AuthenticationConfiguration>.CurrentValue between app.Build() and
-// app.Run(). .ValidateOnStart() + [Required] on the secret fields means an early
-// CurrentValue resolution would trip validation before the ValidateOnStart hosted service
-// has run — the log fires after that hosted service completes, so the count reflects the
-// fully-patched configuration (the snapshot itself is already populated pre-Build by
-// SecretsPreBuildLoader, well before this point).
+// Log on ApplicationStarted so ValidateOnStart has patched [Required] secret fields first.
 var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthStartup");
 app.Lifetime.ApplicationStarted.Register(() =>
 {
@@ -412,8 +328,8 @@ app.Lifetime.ApplicationStarted.Register(() =>
 
 app.UseExceptionHandler("/error");
 
-// Buffer avatar multipart PUTs so source-validation can re-read Request.Body after MVC
-// model-binds the form. Scoped to the two avatar routes to keep the cost off everything else.
+// Buffer avatar multipart PUTs so source-validation can re-read Request.Body post-bind;
+// scoped to the two avatar routes only.
 app.Use(async (context, next) =>
 {
     if (HttpMethods.IsPut(context.Request.Method)
@@ -431,8 +347,7 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// JWT token revocation check middleware.
-// This runs after authentication, checking if the authenticated token's JTI has been revoked.
+// Post-authentication JTI-revocation gate.
 app.Use(async (context, next) =>
 {
     if (context.User?.Identity?.IsAuthenticated == true)
@@ -447,7 +362,6 @@ app.Use(async (context, next) =>
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
                 var error = new ErrorResponse("Token has been revoked.", ErrorCodes.TokenRevoked);
-                // Web options keep the historical lowercase member names ("error"/"code").
                 var json = JsonSerializer.Serialize(error, JsonSerializerOptions.Web);
                 await context.Response.WriteAsync(json, context.RequestAborted);
                 return;
@@ -469,7 +383,6 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "swagger";
 });
 
-// X-Interfold-Contract response header on every response
 app.Use(async (ctx, next) =>
 {
     ctx.Response.OnStarting(() =>
@@ -481,8 +394,7 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseHsts();
-// Carve /.well-known out of HTTPS-redirect so TrustController can serve the root CA over
-// plain HTTP — clients can't trust HTTPS until they've fetched and installed that root.
+// /.well-known stays plain HTTP so clients can fetch the root CA before trusting HTTPS.
 app.UseWhen(
     static ctx => !ctx.Request.Path.StartsWithSegments("/.well-known"),
     static branch => branch.UseHttpsRedirection());
@@ -491,12 +403,8 @@ app.UseAuthentication();
 app.UseMiddleware<InterfoldPrincipalMiddleware>();
 app.UseStaticFiles();
 
-// Serve avatars per AvatarServingPolicy (see its XML doc for the config matrix). Hand-rolled
-// rather than a secondary UseStaticFiles because the policy reads IOptionsMonitor per request
-// — LocalAvatarStorage stamps URLs from the same monitor, so write-side and read-side must
-// agree on current values across config reloads. Unknown extensions fall through (matches
-// StaticFileMiddleware's ServeUnknownFileTypes=false); the upload controller already gates
-// content-type at write time.
+// Serve avatars per AvatarServingPolicy. Hand-rolled (not a second UseStaticFiles) so the
+// serve-side and LocalAvatarStorage's URL-stamp side read the same IOptionsMonitor snapshot.
 var avatarContentTypeProvider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
 app.Use(async (context, next) =>
 {
@@ -546,8 +454,7 @@ app.Use(async (context, next) =>
     var fi = new FileInfo(fullPath);
     context.Response.ContentType = contentType;
     context.Response.ContentLength = fi.Length;
-    // Safe to cache long-term: LocalAvatarStorage embeds a timestamp+Guid in the filename,
-    // so any overwrite produces a fresh URL.
+    // Safe long-term cache: LocalAvatarStorage embeds a fresh timestamp+Guid on every write.
     context.Response.Headers.CacheControl = "public, max-age=86400";
     if (HttpMethods.IsHead(context.Request.Method))
     {
@@ -563,7 +470,6 @@ app.UseWebSockets(new WebSocketOptions
 
 app.UseAuthorization();
 
-// --- Health Check Endpoints (from ServiceDefaults) ---
 app.MapDefaultEndpoints();
 
 app.MapMethods("/api/socket/websocket", ["GET", "CONNECT"], WebSocketHandler.HandleUserSocketAsync).AllowAnonymous();
@@ -572,7 +478,6 @@ app.MapControllers();
 app.Run();
 return 0;
 
-// ES256 JWT token validation using ECDSA P-256 public keys.
 static SecurityToken ValidateJwtTokenSignatureForBearer(
     string token,
     AuthenticationConfiguration config)

@@ -17,21 +17,6 @@ using Interfold.Contracts.Models.ImportOperations;
 
 namespace Interfold.Api.Services;
 
-/*
-  TODO: We currently don't import the following SP data
-  * Privacy Buckets (we don't have this concept within Interfold, and they don't always 1:1 to our security levels)
-  * Message Boards - Alter (we don't have this concept)
-    * Receive board messages on switch
-  * Prevent notification - On alter front
-  * Chat - Can maybe map to global journals?
-  * App Reminders
-  * Friend Settings
-    * Shared Members
-    * See who is fronting
-    * Global front change notifications (them and us)
-    * Privacy Buckets
-*/
-
 public sealed class SimplyPluralImportService : ISimplyPluralImportService
 {
     private const int MaxJournalContentLength = 30_000;
@@ -90,9 +75,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     {
         _logger.LogInformation("Starting Simply Plural import for system {SystemId}", systemId);
 
-        // Recovery code and derived key stay typed end-to-end through the import: the
-        // "no derived key" case is a null EncryptionKeyMaterial? rather than an empty
-        // string, pattern-matched at the gate below.
+        // Null = no derived key, matched at the gate below.
         EncryptionKeyMaterial? encryptionKey = null;
         if (recoveryKey is { } providedRecoveryKey && !string.IsNullOrWhiteSpace(providedRecoveryKey.Value))
         {
@@ -104,10 +87,10 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
 
         using var httpClient = _httpClientFactory.CreateClient(HttpClientNames.SimplyPlural);
-        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", spToken.Value); // SP uses non-standard "Authorization: {token}" header
+        // SP uses non-standard "Authorization: {token}" (no scheme prefix).
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", spToken.Value);
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Interfold/spimport");
 
-        // 1. Fetch system data
         var systemData = await FetchAsync<SpEntity<SpSystemContent>>(httpClient, SpApiPaths.Me(), cancellationToken);
         if (systemData is null)
             return new ImportJobOutcome(false, 0, ImportErrorCode.SpImportFailed, "Failed to fetch system data from Simply Plural.");
@@ -115,45 +98,36 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         var spSystemId = systemData.Id;
         var description = systemData.Content.Desc;
 
-        // 2. Fetch custom fields
         var (fieldMapping, createdFieldIds) = await ImportCustomFieldsAsync(httpClient, spSystemId, systemId, cancellationToken);
 
-        // 3. Fetch members and custom fronts
         var (alterCount, alterAssociations, avatarDownloads) =
             await ImportAltersAsync(httpClient, spSystemId, systemId, fieldMapping, cancellationToken);
 
-        // 4. Fetch groups -> tags
         var tagAssociations = await ImportTagsAsync(httpClient, spSystemId, systemId, alterAssociations, cancellationToken);
 
-        // 5. Fetch front history
         await ImportFrontsAsync(httpClient, spSystemId, systemId, alterAssociations, cancellationToken);
 
-        // 6. Import polls
         await ImportPollsAsync(httpClient, spSystemId, systemId, alterAssociations, cancellationToken);
 
-        // (optional) 7. Import notes per alter as alter journals
         if (encryptionKey is { } derivedEncryptionKey)
         {
             await ImportNotesAsync(httpClient, spSystemId, systemId, alterAssociations, derivedEncryptionKey, cancellationToken);
         }
 
-        // 8. Update account description if available
         if (!string.IsNullOrWhiteSpace(description))
         {
             var truncated = description.Length > 3000 ? description[..3000] : description;
             await _accountRepository.UpdateDescriptionAsync(systemId, truncated, cancellationToken);
         }
 
-        // 8b. Decide what to do with the system avatar. SP CDN avatars are queued for
-        // rehost (since SP is shutting down); a non-CDN URL is written through synchronously
-        // with avatar_source=External so the avatar is visible immediately.
+        // SP CDN avatars are queued for rehost (SP is shutting down); non-CDN URLs are
+        // written through with avatar_source=External so they're visible immediately.
         var systemAvatarRehost = await ImportSystemAvatarAsync(systemId, systemData.Content, cancellationToken);
         if (systemAvatarRehost is not null)
         {
             avatarDownloads.Add(systemAvatarRehost);
         }
 
-        // 9. Download and attach avatars in background
         if (WaitForAvatars == true)
         {
             await DownloadAvatarsAsync(systemId, avatarDownloads, cancellationToken);
@@ -171,7 +145,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
     private async Task<(Dictionary<string, FieldId> FieldMapping, List<FieldId> CreatedFieldIds)> ImportCustomFieldsAsync(
         HttpClient httpClient, string spSystemId, SystemId systemId, CancellationToken ct)
     {
-        var fieldMapping = new Dictionary<string, FieldId>(); // SP field ID -> our field ID
+        var fieldMapping = new Dictionary<string, FieldId>();
         var createdFieldIds = new List<FieldId>();
 
         var customFields = await FetchAsync<List<SpEntity<SpCustomFieldContent>>>(httpClient, SpApiPaths.CustomFields(spSystemId), ct);
@@ -182,10 +156,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         {
             var spFieldId = field.Id;
 
-            // SP doesn't return a created/lastOperationTime on custom fields - the only signal
-            // is the MongoDB ObjectId's first 4 bytes (big-endian Unix seconds). If the id
-            // isn't a 24-hex ObjectId we have nothing reliable to stamp, so skip rather than
-            // silently falling back to UtcNow (which is what we used to do for everything).
+            // SP custom fields carry no timestamps; only signal is the MongoDB ObjectId's
+            // first 4 bytes. Non-ObjectId ids skip rather than falling back to UtcNow.
             if (!SpObjectId.TryDecodeTimestamp(spFieldId, out var insertedAtUtc))
             {
                 _logger.LogWarning(
@@ -214,13 +186,11 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         HttpClient httpClient, string spSystemId, SystemId systemId,
         Dictionary<string, FieldId> fieldMapping, CancellationToken ct)
     {
-        var alterAssociations = new Dictionary<string, AlterId>(); // SP UUID -> our alter ID
+        var alterAssociations = new Dictionary<string, AlterId>();
         var avatarDownloads = new List<AvatarDownload>();
         var alterCount = 0;
 
-        // Fetch members
         var members = await FetchAsync<List<SpEntity<SpMemberContent>>>(httpClient, SpApiPaths.Members(spSystemId), ct);
-        // Fetch custom fronts
         var customFronts = await FetchAsync<List<SpEntity<SpMemberContent>>>(httpClient, SpApiPaths.CustomFronts(spSystemId), ct);
 
         var allEntries = new List<(SpMemberContent Content, string Uuid, bool IsCustomFront)>();
@@ -243,11 +213,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             if (name.Length > 80) name = name[..80];
             if (string.IsNullOrWhiteSpace(name)) name = "Unnamed alter";
 
-            // SP's `date` field is the real created-date when present; if it's 0 (older
-            // rows, occasional schema gaps) we previously stamped 1970-01-01 silently.
-            // Fall back to the SP member id's ObjectId-encoded creation second, then to
-            // import time (alter creation can't be skipped: downstream fronts/polls/notes
-            // look the alter up by SP uuid via alterAssociations).
+            // Cascade date → ObjectId-encoded timestamp → UtcNow+warn. Never silently
+            // stamp epoch; alter creation can't be skipped (downstream lookups by uuid).
             DateTimeOffset createdAt;
             if (content.Date > 0)
             {
@@ -277,7 +244,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             alterAssociations[uuid] = alterId.Value;
             alterCount++;
 
-            // Build update command with SP data
             var pronouns = content.Pronouns;
             if (pronouns?.Length > 50) pronouns = pronouns[..50];
 
@@ -286,7 +252,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
             var color = ParseColor(content.Color);
 
-            // Parse fields
             List<AlterFieldCommand>? fields = null;
             if (content.Info is { Count: > 0 })
             {
@@ -302,14 +267,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
             var securityLevel = MapSecurityLevel(content.Private, content.PreventTrusted);
 
-            // Resolve the SP avatar URL up-front so we can decide whether the immediate
-            // UpdateAlterCommand carries a passthrough URL or stays empty (rehost case).
-            //
-            // Branches:
-            //   * avatarUuid + uid  → constructed SP CDN URL → rehost (SP is shutting down).
-            //   * avatarUrl on SP CDN → rehost as above.
-            //   * avatarUrl elsewhere → passthrough with avatar_source=External.
-            //   * none of the above → no avatar set.
+            // Branches: (avatarUuid+uid) or SP CDN url → rehost; other absolute url →
+            // passthrough (avatar_source=External); else no avatar.
             var avatarUuid = content.AvatarUuid;
             var rawAvatarUrl = content.AvatarUrl;
             var uid = content.Uid;
@@ -363,20 +322,19 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         HttpClient httpClient, string spSystemId, SystemId systemId,
         Dictionary<string, AlterId> alterAssociations, CancellationToken ct)
     {
-        var tagAssociations = new Dictionary<string, TagId>(); // SP group ID -> our tag ID
+        var tagAssociations = new Dictionary<string, TagId>();
 
         var groups = await FetchAsync<List<SpEntity<SpGroupContent>>>(httpClient, SpApiPaths.Groups(spSystemId), ct);
         if (groups is null)
             return tagAssociations;
 
-        // First pass: create all tags (without parent relationships)
+        // Pass 1: create tags (no parent). Pass 2: parents. Pass 3: alter attachments.
         var tagEntries = new List<(string SpId, SpGroupContent Content)>();
         foreach (var group in groups)
         {
             tagEntries.Add((group.Id, group.Content));
         }
 
-        // Create tags
         foreach (var (spId, content) in tagEntries)
         {
             var name = content.Name ?? "Unnamed tag";
@@ -396,7 +354,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             {
                 tagAssociations[spId] = createdTagId.Value;
 
-                // Update tag with description and color from SP
                 var tagDesc = content.Desc;
                 if (tagDesc?.Length > 1000) tagDesc = tagDesc[..1000];
                 var tagColor = ParseColor(content.Color);
@@ -416,7 +373,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             }
         }
 
-        // Second pass: set parent relationships
         foreach (var (spId, content) in tagEntries)
         {
             if (!tagAssociations.TryGetValue(spId, out var ourTagId))
@@ -432,7 +388,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             }
         }
 
-        // Third pass: attach alters to tags
         foreach (var (spId, content) in tagEntries)
         {
             if (!tagAssociations.TryGetValue(spId, out var ourTagId))
@@ -457,7 +412,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         HttpClient httpClient, string spSystemId, SystemId systemId,
         Dictionary<string, AlterId> alterAssociations, CancellationToken ct)
     {
-        // Fetch front history in chunks (SP epoch: Jan 1, 2015)
+        // SP epoch: 2015-01-01. Chunk by 6 months to bound each API call.
         const long startEpoch = 1_420_070_400_000;
         const int monthInterval = 6;
         var chunkSizeMs = (long)monthInterval * 30 * 24 * 60 * 60 * 1000;
@@ -488,7 +443,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                     if (front.Content.StartTime <= 0 || front.Content.EndTime <= 0)
                         continue;
 
-                    //TODO: Add comments on top of the custom status
                     var comment = front.Content.CustomStatus;
                     if (comment?.Length > 50) comment = comment[..50];
 
@@ -500,11 +454,9 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 }
             }
 
-            // Rate limit courtesy delay
             await Task.Delay(200, ct);
         }
 
-        // Import current fronters
         var currentFronters = await FetchAsync<List<SpEntity<SpFrontContent>>>(httpClient, SpApiPaths.CurrentFronters(), ct);
         if (currentFronters is not null)
         {
@@ -514,16 +466,11 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 if (memberId is null || !alterAssociations.TryGetValue(memberId, out var alterId))
                     continue;
 
-                //TODO: Add comments on top of the custom status
                 var comment = fronter.Content.CustomStatus;
                 if (comment?.Length > 50) comment = comment[..50];
 
-                // Prefer the front's own startTime; if SP didn't emit one (sticky/primary
-                // live fronters can omit it), fall back to the SP MongoDB ObjectId's
-                // encoded creation second. ObjectId is the doc's birth moment which for a
-                // live front is when the user switched — better than lastOperationTime,
-                // which drifts on every edit. Skip+warn if neither is available rather
-                // than silently stamping UtcNow (the original "today date" bug).
+                // Prefer startTime, else ObjectId-encoded creation second. Never fall back
+                // to UtcNow (the original "today date" bug).
                 DateTimeOffset spStart;
                 if (fronter.Content.StartTime > 0)
                 {
@@ -556,9 +503,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
         foreach (var poll in polls)
         {
-            // Custom polls without options would land as zero-choice "choice" rows that users
-            // can't vote on. SP marks `options` as optional in its v1 poll schema, so this is
-            // a real shape that turns up in the wild.
+            // SP marks options optional even for custom polls; skip so we don't create
+            // zero-choice rows that can't be voted on.
             if (poll.Content.Custom && (poll.Content.Options is null || poll.Content.Options.Count == 0))
             {
                 _logger.LogWarning(
@@ -567,8 +513,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 continue;
             }
 
-            // Match the CreatePollCommandHandler invariants (title <= 100, desc <= 2000) so
-            // every imported row could also be edited through the public API later.
+            // Match CreatePollCommandHandler caps (title <= 100, desc <= 2000).
             var title = poll.Content.Name ?? "Unnamed poll";
             if (title.Length > 100) title = title[..100];
             if (string.IsNullOrWhiteSpace(title)) title = "Unnamed poll";
@@ -576,17 +521,13 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             var desc = poll.Content.Desc;
             if (desc?.Length > 2000) desc = desc[..2000];
 
-            // SP custom=false → "vote" (yes/no/abstain/veto), custom=true → "choice" (multiple options)
             var type = poll.Content.Custom ? PollType.Choice : PollType.Vote;
 
             DateTime? timeEnd = poll.Content.EndTime > 0
                 ? DateTimeOffset.FromUnixTimeMilliseconds(poll.Content.EndTime).UtcDateTime
                 : null;
 
-            // SP's poll id is a MongoDB ObjectId whose first 4 bytes encode the doc's
-            // creation second. That's a true created-date; lastOperationTime drifts forward
-            // on every edit and isn't what we want as inserted_at. Fall back to
-            // lastOperationTime (then UtcNow) only when the id isn't a 24-hex ObjectId.
+            // Prefer ObjectId (created-second); lastOperationTime drifts on every edit.
             DateTime insertedAt;
             if (SpObjectId.TryDecodeTimestamp(poll.Id, out var decodedPollAt))
             {
@@ -649,9 +590,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 if (title.Length > 100) title = title[..100];
                 if (string.IsNullOrWhiteSpace(title)) title = "Imported note";
 
-                // SP's `date` is the real created-date when present; same silent-1970 trap as
-                // alters when it's 0. Cascade Date -> ObjectId -> UtcNow + warn so we never
-                // silently land on the epoch and operators see a trace of any degraded row.
+                // Cascade Date → ObjectId → UtcNow+warn (same silent-1970 trap as alters).
                 DateTimeOffset createdAt;
                 if (note.Content.Date > 0)
                 {
@@ -672,8 +611,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                         note.Id, systemId, alterId);
                 }
 
-                // lastOperationTime is the right source for updated_at - it's SP's last-edit
-                // timestamp, which is exactly what UpdatedAt means here.
                 var updatedAt = UnixTimestampToDateTimeOffset(note.Content.LastOperationTime);
 
                 var entryId = await _journalRepository.CreateAlterAsync(systemId, new CreateAlterJournalEntryCommand(
@@ -725,9 +662,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         return encrypted;
     }
 
-    // Mirrors client encryptData: real AES-256-GCM with random IV, ciphertext and tag stored separately.
-    // The single `.Value` unwrap on base64Key is at the crypto-primitive boundary, where
-    // the base64-string form is the API contract of Convert.FromBase64String.
+    // Mirrors client encryptData: AES-256-GCM with random IV; ciphertext + tag stored separately.
     private static string? TryEncryptForClient(string plaintext, EncryptionKeyMaterial base64Key)
     {
         try
@@ -753,11 +688,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             return null;
         }
     }
-    
-    // Typed on both sides: recoveryCode arrives from ImportAsync unwrapped from a nullable
-    // at the outer guard, and the tuple's second slot is EncryptionKeyMaterial? so the
-    // caller assigns straight into a typed nullable local rather than encoding "no derived
-    // key" through an empty-string sentinel + IsNullOrWhiteSpace gate.
+
     private async Task<(ImportJobOutcome Result, EncryptionKeyMaterial? DerivedKey)> ValidateEncryptionKeyAsync(SystemId systemId, RecoveryCode recoveryCode, CancellationToken ct)
     {
         var state = await _encryptionStateRepository.GetAsync(systemId, ct);
@@ -774,17 +705,10 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         return (new ImportJobOutcome(true, 0), key);
     }
 
-    /// <summary>
-    /// Builds the JSON `data` blob for an imported poll in the client's confirmed schema
-    /// (see <see cref="PollDataJson"/>): custom SP polls become choice-poll data
-    /// (<c>choices</c> + <c>responses</c> keyed by <c>choice_id</c>), standard SP polls
-    /// become vote-poll data (<c>responses</c> with yes/no/abstain/veto + <c>allow_veto</c>).
-    /// Returns the blob plus the number of SP-side votes we refused to import because they
-    /// referenced a voter or an option we don't know about (unmapped member uuid, blank id,
-    /// blank vote string, non-standard vote value, or a custom vote that matches no option).
-    /// The caller surfaces that count as a single warning per poll rather than spamming one
-    /// log line per dropped vote.
-    /// </summary>
+    /// <summary>Builds the client-schema poll data blob (see <see cref="PollDataJson"/>)
+    /// and returns the count of unmappable votes (unknown voter, blank id, non-standard
+    /// value, or custom vote matching no option) so the caller can log one warning per
+    /// poll rather than one per dropped vote.</summary>
     private static (JsonElement Data, int SkippedUnmappableVotes) BuildPollData(
         SpPollContent poll, Dictionary<string, AlterId> alterAssociations)
     {
@@ -793,9 +717,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
         if (poll.Custom)
         {
-            // SP custom-poll votes carry the chosen option's name in `vote`; mint stable
-            // choice ids and translate name → choice_id. SP option colors have no slot in
-            // the client's {id,name} choice shape and were never rendered — dropped.
+            // SP custom-poll votes carry option name; mint choice ids and translate name→id.
             var choices = new List<PollDataChoice>();
             var choiceIdByName = new Dictionary<string, PollChoiceId>(StringComparer.Ordinal);
             foreach (var option in poll.Options ?? [])
@@ -824,9 +746,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
         foreach (var vote in poll.Votes ?? [])
         {
-            // A vote without a voter or an opinion is meaningless, and a vote value outside
-            // yes/no/abstain/veto would make the client's poll deserialization throw — drop
-            // the row entirely in either case.
+            // Drop votes with no voter, no opinion, or a non-standard vote value.
             if (string.IsNullOrWhiteSpace(vote.Id)
                 || PollDataJson.TryParseVoteValue(vote.Vote) is not { } voteValue
                 || !alterAssociations.TryGetValue(vote.Id, out var alterId))
@@ -854,7 +774,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                     continue;
 
                 await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-                //TODO: We should ideally be coverting it to webp for consistency of other images
 
                 if (download.Kind == AvatarKind.System)
                 {
@@ -863,8 +782,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 }
                 else
                 {
-                    // localUrl is AvatarUrl (non-null); implicit widening to AvatarUrl? at the
-                    // command payload boundary preserves the "avatar was captured locally" signal.
                     var localUrl = await _avatarStorage.SaveAlterAvatarAsync(download.SystemId, download.AlterId!.Value, stream, cancellationToken);
 
                     await _alterRepository.UpdateAsync(systemId, new UpdateAlterCommand
@@ -884,13 +801,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
     }
 
-    /// <summary>
-    /// Decides whether the SP-side system avatar should be rehosted (queued in the returned
-    /// <see cref="AvatarDownload"/>) or passed through directly via
-    /// <see cref="IAccountRepository.UpdateAvatarAsync"/>. Returns <see langword="null"/>
-    /// when no rehost is required (because there's no avatar, or because the URL was a
-    /// passthrough we already wrote synchronously).
-    /// </summary>
+    /// <summary>Returns a queued rehost download for SP CDN URLs, else writes a passthrough
+    /// via <see cref="IAccountRepository.UpdateAvatarAsync"/>. Null when no rehost needed.</summary>
     private async Task<AvatarDownload?> ImportSystemAvatarAsync(
         SystemId systemId,
         SpSystemContent content,
@@ -902,7 +814,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
         if (!string.IsNullOrWhiteSpace(avatarUuid) && !string.IsNullOrWhiteSpace(uid))
         {
-            // Always rehost the canonical SP CDN URL because SP is shutting down.
             return new AvatarDownload(SpCdnHosts.Avatar(uid, avatarUuid), systemId, AvatarKind.System, null);
         }
 
@@ -916,15 +827,10 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             return new AvatarDownload(rawAvatarUrl, systemId, AvatarKind.System, null);
         }
 
-        // Non-SP URL → store as passthrough; nothing to download.
         await _accountRepository.UpdateAvatarAsync(systemId, new(rawAvatarUrl), AvatarSource.External, cancellationToken);
         return null;
     }
 
-    /// <summary>
-    /// True when <paramref name="url"/> is an absolute URL hosted on the Simply Plural CDN.
-    /// Used to decide between rehost (SP CDN, will go away soon) and passthrough (everything else).
-    /// </summary>
     internal static bool IsSpCdnUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url))
@@ -954,7 +860,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 
-            // Use the source-generated JsonSerializer context when available for better performance and to avoid trimming issues.
+            // Prefer source-generated JsonTypeInfo (trim-safe); fall back to reflection.
             var typeInfoObj = SpJsonContext.Default.GetTypeInfo(typeof(T));
             if (typeInfoObj is System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typedInfo)
             {
@@ -962,7 +868,6 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
                 return result;
             }
 
-            // Fallback to runtime deserialization
             var fallback = await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: ct).ConfigureAwait(false);
             return fallback;
         }
@@ -972,10 +877,8 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
         }
     }
 
-    // 0 = string/text, 1 = color, 2 = date, 3 = month, 4 = year, 5 = month+year, 6 = timestamp, 7 = month+day
-    // `supportMarkdown` is nullable on SpCustomFieldContent because SP's update300 migration
-    // emits `null` for legacy fields (see model comment). SP defaults missing to true, so we
-    // do the same: null/true -> "text" (markdown), explicit false -> "plaintext".
+    // SP's update300 migration emits null supportMarkdown for legacy fields; SP defaults
+    // to true, so null/true → Text (markdown), false → Plaintext.
     private static FieldType MapFieldType(SpFieldType spType, bool? supportMarkdown) => spType switch
     {
         SpFieldType.Text => (supportMarkdown ?? true) ? FieldType.Text : FieldType.Plaintext,
@@ -998,27 +901,18 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
 
     private static DateTimeOffset UnixTimestampToDateTimeOffset(long unixMilliseconds)
     {
-        // Convert Unix epoch milliseconds to DateTimeOffset
         var epochTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var dateTime = epochTime.AddMilliseconds(unixMilliseconds);
         return new DateTimeOffset(dateTime, TimeSpan.Zero);
     }
 
-    /// <summary>
-    /// Normalise a Simply Plural colour to the canonical <c>#RRGGBB</c> shape a
-    /// <see cref="HexColor"/> will accept. SP historically stores both shapes
-    /// interchangeably (bare <c>RRGGBB</c> and <c>#RRGGBB</c>) — we canonicalise on
-    /// the way in so no bare-hex value ever reaches <see cref="HexColor.FromNullable"/>,
-    /// which now rejects anything not well-formed. Delegates to
-    /// <see cref="HexColor.Normalise"/>, which is the single source of truth shared
-    /// with the one-shot HexColorFixupService that walks legacy DB rows.
-    /// </summary>
+    /// <summary>Canonicalise SP's mixed bare/hash hex forms via
+    /// <see cref="HexColor.Normalise"/> so <see cref="HexColor.FromNullable"/> never sees
+    /// a non-well-formed value.</summary>
     internal static string? ParseColor(string? color) => HexColor.Normalise(color);
 
-    /// <summary>
-    /// Pending rehost of a Simply Plural CDN avatar. <see cref="AlterId"/> is required for
-    /// <see cref="AvatarKind.Alter"/> entries and unused for <see cref="AvatarKind.System"/>.
-    /// </summary>
+    /// <summary>Pending rehost of an SP CDN avatar. <see cref="AlterId"/> required for
+    /// <see cref="AvatarKind.Alter"/>, unused for <see cref="AvatarKind.System"/>.</summary>
     private sealed record AvatarDownload(string Url, SystemId SystemId, AvatarKind Kind, AlterId? AlterId);
 
     private enum AvatarKind

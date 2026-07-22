@@ -5,36 +5,22 @@ using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;
 
-/// <summary>
-/// Unified resolution for Scylla connection values.
-/// <list type="bullet">
-///   <item>Contact points and port honour <see cref="ScyllaOverrideOptions"/> (bound from
-///     <c>OCTOCON_SCYLLA_CONTACT_POINTS</c> and <c>OCTOCON_SCYLLA_PORT</c>) so integration
-///     tests can point the client at a host-published port that differs from the
-///     secrets-store cluster address. A <c>null</c> value on either override falls through
-///     to the store row.</item>
-///   <item>Credentials (username, password, datacenter) come exclusively from
-///     <see cref="ISecretsStore"/> — the store is the single source of truth in every
-///     non-test deployment.</item>
-///   <item>The keyspace is the per-node region identity and is sourced directly from
-///     <see cref="PersistenceConfiguration.ScyllaKeyspace"/>. There is no store fallback
-///     (the row was dropped along with the matching <c>SecretsStoreKeys</c> entry) —
-///     the value flows env → <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/>
-///     → this resolver → the cluster.</item>
-/// </list>
-/// </summary>
+/// <summary>Unified resolver for Scylla connection values. Contact points and port honour
+/// <see cref="ScyllaOverrideOptions"/> so integration tests can retarget a host-published
+/// port; credentials come exclusively from <see cref="ISecretsStore"/>; the keyspace is
+/// the per-node region identity sourced directly from
+/// <see cref="PersistenceConfiguration.ScyllaKeyspace"/> (env → IOptions → resolver).</summary>
 public interface IScyllaConfigResolver
 {
-    /// <summary>Contact-point hosts, in order of preference. Override wins over the store row.</summary>
     Task<string[]> GetContactPointsAsync(CancellationToken ct = default);
 
-    /// <summary>Local datacenter name for DC-aware routing. Defaults to <c>datacenter1</c>.</summary>
+    /// <summary>Local datacenter for DC-aware routing. Defaults to <c>datacenter1</c>.</summary>
     Task<string> GetDatacenterAsync(CancellationToken ct = default);
 
-    /// <summary>App-user Scylla username. <c>null</c> disables password authentication on the client.</summary>
+    /// <summary>App-user username. <c>null</c> disables password auth on the client.</summary>
     Task<string?> GetUsernameAsync(CancellationToken ct = default);
 
-    /// <summary>App-user Scylla password. Empty string when the store row is unset.</summary>
+    /// <summary>App-user password. Empty when the store row is unset.</summary>
     Task<string> GetPasswordAsync(CancellationToken ct = default);
 
     /// <summary>Regional keyspace wire value (e.g. <c>nam</c>, <c>eur</c>).</summary>
@@ -93,9 +79,6 @@ public sealed class ScyllaConfigResolver : IScyllaConfigResolver
 
     public string GetKeyspace()
     {
-        // OCTOCON_SCYLLA_KEYSPACE flows env -> ApplyPersistence -> PersistenceConfiguration
-        // -> IOptions<PersistenceConfiguration>. The wire value here is the same string
-        // the migration service and IRegionContext consumers use as a keyspace identifier.
         return _persistence.ScyllaKeyspace.ToWire();
     }
 

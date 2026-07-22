@@ -10,32 +10,11 @@ using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 
-/// <summary>
-/// Cassandra / ScyllaDB port of <see cref="IImportOperationRepository"/>. Talks to the
-/// two tables created by <c>004_import_operations.templated.cql</c>:
-/// <c>import_operations</c> (history) and <c>active_import_by_system</c> (per-system
-/// mutex pointer).
-///
-/// <para>
-/// <b>The LWT mutex.</b> Every mutating call that needs to be racing-safe uses Cassandra
-/// Lightweight Transactions (Paxos). <see cref="TryClaimAsync"/> uses
-/// <c>INSERT … IF NOT EXISTS</c> on the pointer table — if a concurrent dispatcher just
-/// took the slot, this insert fails cleanly and the caller falls through to a SELECT to
-/// learn the winning operation_id. Terminal transitions
-/// (<see cref="MarkSucceededAsync"/> / <see cref="MarkFailedAsync"/>) release the slot
-/// with <c>DELETE … IF operation_id = ?</c> so a stale call from (say) a restart-sweep
-/// can't evict an unrelated in-flight operation that took the slot afterwards.
-/// </para>
-///
-/// <para>
-/// <b>TimeUuid vs ImportOperationId.</b> The contract surface uses the Guid-backed
-/// <see cref="ImportOperationId"/> struct. The driver column type is <c>timeuuid</c> —
-/// convert with <c>(TimeUuid)id.Value</c> at the bind site and
-/// <c>new ImportOperationId(row.GetValue&lt;TimeUuid&gt;("operation_id").ToGuid())</c> on
-/// read. New ids are minted with <see cref="TimeUuid.NewId()"/> so the clustering order
-/// (DESC) sorts by wall-clock creation time without an extra timestamp column.
-/// </para>
-/// </summary>
+/// <summary>Cassandra / ScyllaDB port of <see cref="IImportOperationRepository"/>. Uses
+/// LWT (Paxos) on <c>active_import_by_system</c> for the per-system claim mutex; terminal
+/// transitions release the slot with <c>DELETE … IF operation_id = ?</c> so a stale
+/// restart-sweep call can't evict a fresh in-flight operation. <see cref="ImportOperationId"/>
+/// is Guid-backed on the wire and <c>timeuuid</c> on disk — cast at the bind sites.</summary>
 public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 {
     private readonly IScyllaSessionProvider _sessionProvider;
@@ -73,9 +52,8 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var newOperationId = TimeUuid.NewId();
             var kindWire = kind.ToWire();
 
-            // LWT INSERT IF NOT EXISTS — Paxos round, but per-system contention is by
-            // definition single-digit and we accept the latency cost (a few hundred ms
-            // on Cassandra) for the strong dedupe guarantee.
+            // Paxos INSERT IF NOT EXISTS — accepting a few hundred ms latency in exchange
+            // for a strong per-system dedupe guarantee.
             var claim = new SimpleStatement(
                 $"INSERT INTO {keyspace}.active_import_by_system " +
                 "(system_id, kind, operation_id, started_at) VALUES (?, ?, ?, ?) IF NOT EXISTS",
@@ -83,14 +61,12 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
 
             var claimResult = await session.ExecuteAsync(claim);
             var claimRow = claimResult.FirstOrDefault();
-            // LWT result shape: a single row with [applied] = true/false plus existing
-            // column values when false.
+            // LWT result: one row with [applied] plus the existing column values on false.
             var applied = claimRow?.GetValue<bool>("[applied]") ?? false;
 
             if (!applied)
             {
-                // Slot was already taken. Read the existing operation id and return it so
-                // the caller short-circuits without dispatching a second worker run.
+                // Collapse duplicate dispatch onto the existing operation id.
                 ImportOperationId existingId = new(claimRow!.GetValue<TimeUuid>("operation_id").ToGuid());
                 _logger.LogInformation(
                     "[import-ops] Collapsed duplicate dispatch for system={SystemId} kind={Kind} onto operation_id={OperationId}.",
@@ -98,9 +74,8 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
                 return new ImportOperationClaim(existingId, IsNew: false);
             }
 
-            // Slot is ours — insert the history row alongside. This insert is not
-            // LWT'd: the (system_id, operation_id) pair is unique by construction
-            // (operation_id is a fresh TimeUuid), so an ordinary INSERT cannot collide.
+            // History row is a plain INSERT — operation_id is a fresh TimeUuid so the
+            // (system_id, operation_id) pair cannot collide.
             var historyInsert = new SimpleStatement(
                 $"INSERT INTO {keyspace}.import_operations " +
                 "(system_id, operation_id, kind, status, started_at, idempotency_key) " +
@@ -125,9 +100,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var keyspace = scope.Keyspace;
             var normalizedSystemId = scope.NormalizedSystemId;
 
-            // Conditional update keeps the transition idempotent: a re-pickup of an
-            // already-Running row leaves it untouched and the LWT returns [applied]=false,
-            // which we silently swallow.
+            // Conditional update: re-pickup of a Running row is a no-op.
             var update = new SimpleStatement(
                 $"UPDATE {keyspace}.import_operations SET status = ? " +
                 "WHERE system_id = ? AND operation_id = ? IF status = ?",
@@ -247,10 +220,7 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
             var keyspace = _keyspaceResolver.DefaultKeyspace;
             var cutoff = DateTimeOffset.UtcNow - olderThan;
 
-            // ALLOW FILTERING is acceptable here: the table is small (one row per import
-            // click), this query runs only on startup, and there's no obvious secondary
-            // table that would be cheaper. If the table ever grows we can add a dedicated
-            // `imports_by_status_started` denormalisation.
+            // ALLOW FILTERING is fine — small table, startup-only query.
             var query = new SimpleStatement(
                 $"SELECT system_id, operation_id, kind, status, started_at, finished_at, " +
                 $"alter_count, error_code, error_message, idempotency_key " +
@@ -268,6 +238,8 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         }, cancellationToken);
     }
 
+    // IF operation_id = ? guards against evicting a fresh in-flight operation that took
+    // the slot after our terminal transition; [applied]=false is expected for sweeps.
     private static async Task ReleaseSlot(
         ISession session,
         string keyspace,
@@ -275,9 +247,6 @@ public sealed class ScyllaImportOperationRepository : IImportOperationRepository
         string kind,
         TimeUuid operationId)
     {
-        // The IF clause guards against evicting an unrelated in-flight operation that took
-        // the slot between our terminal call and this delete. [applied]=false here is
-        // expected behaviour for the sweep path and is silently swallowed.
         var delete = new SimpleStatement(
             $"DELETE FROM {keyspace}.active_import_by_system " +
             "WHERE system_id = ? AND kind = ? IF operation_id = ?",

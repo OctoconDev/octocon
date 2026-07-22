@@ -7,14 +7,9 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 
-/// <summary>
-/// Lightweight mutate → check → publish → success helper for settings-shaped handlers
-/// that already inherit <see cref="IdempotentCommandHandler{TPayload, TResult}"/> — the
-/// base class does the idempotency lookup/save, so this helper only handles the body of
-/// <c>ExecuteCoreAsync</c>. Distinct from <see cref="SettingsFieldCommandFlow"/>, which
-/// returns a different result shape (see the field-creation helper for the
-/// <see cref="SettingsFieldCommandResult"/> flavour).
-/// </summary>
+/// <summary>Mutate → check → publish → success helper for settings handlers that already
+/// inherit <see cref="IdempotentCommandHandler{TPayload, TResult}"/>. Companion to
+/// <see cref="SettingsFieldCommandFlow"/> (which returns a different result shape).</summary>
 internal static class SettingsIdempotentCommandFlow
 {
     public static CommandExecutionResult<SettingsCommandResult> Success(

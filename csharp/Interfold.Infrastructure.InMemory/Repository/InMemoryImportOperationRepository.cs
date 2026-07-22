@@ -5,20 +5,10 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 
-/// <summary>
-/// In-memory port of <see cref="IImportOperationRepository"/>. Used by the InMemory
-/// persistence mode and (via the same DI registration) by every integration test that
-/// doesn't spin a Cassandra container.
-///
-/// <para>
-/// <b>Mutex modelling.</b> The Cassandra port uses LWT (Paxos) on the
-/// <c>active_import_by_system</c> table; here we use <see cref="ConcurrentDictionary{TKey,TValue}.TryAdd"/>
-/// which gives the same atomic-on-conflict semantics for a single process. Both ports
-/// expose the same <see cref="ImportOperationClaim"/> contract — callers can't tell them
-/// apart, which is the point: integration tests that depend on the "only one in-flight
-/// per system" invariant run identically against both backends.
-/// </para>
-/// </summary>
+/// <summary>In-memory <see cref="IImportOperationRepository"/> — Cassandra's LWT mutex
+/// is emulated via <see cref="ConcurrentDictionary{TKey,TValue}.TryAdd"/>. Same
+/// <see cref="ImportOperationClaim"/> contract as the Scylla port so InMemory-backed
+/// integration tests are a meaningful proxy for the production semantics.</summary>
 public sealed class InMemoryImportOperationRepository : IImportOperationRepository
 {
     private readonly ConcurrentDictionary<(SystemId SystemId, ImportOperationId OperationId), Row> _operations = new();
@@ -35,10 +25,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
         ImportOperationId newOperationId = new(Guid.NewGuid());
         var key = (systemId, kind);
 
-        // TryAdd is the in-memory equivalent of the Cassandra LWT IF NOT EXISTS — atomic
-        // wrt other threads in this process. If another thread won, we observe the existing
-        // operation_id and return it so the caller short-circuits without dispatching a
-        // duplicate worker run.
+        // In-memory equivalent of Cassandra LWT IF NOT EXISTS.
         if (!_active.TryAdd(key, newOperationId))
         {
             var existing = _active[key];
@@ -69,9 +56,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
 
         if (_operations.TryGetValue((systemId, operationId), out var row))
         {
-            // CompareExchange-style guard: only Queued -> Running. Re-pickup of an
-            // already-Running row is a no-op rather than an exception so the worker can be
-            // retried idempotently.
+            // Queued -> Running only; re-pickup of a Running row is a no-op (idempotent retry).
             lock (row)
             {
                 if (row.Status == ImportOperationStatus.Queued)
@@ -189,18 +174,11 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
         return Task.FromResult<IReadOnlyList<ImportOperationSnapshot>>(stale);
     }
 
-    /// <summary>
-    /// Frees the per-system slot iff it still points at the supplied operation id. The
-    /// conditional swap mirrors the Cassandra port's <c>DELETE … IF operation_id = ?</c>
-    /// so a stale terminal call (e.g. from a sweep) can't accidentally evict a different
-    /// in-flight operation that took the slot afterwards.
-    /// </summary>
+    // Conditional-swap release — mirrors Scylla's DELETE … IF operation_id = ? so a stale
+    // terminal call can't evict a different in-flight operation that took the slot after.
     private void ReleaseSlot(SystemId systemId, ImportOperationKind kind, ImportOperationId operationId)
     {
         var key = (systemId, kind);
-        // ConcurrentDictionary doesn't expose conditional-remove on key+value pairs as
-        // a single primitive, but TryRemove(KeyValuePair) does. .NET's collection treats
-        // this as atomic-on-match.
         var pair = new KeyValuePair<(SystemId, ImportOperationKind), ImportOperationId>(key, operationId);
         ((ICollection<KeyValuePair<(SystemId, ImportOperationKind), ImportOperationId>>)_active).Remove(pair);
     }
@@ -217,11 +195,7 @@ public sealed class InMemoryImportOperationRepository : IImportOperationReposito
             row.ErrorMessage,
             row.IdempotencyKey);
 
-    /// <summary>
-    /// Mutable row backing the in-memory store. The lock-on-self guards the
-    /// status-machine transitions; concurrent reads via <see cref="Snapshot"/> take the
-    /// same lock so they always see a coherent point-in-time view.
-    /// </summary>
+    // Lock-on-self guards status-machine transitions; Snapshot takes the same lock.
     private sealed class Row
     {
         public required SystemId SystemId { get; init; }

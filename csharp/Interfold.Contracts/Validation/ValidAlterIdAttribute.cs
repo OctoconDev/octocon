@@ -4,37 +4,18 @@ using System.ComponentModel.DataAnnotations;
 using Interfold.Contracts.Ids;
 
 /// <summary>
-/// Requires an <see cref="AlterId"/> (or nullable <see cref="AlterId"/>) request-model
-/// property to carry a positive, in-range identifier — the same invariant the front
-/// command handlers enforce inside the domain (see
-/// <c>StartFrontCommandHandler</c>, <c>EndFrontCommandHandler</c>, <c>SetFrontCommandHandler</c>,
-/// which reject <c>&lt; 1 or &gt; 32_767</c>). Applied at the wire boundary so a bad payload
-/// short-circuits at model binding with a <c>400</c> instead of tripping the handler's
-/// invariant guard.
-///
-/// Mirrors the <c>AbsoluteHttpUriAttribute</c> / <c>AbsolutePathAttribute</c> pattern
-/// used by the configuration models: a small pure-logic core (<see cref="IsValid"/>)
-/// so tests and other layers can reuse the same "what counts as a valid AlterId on
-/// the wire" rule in one place.
-///
-/// The default <see cref="ValidationAttribute.ErrorMessage"/> is
-/// <c>"Invalid alter ID."</c> so the wire response code remains
-/// <c>invalid_alter_id</c> when <c>InvalidModelStateResponseFactory</c> maps
-/// DataAnnotations failures.
+/// Requires an <see cref="AlterId"/> request-model property to carry a positive,
+/// in-range identifier. Default <see cref="ValidationAttribute.ErrorMessage"/>
+/// <c>"Invalid alter ID."</c> so <c>InvalidModelStateResponseFactory</c> maps to the
+/// <c>invalid_alter_id</c> wire code.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter, AllowMultiple = false)]
 public sealed class ValidAlterIdAttribute : ValidationAttribute
 {
-    /// <summary>
-    /// Alter ids are persisted in Cassandra <c>smallint</c> columns; anything above
-    /// <see cref="short.MaxValue"/> cannot round-trip. Retyped as <see cref="short"/>
-    /// alongside the narrowing of <see cref="AlterId.Value"/> — the upper-bound check
-    /// against <see cref="AlterId.Value"/> is now a tautology (the type system enforces
-    /// it), retained for the null-and-negative case that the type cannot express.
-    /// </summary>
+    // Cassandra smallint column ceiling. Now a tautology after AlterId.Value narrowed
+    // to short; retained for the null/negative case that the type can't express.
     public const short MaxValue = short.MaxValue;
 
-    /// <summary>Minimum accepted alter id. Zero and negatives are always rejected.</summary>
     public const short MinValue = 1;
 
     public ValidAlterIdAttribute()
@@ -42,14 +23,10 @@ public sealed class ValidAlterIdAttribute : ValidationAttribute
         ErrorMessage = "Invalid alter ID.";
     }
 
-    /// <summary>
-    /// When <c>true</c>, a null <see cref="AlterId"/> is accepted (used by
-    /// <c>FrontPrimaryRequest</c> where <c>null</c> legitimately clears the primary
-    /// front). Non-null values are still range-checked. Defaults to <c>false</c>.
-    /// </summary>
+    /// <summary>When <c>true</c>, a null <see cref="AlterId"/> is accepted (e.g.
+    /// <c>FrontPrimaryRequest</c> clears the primary front); non-null values still range-checked.</summary>
     public bool AllowNull { get; init; }
 
-    /// <inheritdoc />
     protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
     {
         var memberName = validationContext.MemberName ?? validationContext.DisplayName;
@@ -72,19 +49,13 @@ public sealed class ValidAlterIdAttribute : ValidationAttribute
             return new ValidationResult(ErrorMessage, [memberName]);
         }
 
-        /*TODO: When .NET 11 comes out, readd the actual DB check here! (Need Async support)
-          happy to lose this guard in the short term*/
         return IsValid(alterId)
             ? ValidationResult.Success
             : new ValidationResult(ErrorMessage, [memberName]);
     }
 
-    /// <summary>
-    /// Pure-logic core used by this attribute and available for reuse (tests,
-    /// command handlers that want a single source of truth for the AlterId range).
-    /// A <c>null</c> value returns <c>false</c> — callers that treat null as "unset"
-    /// should short-circuit before calling this.
-    /// </summary>
+    // Pure-logic core reusable by tests / command handlers that want one source of
+    // truth for the AlterId range. Null returns false — treat unset as short-circuit.
     public static bool IsValid(AlterId? value)
     {
         if (value is not { } id)

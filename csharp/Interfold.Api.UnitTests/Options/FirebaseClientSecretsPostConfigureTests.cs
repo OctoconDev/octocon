@@ -6,12 +6,9 @@ using TUnit.Mocks;
 
 namespace Interfold.Api.UnitTests.Options;
 
-/// <summary>
-/// Locks the contract of <see cref="FirebaseClientSecretsPostConfigure"/>: three optional
-/// JSON rows in the snapshot deserialise onto the matching <see cref="FirebaseClientConfiguration"/>
-/// property, a missing row leaves the platform null (endpoint returns 503), and a malformed
-/// row fails hard so a bad seed surfaces at boot.
-/// </summary>
+// Contract for FirebaseClientSecretsPostConfigure: three optional JSON rows deserialise
+// onto matching FirebaseClientConfiguration properties, a missing row leaves the
+// platform null (endpoint returns 503), and a malformed row fails hard at boot.
 public sealed class FirebaseClientSecretsPostConfigureTests
 {
     private const string AndroidJson =
@@ -51,12 +48,6 @@ public sealed class FirebaseClientSecretsPostConfigureTests
         }
         """;
 
-    /// <summary>
-    /// Happy path: three valid JSON payloads on the snapshot land on the three platform
-    /// properties with the snake_case → PascalCase remapping intact. This is the same
-    /// JSON contract the bootstrapper's <c>firebase:client:*</c> seed uses, so a break
-    /// here would silently 503 every Firebase-config fetch.
-    /// </summary>
     [Test]
     public async Task PostConfigure_ThreeValidPlatformJsonRows_PopulatesAll()
     {
@@ -83,12 +74,8 @@ public sealed class FirebaseClientSecretsPostConfigureTests
         }
     }
 
-    /// <summary>
-    /// Missing-row tolerance: Firebase has no <c>[Required]</c>, so an empty snapshot
-    /// leaves every platform property null and validation still passes. The
-    /// <c>/api/settings/firebase-config</c> endpoint is what surfaces the missing seed
-    /// as a 503 downstream.
-    /// </summary>
+    // No [Required] on Firebase — empty snapshot passes validation; /api/settings/firebase-config
+    // is what surfaces the missing seed as a 503 downstream.
     [Test]
     public async Task PostConfigure_MissingRows_LeavesAllNull()
     {
@@ -106,14 +93,6 @@ public sealed class FirebaseClientSecretsPostConfigureTests
         }
     }
 
-    /// <summary>
-    /// Bad-seed guard: a row that exists but is malformed JSON must fail loudly with the
-    /// offending key called out. The error path is <c>ParseOrThrow&lt;T&gt;</c>'s wrapper
-    /// around <see cref="System.Text.Json.JsonException"/>; the outer
-    /// <see cref="InvalidOperationException"/> is what <c>OptionsFactory</c> bubbles
-    /// through <c>ValidateOnStart()</c> so a hand-edit mistake in
-    /// <c>internal.secrets</c> refuses to boot instead of silently 503-ing forever.
-    /// </summary>
     [Test]
     public async Task PostConfigure_MalformedJson_ThrowsWithKeyName()
     {
@@ -130,11 +109,6 @@ public sealed class FirebaseClientSecretsPostConfigureTests
             .Because("The diagnostic message must name the offending internal.secrets row so an operator staring at the boot log can jump straight to the malformed seed.");
     }
 
-    /// <summary>
-    /// Named-instance guard: PostConfigure must only patch the default bucket so a
-    /// hypothetical named-options user (multi-tenant scenario) doesn't inherit the
-    /// default's Firebase seed.
-    /// </summary>
     [Test]
     public async Task PostConfigure_NamedInstance_LeavesUntouched()
     {

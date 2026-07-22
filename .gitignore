@@ -57,3 +57,17 @@ scripts/keys/**
 # Launch settings (contains OAuth secrets, credentials)
 csharp/**/Properties/launchSettings.json
 artifacts/lifecycle-probe.ndjson
+
+# Internal docs (roadmap, active/archive workstreams) — not for public git yet.
+# docs/configuration.md is the only tracked doc (operator/maintainer reference).
+docs/*
+!docs/configuration.md
+docs/active/
+docs/archive/
+
+# Cursor planning artifacts — local-only.
+/.cursor/plans/
+
+# Copilot chat instruction files — internal, keep local.
+/.github/instructions/
+

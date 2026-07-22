@@ -4,17 +4,9 @@ using System.Text.Json.Serialization;
 
 namespace Interfold.Contracts.Ids;
 
-/// <summary>
-/// Strongly-typed wrapper around the dotted command/query operation identifier
+/// <summary>Strongly-typed wrapper around the dotted command/query operation identifier
 /// (e.g. <c>"cmd.alter.create"</c>). Carried on <c>CommandEnvelope&lt;T&gt;.OperationId</c>,
-/// <c>ConflictResult.OperationId</c>, and the idempotency store keys.
-///
-/// <para>
-/// <b>Wire compatibility.</b> JSON serializes as the raw underlying string. DB parameter
-/// binding must pass <see cref="Value"/> explicitly (Npgsql/Cassandra cannot bind the
-/// struct). The <c>X-Interfold-OperationId</c> response header uses <see cref="Value"/>.
-/// </para>
-/// </summary>
+/// <c>ConflictResult.OperationId</c>, and idempotency store keys.</summary>
 [JsonConverter(typeof(OperationIdJsonConverter))]
 public readonly record struct OperationId : IParsable<OperationId>
 {
@@ -25,15 +17,8 @@ public readonly record struct OperationId : IParsable<OperationId>
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(OperationId)raw</c> instead of
-    /// <c>new OperationId(raw)</c>. See <see cref="SystemId"/> for the wider rationale.
-    /// </summary>
     public static explicit operator OperationId(string value) => new(value);
 
-    /// <summary>
-    /// Implicit widen to the raw <see cref="string"/> for header / DB boundary use.
-    /// </summary>
     public static implicit operator string(OperationId value) => value.Value;
 
     public override string ToString() => Value;

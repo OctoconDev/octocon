@@ -38,7 +38,7 @@ public class HttpLoggingHandler : DelegatingHandler
 
             var host = uri.Host ?? "unknown";
 
-            // Path folders: <BasePath>/<host>/<each segment as folder>/<request or response>/
+            // Layout: <BasePath>/<host>/<path-segments>/<request|response>/
             var endpoint = segments.Length > 0 ? segments.Last() : "root";
             var folderSegments = new List<string> { _basePath, host };
             if (segments.Length > 1)
@@ -47,7 +47,6 @@ public class HttpLoggingHandler : DelegatingHandler
             var requestFolder = Path.Combine(folderSegments.Concat(new[] { "request" }).ToArray());
             Directory.CreateDirectory(requestFolder);
 
-            // Read and log request body (if any)
             if (request.Content != null)
             {
                 var reqBytes = await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
@@ -69,14 +68,13 @@ public class HttpLoggingHandler : DelegatingHandler
                 var reqMetaFile = Path.ChangeExtension(reqFile, ".meta.json");
                 await File.WriteAllTextAsync(reqMetaFile, JsonSerializer.Serialize(reqMeta, HttpLoggingJsonContext.Default.RequestMeta), cancellationToken).ConfigureAwait(false);
 
-                // Replace the request content so the request can be sent (we already consumed it)
+                // We already consumed the request body; hand back a fresh copy.
                 var newContent = new ByteArrayContent(reqBytes);
                 CopyHttpContentHeaders(request.Content, newContent);
                 request.Content = newContent;
             }
             else
             {
-                // Still write metadata for requests without body
                 var reqFile = Path.Combine(requestFolder, $"{SanitizeFileName(endpoint)}_{DateTime.UtcNow:yyyyMMddHHmmssfff}_{requestId}.request");
                 var reqMeta = new RequestMeta
                 {
@@ -92,7 +90,6 @@ public class HttpLoggingHandler : DelegatingHandler
                 await File.WriteAllTextAsync(reqMetaFile, JsonSerializer.Serialize(reqMeta, HttpLoggingJsonContext.Default.RequestMeta), cancellationToken).ConfigureAwait(false);
             }
 
-            // If replay is enabled, attempt to find a recorded response on disk and return it instead of calling the backend.
             var response = default(HttpResponseMessage?);
             if (_replayEnabled)
             {
@@ -117,10 +114,8 @@ public class HttpLoggingHandler : DelegatingHandler
                 }
             }
 
-            // If we don't have a replayed response, send the request to the live backend.
             response ??= await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
-            // Log response
             var responseFolder = Path.Combine(folderSegments.Concat(new[] { "response" }).ToArray());
             Directory.CreateDirectory(responseFolder);
 
@@ -146,7 +141,6 @@ public class HttpLoggingHandler : DelegatingHandler
                 var respMetaFile = Path.ChangeExtension(respFile, ".meta.json");
                 await File.WriteAllTextAsync(respMetaFile, JsonSerializer.Serialize(respMeta, HttpLoggingJsonContext.Default.ResponseMeta), cancellationToken).ConfigureAwait(false);
 
-                // Replace response content so downstream consumers can read it
                 var newRespContent = new ByteArrayContent(respBytes);
                 CopyHttpContentHeaders(response.Content, newRespContent);
                 response.Content = newRespContent;
@@ -185,7 +179,6 @@ public class HttpLoggingHandler : DelegatingHandler
         if (source == null) return;
         foreach (var header in source.Headers)
         {
-            // Some headers are content-specific and should be added to the content headers
             if (!target.Headers.TryAddWithoutValidation(header.Key, header.Value))
             {
                 try
@@ -194,7 +187,6 @@ public class HttpLoggingHandler : DelegatingHandler
                 }
                 catch
                 {
-                    // Ignore invalid headers
                 }
             }
         }
@@ -213,7 +205,6 @@ public class HttpLoggingHandler : DelegatingHandler
             "text/html" => ".html",
             "application/xml" or "text/xml" => ".xml",
 
-            // Common image types
             "image/png" => ".png",
             "image/jpeg" or "image/jpg" => ".jpg",
             "image/gif" => ".gif",
@@ -234,8 +225,7 @@ public class HttpLoggingHandler : DelegatingHandler
         return name;
     }
 
-    // Attempt to locate the most recent recorded response for the given folderSegments/endpoint.
-    // Returns a constructed HttpResponseMessage or null when none found.
+    // Returns the newest recorded response whose method/normalized-URI matches, or null.
     private HttpResponseMessage? TryGetReplayResponse(List<string> folderSegments, string endpoint, string requestMethod, string requestUri, string requestHost)
     {
         try
@@ -244,7 +234,6 @@ public class HttpLoggingHandler : DelegatingHandler
             if (!Directory.Exists(responseFolder))
                 return null;
 
-            // Enumerate response files and pick the newest one that matches request method + request uri exactly.
             var files = Directory.EnumerateFiles(responseFolder)
                 .Select(f => new FileInfo(f))
                 .Where(fi => fi.Name.Contains(".response"))
@@ -299,14 +288,12 @@ public class HttpLoggingHandler : DelegatingHandler
                 }
                 catch
                 {
-                    // ignore malformed meta and continue
                 }
             }
 
             if (chosen == null || chosenMetaRoot == null)
                 return null;
 
-            // We have already parsed the meta into JSON; prefer using the typed ResponseMeta for headers/status
             var metaJsonText = File.ReadAllText(Path.ChangeExtension(chosen.FullName, ".meta.json"));
             var recordedMeta = JsonSerializer.Deserialize<ResponseMeta>(metaJsonText, HttpLoggingJsonContext.Default.ResponseMeta);
 
@@ -327,7 +314,6 @@ public class HttpLoggingHandler : DelegatingHandler
                     }
                     catch
                     {
-                        // ignore
                     }
                 }
             }
@@ -349,7 +335,6 @@ public class HttpLoggingHandler : DelegatingHandler
                     }
                     catch
                     {
-                        // ignore
                     }
                 }
             }
@@ -370,8 +355,7 @@ public class HttpLoggingHandler : DelegatingHandler
         if (!Uri.TryCreate(uriString, UriKind.Absolute, out var uri))
             return uriString;
 
-        // Use only the absolute path (no scheme/host) for matching since recorded responses
-        // should be matched by endpoint and query, not by host.
+        // Match by path + query only — recorded responses are host-agnostic.
         var path = uri.AbsolutePath;
         var query = uri.Query;
         if (string.IsNullOrEmpty(query) || query.Length <= 1)

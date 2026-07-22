@@ -9,48 +9,20 @@ using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
 
-/// <summary>
-/// Drives <see cref="ConfigPhase.PromptForConfig(IAnsiConsole, bool, Func{IPAddress?}?, Func{string?}?)"/>
-/// through an in-memory <see cref="TestConsole"/> to exercise the Spectre navigable form.
-/// <para>
-/// The form is a single <c>SelectionPrompt&lt;int&gt;</c> with 48 selectable field rows
-/// under 11 section headers + a trailing <c>Confirm and save</c>. Headers are inert; the
-/// cursor starts at field 0 and returns there after every edit, so tests use absolute
-/// navigation distances (see <see cref="Navigate"/> / <see cref="EditField"/>).
-/// </para>
-/// <para>
-/// Field order (0-based DownArrow distance from field 0):
-/// 0..6 Deployment · 7..12 Ports · 13..16 Database · 17..21 API ·
-/// 22..23 Cluster &amp; telemetry · 24..25 Storage · 26..30 Performance tuning ·
-/// 31..36 OAuth credentials · 37..41 Backup &amp; autostart · 42..46 Updates · 47 Firebase.
-/// <see cref="Navigate"/>(48) lands on <c>Confirm and save</c>.
-/// </para>
-/// <para>
-/// <b>Serialisation via <c>[NotInParallel("bootstrapper-console")]</c></b> — every test in
-/// this class stands up a fresh Spectre <see cref="TestConsole"/> in interactive mode and
-/// drives a <c>SelectionPrompt&lt;int&gt;</c> whose <c>ListPromptRenderHook</c> mutates
-/// Spectre's per-instance render state on the calling thread. On memory-pressured Linux
-/// CI runners, running 40+ of these in parallel inside the Microsoft.Testing.Platform host
-/// races with the platform's <c>NamedPipeServer</c> IPC-cleanup path and can trip a native
-/// <see cref="AccessViolationException"/> that aborts the test host with SIGABRT (exit code
-/// 134, surfaced by MTP as exit code 7). This is a well-documented .NET runtime instability
-/// in <c>System.IO.Pipes.NamedPipeServer</c> under thread pressure on Linux
-/// (see dotnet/runtime#58045). Serialising the class with a shared key — also used by
-/// <see cref="ConfigPreFillMdnsCheckTests"/>, which mutates process-global <c>Console.In</c>
-/// — removes the race entirely. The class runs in ~10s serialised, so the CI cost is
-/// negligible compared to a flake-induced re-run.
-/// </para>
-/// </summary>
+/// <summary>Drives Spectre <c>SelectionPrompt&lt;int&gt;</c> for the config form: 48 field
+/// rows across 11 sections + trailing "Confirm and save". Headers are inert; cursor resets
+/// to field 0 after each edit, so tests use absolute Navigate distances.
+/// <para>Field order: 0..6 Deployment · 7..12 Ports · 13..16 Database · 17..21 API ·
+/// 22..23 Cluster/telemetry · 24..25 Storage · 26..30 Performance · 31..36 OAuth ·
+/// 37..41 Backup · 42..46 Updates · 47 Firebase. Navigate(48) = Confirm and save.</para>
+/// <para><c>[NotInParallel("bootstrapper-console")]</c>: Spectre TestConsole + MTP's
+/// NamedPipeServer race under Linux thread pressure (dotnet/runtime#58045). ~10s serialised.</para></summary>
 [NotInParallel("bootstrapper-console")]
 public sealed class ConfigInteractivePromptTests
 {
-    /// <summary>Selectable field-row count.</summary>
     private const int FieldCount = 48;
 
-    /// <summary>
-    /// Interactive <see cref="TestConsole"/> sized to fit the whole 60-row form so Spectre
-    /// never paginates it (pagination clips top rows out of the captured output).
-    /// </summary>
+    /// <summary>Sized to fit the whole 60-row form so Spectre never paginates.</summary>
     private static TestConsole NewConsole()
     {
         var c = new TestConsole();
@@ -60,10 +32,7 @@ public sealed class ConfigInteractivePromptTests
         return c;
     }
 
-    /// <summary>
-    /// Pushes <paramref name="downArrows"/> DownArrow presses + Enter. Field index N sits N
-    /// DownArrows below the cursor's starting position (field 0).
-    /// </summary>
+    /// <summary>Pushes N DownArrows + Enter. Field N sits N DownArrows below field 0.</summary>
     private static void Navigate(TestConsole c, int downArrows)
     {
         for (var i = 0; i < downArrows; i++)
@@ -71,13 +40,10 @@ public sealed class ConfigInteractivePromptTests
         c.Input.PushKey(ConsoleKey.Enter);
     }
 
-    /// <summary>Selects <c>Confirm and save</c> from the form's default starting position.</summary>
     private static void ConfirmForm(TestConsole c) => Navigate(c, FieldCount);
 
-    /// <summary>
-    /// Opens the field's editor and pushes <paramref name="answers"/> as answer lines. Pass
-    /// multiple answers to drive a re-prompt on invalid input.
-    /// </summary>
+    /// <summary>Opens the field's editor and pushes <paramref name="answers"/> as lines
+    /// (multiple answers drive a re-prompt on invalid input).</summary>
     private static void EditField(TestConsole c, int fieldIndex, params string[] answers)
     {
         Navigate(c, fieldIndex);

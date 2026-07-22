@@ -13,12 +13,8 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaAccountRepository : IAccountRepository
 {
-    /// <summary>
-    /// OAuth-provider identity column on the Scylla user_registry / users tables. A closed
-    /// three-arm enum rather than a magic column-name string, so misspellings surface at
-    /// build time and CQL interpolation flows through <see cref="ColumnName"/> as the
-    /// single translation point.
-    /// </summary>
+    // Closed OAuth-provider column enum; misspellings become build errors and every
+    // CQL string flows through ColumnName as the single translation point.
     private enum ProviderColumn
     {
         Discord,
@@ -26,11 +22,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         Apple,
     }
 
-    /// <summary>
-    /// Maps the typed provider onto the Cassandra column / lookup-table suffix. Kept
-    /// switch-exhaustive with an explicit throw so a future enum member without a mapping
-    /// is a hard error rather than a silent-null-column CQL statement.
-    /// </summary>
     private static string ColumnName(ProviderColumn column) => column switch
     {
         ProviderColumn.Discord => "discord_id",
@@ -39,16 +30,12 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         _ => throw new ArgumentOutOfRangeException(nameof(column), column, "Unknown provider column"),
     };
 
-    // Reverse-map value: scoped systemId + expiry, so ResolveSystemIdByLinkTokenAsync
-    // can hand back the wrapper without a string round-trip through new SystemId(...).
     private readonly record struct LinkTokenEntry(ScopedSystemId Scoped, DateTimeOffset ExpiresAt);
 
     private static readonly TimeSpan LinkTokenTtl = TimeSpan.FromMinutes(5);
     private readonly object _linkTokenLock = new();
-    // Forward map keys on the scoped composite; reverse map keys on the typed LinkToken
-    // so any accidental toString-then-dict-key path can't bypass the redacting wrapper.
-    // Process-lifetime only — no storage-layer rehydration reads either dict, so the
-    // key-shape choice is invisible externally.
+    // Reverse map keys on the typed LinkToken (not its string value) so no accidental
+    // toString-then-dict-key path can bypass the redacting wrapper.
     private readonly ConcurrentDictionary<ScopedSystemId, LinkToken> _linkTokenBySystem = new();
     private readonly ConcurrentDictionary<LinkToken, LinkTokenEntry> _systemByLinkToken = new();
 
@@ -76,7 +63,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            // Read old username to maintain lookup table
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT username FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId))).FirstOrDefault();
@@ -85,10 +71,8 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var batch = new BatchStatement();
             if (oldRow is null)
             {
-                // First touch for a JWT-scoped principal: mint the regional users row so
-                // GetPublicProfileAsync (and public guarded reads that gate on it) succeed.
-                // InMemory achieves the same implicitly by writing into its username map;
-                // Scylla previously only issued UPDATE, leaving ShowAlter to 404 system_not_found.
+                // First touch: mint the regional users row so public guarded reads (ShowAlter etc.)
+                // don't 404 system_not_found. InMemory does this implicitly via its username map.
                 batch.Add(new SimpleStatement(
                     $"INSERT INTO {keyspace}.users (id, username, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()))",
                     normalizedSystemId,
@@ -109,7 +93,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     username.Value, normalizedSystemId));
             }
 
-            // Remove old lookup entry
             if (!string.IsNullOrWhiteSpace(oldUsername))
             {
                 batch.Add(new SimpleStatement(
@@ -118,7 +101,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     $"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry_by_username WHERE username = ?", oldUsername));
             }
 
-            // Insert new lookup entry
             if (!string.IsNullOrWhiteSpace(username))
             {
                 batch.Add(new SimpleStatement(
@@ -192,8 +174,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
     {
         var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
         var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
-        // Compose is idempotent on already-scoped inputs — the safety net for routing
-        // every partition-key composition through the same helper.
+        // Compose is idempotent on already-scoped inputs.
         var scoped = ScopedSystemId.Compose(keyspace, normalizedSystemId);
         var now = DateTimeOffset.UtcNow;
 
@@ -264,7 +245,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             _systemByLinkToken.TryRemove(linkToken, out _);
             foreach (var item in _linkTokenBySystem)
             {
-                // LinkToken record-struct equality is ordinal on the underlying string.
                 if (item.Value == linkToken)
                 {
                     _linkTokenBySystem.TryRemove(item.Key, out _);
@@ -293,21 +273,13 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }
     }
 
-    // Every public IAccountRepository entry point below dispatches to an internal helper
-    // with a typed ProviderColumn instead of a hand-spelled column literal. The unwrap-
-    // to-.Value stays at the entry-point boundary — the internal helpers work with the
-    // raw provider-value string because it flows straight into a CQL bind parameter,
-    // and the bind arg position is typed `object?` where the wrapper's implicit widen
-    // does not fire through boxing. DiscordId/Email/AppleId are Cat B PII wrappers with
-    // no implicit widen at all, so `.Value` is the only unwrap available on this path.
+    // Every public entry point below dispatches to a typed-ProviderColumn helper. `.Value`
+    // is the only unwrap available on Cat B PII wrappers (no implicit widen through boxing).
 
     public Task<SystemId?> TryFindSystemIdByDiscordIdAsync(DiscordId discordId, CancellationToken cancellationToken = default)
         => TryFindSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken);
 
-    // FindOrCreateSystemIdAsync and LinkIdentityToUserAsync are the consolidated OAuth-
-    // login shapes. Both dispatch on ProviderIdentity into the same ProviderColumn-typed
-    // internal helpers, so the pattern-match lives once here rather than being duplicated
-    // across AuthController and AuthLinkController.
+    // Consolidated OAuth-login dispatch — the pattern-match lives once, not per-controller.
     public Task<SystemId?> FindOrCreateSystemIdAsync(ProviderIdentity identity, CancellationToken cancellationToken = default)
         => identity.MatchOrThrow(
             discordId => FindOrCreateSystemIdByRegistryColumnAsync(ProviderColumn.Discord, discordId.Value, cancellationToken),
@@ -335,7 +307,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            // Fetch identity fields to clean up lookup tables
             var userRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT id, discord_id, email, username, apple_id, google_id FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId))).FirstOrDefault();
@@ -344,12 +315,11 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             {
                 return true;
             }
-            
+
             var deleteBatch = new BatchStatement();
             deleteBatch.Add(new SimpleStatement($"DELETE FROM {keyspace}.users WHERE id = ?", normalizedSystemId));
             deleteBatch.Add(new SimpleStatement($"DELETE FROM {ScyllaGlobalKeyspace.Name}.user_registry WHERE user_id = ?", normalizedSystemId));
 
-            // Clean up denormalized identity lookup tables
             var identityColumns = new[] { "discord_id", "email", "username", "apple_id", "google_id" };
             foreach (var col in identityColumns)
             {
@@ -402,8 +372,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            // Narrower SELECT than GetPublicProfileAsync — no discord/email/apple columns,
-            // since the public wire projection intentionally drops them.
+            // Public wire projection drops discord/email/apple.
             var profileQuery = new SimpleStatement(
                 $"SELECT username, avatar_url, avatar_source, description FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId
@@ -424,11 +393,7 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, cancellationToken);
     }
 
-    // Returns the scoped `{region}:{userId}` composite wrapped in a SystemId — in-process
-    // caches and downstream callers all operate in the scoped-composite shape. The column
-    // parameter is a typed ProviderColumn enum, with the CQL literal derived locally via
-    // ColumnName(...); a misspelled column would be a build failure rather than a silent
-    // runtime "table does not exist".
+    // Returns scoped `{region}:{userId}` — every downstream cache expects the scoped shape.
     private async Task<SystemId?> TryFindSystemIdByRegistryColumnAsync(ProviderColumn column, string value, CancellationToken cancellationToken)
     {
         return await DatabaseTransientRetry.ExecuteScyllaAsync<SystemId?>(async () =>
@@ -477,18 +442,14 @@ public sealed class ScyllaAccountRepository : IAccountRepository
 
             const string idChars = "abcdefghijklmnopqrstuvwxyz";
 
-            // User doesn't exist; auto-create new account
-            var newRegion = _keyspaceResolver.DefaultKeyspace; //TODO: Maybe look into geoip-based region resolution here instead of just defaulting?
+            var newRegion = _keyspaceResolver.DefaultKeyspace;
             var newUserId = Random.Shared.GetString(idChars, 7);
-            var keyspace = newRegion; // ResolveRegionalKeyspace would just return the newRegion
+            var keyspace = newRegion;
 
-            // Write regional user + global registry together to reduce split-write orphans.
+            // Regional + global rows written in one batch to reduce split-write orphans.
+            // Four column names -> four binds (two params + two literal toTimestamp(now())).
             var createUserBatch = new BatchStatement()
                 .Add(new SimpleStatement(
-                    // Four columns -> four bind targets: two prepared parameters plus two literal
-                    // toTimestamp(now()) calls. Adding a third placeholder before the literals (the
-                    // shape this method had previously) tipped the value count over the column
-                    // count and Cassandra rejected the batch with "Unmatched column names/values".
                     $"INSERT INTO {keyspace}.users (id, {columnName}, inserted_at, updated_at) VALUES (?, ?, toTimestamp(now()), toTimestamp(now()))",
                     newUserId,
                     value
@@ -499,7 +460,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                     value,
                     newRegion
                 ))
-                // Maintain denormalized lookup tables
                 .Add(new SimpleStatement(
                     $"INSERT INTO {keyspace}.users_by_{columnName} ({columnName}, user_id) VALUES (?, ?)",
                     value,
@@ -518,9 +478,8 @@ public sealed class ScyllaAccountRepository : IAccountRepository
         }, _options, cancellationToken);
     }
 
-    // Fixed-point loop because ScopedSystemId.StripRegionPrefix strips at most one
-    // leading region tag per call; a legacy row that somehow carried a double-prefixed value
-    // ("nam:nam:abcdefg") would otherwise slip through with the outer prefix intact.
+    // StripRegionPrefix removes only one leading region tag per call; fixed-point to
+    // catch legacy double-prefixed rows like "nam:nam:abcdefg".
     private string NormalizeRegistryUserId(SystemId userId)
     {
         var normalized = _keyspaceResolver.NormalizeSystemId(userId);
@@ -586,7 +545,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 $"UPDATE {ScyllaGlobalKeyspace.Name}.user_registry SET {columnName} = ?, updated_at = toTimestamp(now()) WHERE user_id = ?",
                 value,
                 normalizedSystemId));
-            // Maintain denormalized lookup tables
             linkBatch.Add(new SimpleStatement(
                 $"INSERT INTO {keyspace}.users_by_{columnName} ({columnName}, user_id) VALUES (?, ?)",
                 value,
@@ -611,7 +569,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
             var keyspace = _keyspaceResolver.ResolveRegionalKeyspace(systemId);
 
-            // Read old value to delete from lookup tables
             var oldRow = (await session.ExecuteAsync(new SimpleStatement(
                 $"SELECT {columnName} FROM {keyspace}.users WHERE id = ? LIMIT 1",
                 normalizedSystemId))).FirstOrDefault();
@@ -627,7 +584,6 @@ public sealed class ScyllaAccountRepository : IAccountRepository
                 null,
                 normalizedSystemId));
 
-            // Remove from denormalized lookup tables if old value existed
             if (!string.IsNullOrWhiteSpace(oldValue))
             {
                 unlinkBatch.Add(new SimpleStatement(

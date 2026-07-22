@@ -153,8 +153,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                 return false;
             }
 
-            // Remove the field values from all alters before deleting the field itself
-            // We want to ensure that the field values are removed to ensure no leakage of deleted field data
+            // Clear field values off every alter first so no leaked data survives the field delete.
             var batch = await RemoveFieldValuesFromAltersAsync(session, keyspace, normalizedSystemId, fieldId.Value);
             batch.Add(BuildPersistFieldsStatement(keyspace, fields, normalizedSystemId));
 
@@ -226,10 +225,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         DateTime insertedAtUtc)
     {
         EnsureFieldUdtMapping(session, keyspace);
-        // Force Utc kind so we never construct a DateTimeOffset from a Local DateTime (which
-        // would silently apply the host's offset). Callers all hand us UTC values today
-        // (importer: ObjectId-derived; handler: OccurredAt.UtcDateTime), but SpecifyKind
-        // makes the contract explicit and defensive against future producers.
+        // SpecifyKind(Utc) defends against a future caller handing us a Local DateTime.
         var insertedAtOffset = new DateTimeOffset(DateTime.SpecifyKind(insertedAtUtc, DateTimeKind.Utc), TimeSpan.Zero);
         return new UserFieldUdt
         {
@@ -313,11 +309,8 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
         return batch;
     }
 
-    // The Cassandra C# driver's UDT serializer routes `timestamp` columns through
-    // DateTimeOffset; nullable DateTime properties throw `InvalidTypeException: No converter
-    // is available from Nullable<DateTime> is not convertible to type DateTimeOffset` on
-    // write. We keep the public API on `DateTime`/`DateTime?` (matching every other repo)
-    // and only carry DateTimeOffset across the UDT boundary.
+    // Driver UDT serializer needs DateTimeOffset for `timestamp` columns; Nullable<DateTime>
+    // throws InvalidTypeException on write. Public API stays DateTime/DateTime?.
     private sealed class UserFieldUdt
     {
         public Guid Id { get; set; }

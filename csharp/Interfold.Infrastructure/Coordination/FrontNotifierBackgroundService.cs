@@ -8,16 +8,8 @@ using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Infrastructure.Coordination;
 
-/// <summary>
-/// Primary-node background service that batches fronting-state-change signals and flushes
-/// them every 5 seconds, mirroring <c>Octocon.Global.FrontNotifier</c> from the legacy
-/// Elixir runtime.
-/// <para>
-/// Subscribes to <see cref="FrontingStateChangedEvent"/> via <see cref="IClusterEventBus"/>,
-/// reads the current active alters via <see cref="IFrontingRepository"/>, and dispatches
-/// push notifications via <see cref="IFCMService"/>.
-/// </para>
-/// </summary>
+/// <summary>Primary-node background service that batches fronting-state-change signals
+/// and flushes them every 5 s (mirrors legacy <c>Octocon.Global.FrontNotifier</c>).</summary>
 public sealed class FrontNotifierBackgroundService(
     IClusterEventBus eventBus,
     IFrontingRepository frontingRepository,
@@ -25,7 +17,6 @@ public sealed class FrontNotifierBackgroundService(
     ILogger<FrontNotifierBackgroundService> logger)
     : BackgroundService
 {
-    // system_id -> last-change timestamp (ms since epoch)
     private readonly ConcurrentDictionary<SystemId, long> _pending = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

@@ -2,18 +2,10 @@ using Interfold.Contracts.Enums;
 
 namespace Interfold.Contracts.Configuration;
 
-/// <summary>
-/// Well-known Docker Compose service names emitted by <c>InterfoldAppHost</c>. Shared between
-/// the bootstrapper's <c>ConfigPhase.ValidUpdateServices</c> whitelist and <c>DatabaseInitPhase</c>
-/// so operators can't drift the two lists (a mismatch would surface as a confusing
-/// "unknown service" error late in an update). The regional Scylla names mirror the
-/// <see cref="Interfold.Contracts.Enums.ScyllaKeyspace"/> values 1:1.
-/// </summary>
-/// <remarks>
-/// Any addition here MUST be paired with the matching <c>builder.AddContainer(...)</c> call
-/// in <c>InterfoldAppHost.Configure</c>; the bootstrapper checks operator input against this
-/// list so a typo lands here rather than at compose lifecycle time.
-/// </remarks>
+/// <summary>Docker Compose service names emitted by <c>InterfoldAppHost</c>. Shared with
+/// the bootstrapper's ConfigPhase whitelist; any addition MUST also be added to
+/// <c>InterfoldAppHost.Configure</c>. Regional Scylla names mirror
+/// <see cref="Interfold.Contracts.Enums.ScyllaKeyspace"/> 1:1.</summary>
 public static class ComposeServices
 {
     /// <summary>Postgres / TimescaleDB service (application state + <c>internal.secrets</c>).</summary>
@@ -52,8 +44,7 @@ public static class ComposeServices
     /// <summary>Static/octocon web tier proxy in front of the API when web-https is enabled.</summary>
     public const string OctoconWeb = "octocon-web";
 
-    /// <summary>The seven regional Scylla node service names, in the order they appear in
-    /// <see cref="Interfold.Contracts.Enums.ScyllaKeyspace"/> declarations.</summary>
+    /// <summary>Seven regional Scylla nodes in ScyllaKeyspace declaration order.</summary>
     public static readonly string[] ScyllaRegionalNodes =
     [
         ScyllaNam, ScyllaEur, ScyllaSam, ScyllaSas,
@@ -72,12 +63,8 @@ public static class ComposeServices
         OctoconWeb,
     ];
 
-    /// <summary>
-    /// The single naming rule for Scylla node services: multi-node deployments emit one
-    /// service per region (<c>scylla-{region}</c>), single mode emits one node named
-    /// <c>scylla</c>. Shared by the AppHost resource graph, the bootstrapper's bind-mount
-    /// rendering, and health-check naming so the three can't drift.
-    /// </summary>
+    /// <summary>Single naming rule for Scylla node services: multi-node → <c>scylla-{region}</c>,
+    /// single → <c>scylla</c>. Shared with the AppHost graph and bind-mount renderer.</summary>
     public static string ToScyllaNodeName(string regionWireValue, bool multiNode)
         => multiNode ? $"scylla-{regionWireValue}" : ScyllaSingle;
 

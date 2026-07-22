@@ -2,34 +2,10 @@ using TUnit.Core;
 
 namespace Interfold.IntegrationTests.TestServices;
 
-/// <summary>
-/// Process-static record of which <see cref="IWebFactoryFixture"/> implementations the current
-/// test session may request. Populated once per session by walking the scheduled
-/// <see cref="TestContext"/> set exposed via <see cref="TestSessionContext.Current"/> /
-/// <see cref="TestDiscoveryContext.Current"/>, anchored to the
-/// <c>[After(HookType.TestDiscovery)]</c> hook on <c>BaseEndpointTest</c>.
-/// </summary>
-/// <remarks>
-/// <para>
-/// We rely on the scheduled-test contexts (rather than the previous assembly-wide reflection
-/// scan) so a narrow filter such as <c>--treenode-filter '/*/*/MultiNodeScyllaTests/*'</c>
-/// produces a precise <see cref="Discovered"/> set: in that example
-/// <see cref="NeedScylla"/> and <see cref="NeedCassandra"/> are <c>false</c>, so
-/// <see cref="SharedDbFixture"/> only spins up Postgres while
-/// <see cref="MultiNodeScyllaFixture"/> handles the multi-DC topology in its own host.
-/// A lifecycle probe (see <c>LifecycleProbe</c>) confirmed that
-/// <see cref="TestDiscoveryContext.Current"/> exposes the filter-aware <c>AllTests</c>
-/// list by the time <c>[After(TestDiscovery)]</c> fires — which is still strictly before
-/// TUnit's eager <c>PerTestSession</c> <see cref="ClassDataSourceAttribute{T}"/>
-/// initialization (the moment <c>SharedDbFixture.Args</c> is evaluated).
-/// </para>
-/// <para>
-/// To stay defensive: if both contexts are unexpectedly null at hook time we fall back to
-/// the previous assembly walk so the suite never silently runs against the wrong fixture
-/// set. The same fallback fires if <see cref="EnsureDiscovered"/> is called from a code path
-/// that ran before <c>[After(TestDiscovery)]</c> (e.g. an unforeseen TUnit lifecycle change).
-/// </para>
-/// </remarks>
+/// <summary>Process-static record of which <see cref="IWebFactoryFixture"/> implementations
+/// the filtered test session may request. Populated from
+/// <see cref="TestDiscoveryContext.Current"/> at <c>[After(TestDiscovery)]</c>. Assembly-walk
+/// fallback fires if the context is null so filter-only runs never miss a needed fixture.</summary>
 internal static class RequiredFixtures
 {
     private static readonly HashSet<Type> Discovered = new();
@@ -42,10 +18,8 @@ internal static class RequiredFixtures
 
     public static bool NeedMultiNodeScylla => Has<MultiNodeScyllaFixture>();
 
-    /// <summary>
-    /// Driven by the <c>[After(HookType.TestDiscovery)]</c> hook on <c>BaseEndpointTest</c>.
-    /// Idempotent: a re-invocation in the same process is a no-op once the set is populated.
-    /// </summary>
+    /// <summary>Driven by <c>[After(TestDiscovery)]</c> on <c>BaseEndpointTest</c>;
+    /// idempotent.</summary>
     public static void Discover()
     {
         EnsureDiscovered();
@@ -144,17 +118,10 @@ internal static class RequiredFixtures
         }
     }
 
-    /// <summary>
-    /// Yields the generic arguments of every <c>TUnit.Core.ClassDataSourceAttribute&lt;...&gt;</c>
-    /// declared on <paramref name="testClassType"/> (or any base class). Generic arities 1..5
-    /// are all covered by the <c>StartsWith</c> match on the open-generic full name. When
-    /// <paramref name="transitive"/> is <c>true</c> the walk also recurses into each yielded
-    /// fixture type so e.g. <c>ScyllaWebFactoryFixture</c> (which itself declares
-    /// <c>[ClassDataSource&lt;SharedDbFixture&gt;]</c>) seeds <c>SharedDbFixture</c> into the
-    /// discovered set even though no test class names <c>SharedDbFixture</c> directly. The
-    /// transitive walk only runs in the scheduled-test path because the assembly fallback
-    /// already enumerates every type.
-    /// </summary>
+    /// <summary>Yields the generic args of every <c>ClassDataSourceAttribute&lt;...&gt;</c>
+    /// on <paramref name="testClassType"/> (or a base). Transitive walk covers indirect
+    /// fixtures (e.g. ScyllaWebFactoryFixture → SharedDbFixture) so filter-only runs still
+    /// discover them.</summary>
     private static IEnumerable<Type> ExtractClassDataSourceTypes(Type testClassType, bool transitive)
     {
         var visited = new HashSet<Type>();

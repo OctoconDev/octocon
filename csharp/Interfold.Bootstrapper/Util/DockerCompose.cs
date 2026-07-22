@@ -42,11 +42,8 @@ internal static class DockerCompose
         return await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Starts previously created compose services. Sister of <see cref="StopAsync"/> — the
-    /// "start what we stopped" leg of a stop/start pair. Does NOT create containers; pair
-    /// with <see cref="UpAsync"/> when the container may not exist yet.
-    /// </summary>
+    /// <summary>Sister of <see cref="StopAsync"/>. Does NOT create containers — pair with
+    /// <see cref="UpAsync"/> when the container may not exist yet.</summary>
     public static async Task<ProcessRunResult> StartAsync(
         string composeFile,
         IReadOnlyList<string>? services = null,
@@ -57,11 +54,7 @@ internal static class DockerCompose
         return await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Runs <c>docker compose down</c>. When <paramref name="removeVolumes"/> is true,
-    /// adds <c>-v</c> so named volumes are also removed (destructive — only reachable via
-    /// operator opt-in paths).
-    /// </summary>
+    /// <summary><paramref name="removeVolumes"/> adds <c>-v</c> (destructive; operator opt-in).</summary>
     public static async Task<ProcessRunResult> DownAsync(
         string composeFile,
         IReadOnlyList<string>? services = null,
@@ -74,13 +67,8 @@ internal static class DockerCompose
         return await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Runs <c>docker compose ps</c>. Defaults to <c>-q</c> (container id only), which is
-    /// what every current caller wants (they parse stdout for the id and pipe it to
-    /// <c>docker cp</c> / <c>docker inspect</c>). Set <paramref name="includeStopped"/> to
-    /// add <c>-a</c> so stopped-but-created containers are also returned — required for the
-    /// restore path which needs a handle on a container it just <c>stop</c>'d.
-    /// </summary>
+    /// <summary>Defaults to <c>-q</c> (container id only). <paramref name="includeStopped"/>
+    /// adds <c>-a</c> so stopped-but-created containers appear (restore-path requirement).</summary>
     public static async Task<ProcessRunResult> PsAsync(
         string composeFile,
         string? service = null,
@@ -109,22 +97,10 @@ internal static class DockerCompose
         return await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// One-liner replacement for the "log intent → <see cref="UpAsync"/> → check exit code
-    /// → log stdout on success" quad every phase used to hand-roll. Optionally emits
-    /// <see cref="PhaseLogger.PhaseFail"/> before throwing when both <paramref name="phase"/>
-    /// and <paramref name="phaseFailReason"/> are supplied (LaunchPhase and RestorePhase's
-    /// bring-ups deliberately DO NOT emit PhaseFail here, so both stay optional).
-    /// </summary>
-    /// <remarks>
-    /// Stack layering rule — <see cref="DockerCompose"/> normally stays a pure transport
-    /// helper (see the class-level architecture note upstream). This exception is
-    /// justified because every current caller (DatabaseInitPhase, LaunchPhase, RestorePhase,
-    /// UpdateImagesPhase) rebuilds the same four-line envelope byte-identically, and pulling
-    /// it into a caller-side base class would drag five phases into an inheritance hierarchy
-    /// they don't otherwise need. Keep this helper minimal — if a phase grows a bespoke
-    /// exit-code recovery path, it should inline <see cref="UpAsync"/> instead of overriding.
-    /// </remarks>
+    /// <summary>One-liner for the "log intent → up → exit-check → log stdout" quad each phase
+    /// re-implemented. Emits <see cref="PhaseLogger.PhaseFail"/> before throwing when both
+    /// <paramref name="phase"/> and <paramref name="phaseFailReason"/> are supplied (Launch/Restore
+    /// bring-ups skip PhaseFail here, so both stay optional).</summary>
     public static async Task UpCheckedAsync(
         string composeFile,
         IReadOnlyList<string>? services,
@@ -162,12 +138,8 @@ internal static class DockerCompose
         return DockerComposeExec.RunAsync(composeFile, service, command, args, env, stdin, ct);
     }
 
-    /// <summary>
-    /// Resolves the runtime container ID for a compose service via <c>docker compose ps -q</c>.
-    /// Returns <see cref="string.Empty"/> when the service has no container (not created,
-    /// or <c>ps</c> failed). Set <paramref name="includeStopped"/> to also match containers
-    /// that exist but are not running (needed by the restore path after <c>stop</c>).
-    /// </summary>
+    /// <summary>Container id for a compose service via <c>ps -q</c>. Empty when no container
+    /// exists. <paramref name="includeStopped"/> matches stopped containers (restore path).</summary>
     public static async Task<string> ResolveContainerIdAsync(
         string composeFile, string service, bool includeStopped = false, CancellationToken ct = default)
     {
@@ -178,11 +150,7 @@ internal static class DockerCompose
             .FirstOrDefault() ?? string.Empty;
     }
 
-    /// <summary>
-    /// Validates <paramref name="containerId"/> and <paramref name="dataPath"/> are non-empty.
-    /// Shared guard for <c>docker cp</c> argv builders in <see cref="Phases.BackupPhase"/>
-    /// and <see cref="Phases.RestorePhase"/>.
-    /// </summary>
+    /// <summary>Shared non-empty guard for the <c>docker cp</c> argv builders.</summary>
     public static void ValidateContainerCpParams(string containerId, string dataPath)
     {
         if (string.IsNullOrWhiteSpace(containerId))
@@ -195,26 +163,9 @@ internal static class DockerCompose
         }
     }
 
-    /// <summary>
-    /// Builds the shared <c>docker compose exec -T --env PGPASSWORD msg-db &lt;tool&gt; -U &lt;user&gt; -d &lt;db&gt; …</c>
-    /// argv preamble used by every phase that shells into the postgres container as an admin
-    /// role (pg_dump, pg_restore, pg_isready-with-creds, ad-hoc DDL). The password lands on the
-    /// exec'd process via the <c>PGPASSWORD</c> env var — never on argv — so the value never
-    /// leaks to <c>ps</c> or audit logs.
-    /// <para>
-    /// <paramref name="toolTrailer"/> is appended verbatim after the base argv (
-    /// <c>-Fc</c> for pg_dump, <c>--clean --if-exists --single-transaction --no-owner</c> for
-    /// pg_restore, etc.). Callers pass the tool-specific flags in the order the underlying
-    /// binary expects them.
-    /// </para>
-    /// </summary>
-    /// <remarks>
-    /// The service name is hardcoded to <see cref="Configuration.ComposeServices.Postgres"/>
-    /// (via the caller's constant) rather than exposed as a parameter — every current
-    /// callsite targets the same service, and letting the caller pass one would invite the
-    /// argv shape to drift as new tools are added. If a future phase needs to exec into a
-    /// non-postgres service under this same shape, promote the service to a parameter here.
-    /// </remarks>
+    /// <summary>Shared preamble for admin-role exec into the postgres container. Password flows
+    /// via <c>PGPASSWORD</c> env, never argv, so it can't leak to <c>ps</c>/audit. <paramref
+    /// name="toolTrailer"/> is appended verbatim in the order the underlying binary expects.</summary>
     internal static IReadOnlyList<string> BuildPostgresExecArgs(
         string composeFile, string service, string tool, string adminUser, string database, params string[] toolTrailer)
     {
@@ -235,22 +186,15 @@ internal static class DockerCompose
         return argv;
     }
 
-    /// <summary>
-    /// Builds the <c>docker cp &lt;id&gt;:&lt;path&gt; -</c> argv that streams a container path
-    /// to the host as a raw tar archive on stdout. Callers pipe the emitted stream through a
-    /// host-side compressor. Used by <see cref="Phases.BackupPhase"/>.
-    /// </summary>
+    /// <summary><c>docker cp &lt;id&gt;:&lt;path&gt; -</c>: streams a container path to host
+    /// stdout as raw tar. Backup path.</summary>
     internal static IReadOnlyList<string> BuildContainerCpFromContainer(string containerId, string containerPath)
     {
         ValidateContainerCpParams(containerId, containerPath);
         return ["cp", $"{containerId}:{containerPath}", "-"];
     }
 
-    /// <summary>
-    /// Builds the <c>docker cp - &lt;id&gt;:&lt;path&gt;</c> argv that streams a host-side tar
-    /// payload from stdin back into a container path. Mirror of
-    /// <see cref="BuildContainerCpFromContainer"/>. Used by <see cref="Phases.RestorePhase"/>.
-    /// </summary>
+    /// <summary>Mirror of <see cref="BuildContainerCpFromContainer"/> — restore path.</summary>
     internal static IReadOnlyList<string> BuildContainerCpIntoContainer(string containerId, string containerPath)
     {
         ValidateContainerCpParams(containerId, containerPath);

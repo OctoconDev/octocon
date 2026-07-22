@@ -7,30 +7,10 @@ using Interfold.Api.UnitTests.Support;
 
 namespace Interfold.Api.UnitTests;
 
-/// <summary>
-/// Regression suite for the OAuth-identity paths on <see cref="InMemoryAccountRepository"/>
-/// — <see cref="InMemoryAccountRepository.FindOrCreateSystemIdAsync"/>,
-/// <see cref="InMemoryAccountRepository.UnlinkDiscordAsync"/>/<c>Email</c>/<c>Apple</c>, and
-/// the identity cleanup inside <see cref="InMemoryAccountRepository.DeleteAsync"/>.
-///
-/// <para>
-/// The three per-provider FindOrCreate bodies (discord / email / apple) and the three
-/// per-provider Unlink bodies were previously hand-copied. Round-2 C2 collapsed them onto
-/// two generic helpers keyed by the identity wrapper type + a static extractor lambda.
-/// The failure mode a copy-paste-style refactor of that kind introduces is a wrong dict
-/// pair fed to the generic — e.g. an Unlink-discord that scrubs the email reverse map.
-/// The isolation tests below pin that dict-pair-per-branch invariant so a swap goes
-/// noisy immediately.
-/// </para>
-///
-/// <para>
-/// The Scylla adapter's parallel identity paths are already factored via
-/// <c>UnlinkIdentityAsync(systemId, ProviderColumn)</c>; those are covered by
-/// integration-tier fixtures. Direct unit coverage is only meaningful for the InMemory
-/// repo because it holds all state in-process and every branch is observable through the
-/// public <see cref="IAccountRepository"/> surface without a live backend.
-/// </para>
-/// </summary>
+// Regression suite for the OAuth-identity paths on InMemoryAccountRepository. The
+// three per-provider FindOrCreate/Unlink bodies were collapsed onto a generic helper
+// keyed by identity wrapper + extractor lambda; the isolation tests below pin the
+// dict-pair-per-branch invariant so a wrong-dict swap goes noisy immediately.
 public sealed class InMemoryAccountRepositoryIdentityRegressionTests
 {
     private const string DiscordValue = "discord-user-123";
@@ -43,15 +23,8 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
     private static InMemoryAccountRepository NewRepo() =>
         new(new FixedRegionContext(ScyllaKeyspace.Nam));
 
-    /// <summary>
-    /// Provision a user via <see cref="ProviderIdentity.FromDiscord"/> and then attach
-    /// email + apple identities. <see cref="InMemoryAccountRepository.LinkIdentityToUserAsync"/>
-    /// requires the user to have at least one of username / description / avatar / linkToken
-    /// present before it will accept a link — an OAuth-only auto-provisioned user without
-    /// any profile field is treated as <c>UserNotFound</c> by the link path. Seeding a
-    /// username first mirrors the real-life onboarding order (first sign-in sets a
-    /// username, then the user optionally connects additional identities under Settings).
-    /// </summary>
+    // LinkIdentityToUserAsync requires the user to have username/description/avatar/linkToken
+    // present before it accepts a link; seed a username first (mirrors the real onboarding order).
     private static async Task<SystemId> ProvisionAllThreeIdentitiesAsync(InMemoryAccountRepository repo)
     {
         var systemId = await repo.FindOrCreateSystemIdAsync(ProviderIdentity.FromDiscord(new(DiscordValue)));
@@ -64,8 +37,6 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
 
         return systemId.Value;
     }
-
-    // ---------------- FindOrCreate: auto-provision + idempotency ------------
 
     [Test]
     public async Task FindOrCreateSystemIdAsync_DiscordMiss_AutoProvisionsAndSecondCallReturnsSameId()
@@ -112,8 +83,6 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
             .Because("A second FindOrCreate for the same Apple id must return the SAME SystemId — otherwise Apple-OAuth users would double-provision on every login.");
     }
 
-    // ---------------- FindOrCreate: case-insensitivity on Email --------------
-
     [Test]
     public async Task FindOrCreateSystemIdAsync_EmailCasedDifferently_ReturnsSameSystemId()
     {
@@ -124,8 +93,6 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
         await Assert.That(upper).IsEqualTo(lower)
             .Because("The email reverse-map keys on StringComparer.OrdinalIgnoreCase — a caller submitting the same address in a different case must land on the same account. Generic-helper refactor risk: if the generic ever swapped the reverse-map for a case-sensitive dict, the two calls above would provision two separate accounts.");
     }
-
-    // ---------------- Unlink: round-trip + no-op idempotency ----------------
 
     [Test]
     public async Task UnlinkDiscordAsync_AfterAutoProvision_SubsequentTryFindReturnsNull()
@@ -145,27 +112,22 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
             .Because("After Unlink, the reverse (raw discord id → SystemId) lookup must return null — otherwise the account is discoverable by a discord id it no longer claims.");
     }
 
+    // Unlink on a user with nothing linked must return true (idempotent) — parity with
+    // the Scylla adapter's contract that drives the settings-command flow's Accepted/Replay.
     [Test]
     public async Task UnlinkDiscordAsync_UserWithNothingLinked_ReturnsTrue()
     {
         var repo = NewRepo();
-        // A user that has never touched the identity dicts — we still expect true so the
-        // command layer treats "nothing to unlink" as an idempotent success rather than a
-        // 404-shaped surface error. This matches the Scylla adapter's contract.
         var result = await repo.UnlinkDiscordAsync(new("nam:never-linked"));
 
         await Assert.That(result).IsTrue()
             .Because("Unlink on a user with no linked Discord id must return true — parity with the Scylla adapter, which returns true for the same shape and drives the settings-command flow's Accepted/Replay envelope.");
     }
 
-    // ---------------- Unlink: dict-pair isolation (the refactor's core risk) -
-
     [Test]
     public async Task UnlinkDiscordAsync_DoesNotAffectEmailOrAppleReverseMaps()
     {
         var repo = NewRepo();
-        // All three identities linked onto the SAME user — see ProvisionAllThreeIdentitiesAsync
-        // for why the intermediate UpdateUsernameAsync is required.
         var systemId = await ProvisionAllThreeIdentitiesAsync(repo);
 
         var linked = await repo.UnlinkDiscordAsync(systemId);
@@ -183,8 +145,6 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
             .Because("UnlinkDiscord must NOT touch the apple dict pair — see the email pin above for the refactor-risk rationale.");
     }
 
-    // ---------------- Delete: unlinks all three identity dict pairs ----------
-
     [Test]
     public async Task DeleteAsync_UserWithAllThreeIdentities_ScrubsAllThreeReverseMaps()
     {
@@ -195,10 +155,8 @@ public sealed class InMemoryAccountRepositoryIdentityRegressionTests
         await Assert.That(deleted).IsTrue()
             .Because("DeleteAsync returns true on success — matches the Scylla adapter's contract.");
 
-        // Discord has a direct TryFind entry point; the other two only surface through
-        // GetPublicProfileAsync or a fresh FindOrCreate. The assertion is the same:
-        // post-delete the account must be undiscoverable from every side, otherwise a
-        // follow-up OAuth login by the same identity would silently re-adopt the tombstone.
+        // Discord has TryFind; email/apple only surface via a fresh FindOrCreate — same
+        // invariant: post-delete the account must be undiscoverable from every side.
         await Assert.That(await repo.TryFindSystemIdByDiscordIdAsync(new(DiscordValue))).IsNull()
             .Because("Delete must scrub the discord reverse-map — a fresh FindOrCreate by the same discord id must not resurrect the deleted account.");
 

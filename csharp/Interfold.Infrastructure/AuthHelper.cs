@@ -31,7 +31,6 @@ public class AuthHelper
         var encodedPayload = Base64UrlEncode(Encoding.UTF8.GetBytes(payloadJson));
         var signingInput = $"{encodedHeader}.{encodedPayload}";
 
-        // ES256 signing with ECDSA P-256
         using var ecdsa = ECDsa.Create();
         ecdsa.ImportFromPem(NormalizePem(authConfig.JwtEs256PrivateKeyPem).AsSpan());
         var signature = ecdsa.SignData(

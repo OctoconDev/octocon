@@ -269,11 +269,8 @@ public sealed class ScyllaJournalRepository : IJournalRepository
             await GetAlterRefCoreAsync(scope, entryId, cancellationToken), cancellationToken);
     }
 
-    /// <summary>
-    /// Reads the alter-journal ref within an already-open scope. Used by the alter-scoped
-    /// writers to avoid a nested <see cref="IScyllaScopeResolver"/> call
-    /// (which would create a second retry envelope around the outer one).
-    /// </summary>
+    // In-scope variant used by the alter-scoped writers so we don't stack a second
+    // IScyllaScopeResolver retry envelope inside the outer one.
     private static async Task<AlterJournalRef?> GetAlterRefCoreAsync(
         ScyllaScope scope, EntryId entryId, CancellationToken cancellationToken)
     {
@@ -458,8 +455,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 result.Add(JournalRowMappers.MapJournalReadModel(row, alterIds));
             }
 
-            // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
-            // to the historic string-backed EntryId — Guid.CompareTo bytewise reorders differently.
+            // Sort by wire form (lowercase "N" hex); Guid.CompareTo would reorder differently.
             return (IReadOnlyList<JournalReadModel>)result
                 .OrderByDescending(e => e.Id.Value.ToString("N"), StringComparer.Ordinal)
                 .ToArray();
@@ -500,11 +496,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         {
             var (session, keyspace, normalizedSystemId) = scope;
 
-            // Step 1: list every per-alter journal entry id for this alter via the by-alter
-            // view (the partition key is (user_id, alter_id), so this is one single-partition
-            // read - no cross-partition scan). We capture both id and alter_id even though
-            // alter_id is constant per partition because the alter_journals (main view) row
-            // key is (user_id, id, alter_id).
+            // Single-partition read on (user_id, alter_id).
             var listQuery = new SimpleStatement(
                 $"SELECT id FROM {keyspace}.alter_journals_by_alter WHERE user_id = ? AND alter_id = ?",
                 normalizedSystemId,
@@ -513,11 +505,8 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 .Select(r => r.GetValue<Guid>("id"))
                 .ToArray();
 
-            // Step 2: detach the alter from any global journals. We scan the user's
-            // global_journal_alters partition once and filter for the matching alter_id in
-            // C# (ALLOW FILTERING would be equivalent at the server but burns a server-side
-            // filter; the partition is small enough that client-side filter is cheap and we
-            // already pay for the row reads either way).
+            // Client-side filter — the partition is small, ALLOW FILTERING isn't worth the
+            // server-side burn for the same row reads.
             var attachmentsQuery = new SimpleStatement(
                 $"SELECT global_journal_id, alter_id FROM {keyspace}.global_journal_alters WHERE user_id = ?",
                 normalizedSystemId);
@@ -531,9 +520,7 @@ public sealed class ScyllaJournalRepository : IJournalRepository
                 return 0;
             }
 
-            // Step 3: single batch for all deletes so we either land the full cascade or
-            // none of it. The deletes are all to the same partition key prefix (user_id)
-            // so this is a single-coordinator batch in Scylla terms.
+            // All deletes share user_id, so this is a single-coordinator batch.
             var batch = new BatchStatement();
 
             foreach (var entryId in entryIds)
@@ -564,15 +551,8 @@ public sealed class ScyllaJournalRepository : IJournalRepository
         }, cancellationToken);
     }
 
-    /// <summary>
-    /// The two mutable boolean columns on the journal tables (both <c>global_journals</c> and
-    /// the <c>alter_journals</c> / <c>alter_journals_by_alter</c> view pair). Kept as a
-    /// closed enum — instead of a bare <c>string column</c> parameter — so callers of
-    /// <see cref="SetGlobalFlagAsync"/> / <see cref="SetAlterFlagAsync"/> physically cannot
-    /// pass an arbitrary column identifier and slip a CQL-injection-adjacent literal into
-    /// the UPDATE. <see cref="FlagToColumn"/> is the single place the enum → column-name
-    /// mapping lives.
-    /// </summary>
+    // Closed enum instead of a raw string column parameter so no caller can slip a
+    // CQL-injection-adjacent identifier into the UPDATE.
     private enum JournalFlag
     {
         Locked,

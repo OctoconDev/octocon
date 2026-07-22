@@ -11,31 +11,13 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-/// <summary>
-/// Pins the lifecycle contract of <see cref="ImportJobBackgroundService"/>. The worker is
-/// the only path between a queued import job and a terminal Cassandra row + WebSocket
-/// frame, so any regression here directly breaks the user-visible import experience.
-///
-/// <para>
-/// These tests run the real worker against the in-memory queue and repository so the
-/// behaviour under test is end-to-end-correct. The only fakes are <see cref="StubRunner"/>
-/// (so we can deterministically simulate success / graceful failure / thrown exception)
-/// and <see cref="CapturingEventBus"/> (so we can assert which lifecycle events were
-/// published). The wire format for those events is separately pinned by
-/// <c>WebSocketTests.Api_UserSocketEndpoint_PushesSpImportLifecycleEvents_OnEventBusPublish</c>
-/// — together those two tests cover the full publish-and-project pipeline.
-/// </para>
-/// </summary>
+// Lifecycle contract for ImportJobBackgroundService — the only path between a queued
+// import job and a terminal repo row + WebSocket lifecycle frame. Wire format for those
+// frames is separately pinned by WebSocketTests.
 public sealed class ImportJobBackgroundServiceTests
 {
     private static readonly ScopedSystemId TestSystemId = ScopedSystemId.ParseScoped("nam:sys-worker-test");
 
-    /// <summary>
-    /// Happy path: the runner reports success, the repository row transitions to
-    /// <see cref="ImportOperationStatus.Succeeded"/> with the reported alter count, and
-    /// the success event is published. This is the contract the Compose app depends on
-    /// for the "ImportStatus.Success(it.alterCount)" branch in <c>SettingsRootScreen.kt</c>.
-    /// </summary>
     [Test]
     public async Task RunAsync_RunnerSucceeds_MarksSucceededAndPublishesCompleteEvent()
     {
@@ -55,11 +37,6 @@ public sealed class ImportJobBackgroundServiceTests
         }
     }
 
-    /// <summary>
-    /// Graceful failure path: the runner returns <c>Success = false</c> with a code. The
-    /// worker must record that, free the slot, and publish the failure event. Compose
-    /// uses this to render <c>ImportStatus.Failed</c>.
-    /// </summary>
     [Test]
     public async Task RunAsync_RunnerReportsGracefulFailure_MarksFailedAndPublishesFailedEvent()
     {
@@ -77,11 +54,8 @@ public sealed class ImportJobBackgroundServiceTests
         }
     }
 
-    /// <summary>
-    /// Thrown-exception path: the runner throws. The worker MUST swallow the exception
-    /// (so the loop survives for the next job) and treat it identically to a graceful
-    /// failure with <c>error_code = "exception"</c>.
-    /// </summary>
+    // Thrown exceptions MUST be swallowed so the loop survives; treated identically to
+    // a graceful failure with error_code = exception.
     [Test]
     public async Task RunAsync_RunnerThrows_MarksFailedWithExceptionCodeAndPublishesFailedEvent()
     {
@@ -99,12 +73,6 @@ public sealed class ImportJobBackgroundServiceTests
         }
     }
 
-    /// <summary>
-    /// Releasing the LWT slot on terminal transitions is what lets the user click again.
-    /// This test combines the contract of <see cref="IImportOperationRepository"/> and
-    /// the worker: after the worker drives a job to Succeeded, the repository must
-    /// accept a fresh claim for the same system.
-    /// </summary>
     [Test]
     public async Task RunAsync_TerminalTransition_ReleasesSlotForNextClaim()
     {
@@ -115,14 +83,7 @@ public sealed class ImportJobBackgroundServiceTests
             .Because("After the worker terminates an operation, a second click for the same system must claim a fresh slot — otherwise users could never re-import after a successful or failed run.");
     }
 
-    /// <summary>
-    /// Unregistered-kind path: a job whose kind has no registered runner must not pin
-    /// the slot. The worker fails it cleanly with <c>error_code = "no_runner"</c> and
-    /// the queue keeps consuming. Uses PluralKit as the item's kind while registering
-    /// only the SimplyPlural runner — the strong-typed enum enforces this scenario at
-    /// the type layer, but the DI-misregistration guard still needs coverage in case a
-    /// future runner ships broken.
-    /// </summary>
+    // DI-misregistration guard: an unregistered kind must not pin the slot.
     [Test]
     public async Task RunAsync_UnknownKind_MarksFailedWithNoRunnerCode()
     {
@@ -149,11 +110,6 @@ public sealed class ImportJobBackgroundServiceTests
         public Task<ImportOperationSnapshot?> GetOperationAsync() =>
             Operations.GetByIdAsync(TestSystemId, OperationId);
 
-        /// <summary>
-        /// Spins up a worker against a single-item queue, waits for the runner to
-        /// observe the job (or a timeout), then stops the worker. The returned harness
-        /// holds the resulting repository state for assertions.
-        /// </summary>
         public static async Task<Harness> RunAsync(StubRunner runner, ImportOperationKind? jobKindOverride = null)
         {
             var queue = new InProcessImportJobQueue();
@@ -161,8 +117,6 @@ public sealed class ImportJobBackgroundServiceTests
             var bus = new CapturingEventBus();
             var jobKind = jobKindOverride ?? ImportOperationKind.SimplyPlural;
 
-            // Pre-claim the slot the way the real handler would, so the worker has a
-            // legitimate row to transition.
             var claim = await operations.TryClaimAsync(TestSystemId, ImportOperationKind.SimplyPlural, new("idem-1"));
             var item = new ImportJobItem(claim.OperationId, TestSystemId, jobKind, Token: new("synthetic"), RecoveryCode: null);
 
@@ -177,17 +131,13 @@ public sealed class ImportJobBackgroundServiceTests
             await worker.StartAsync(cts.Token);
             await queue.EnqueueAsync(item, cts.Token);
 
-            // For known kinds, wait for the runner to actually see the job. For unknown
-            // kinds the worker short-circuits without calling RunAsync, so we skip the
-            // runner gate and rely on terminal polling alone.
+            // Unknown-kind path short-circuits without calling RunAsync, so skip the
+            // runner gate for those and rely on terminal polling alone.
             if (jobKindOverride is null)
             {
                 await runner.Observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
             }
 
-            // Give the worker a brief moment to finish writing the terminal row +
-            // publishing the event after RunAsync returned (or after the kind-not-found
-            // short-circuit).
             await WaitForTerminalAsync(operations, claim.OperationId);
 
             return new Harness
@@ -201,11 +151,10 @@ public sealed class ImportJobBackgroundServiceTests
             };
         }
 
+        // Poll (rather than fixed delay) so slow-CI still gets the terminal snapshot;
+        // 5 s hard cap so a hung worker fails visibly.
         private static async Task WaitForTerminalAsync(IImportOperationRepository operations, ImportOperationId operationId)
         {
-            // Poll instead of relying on a fixed delay so a slow-CI iteration still gets
-            // the terminal snapshot rather than a Running one. Hard cap at 5s to fail
-            // visibly if the worker hangs.
             var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
             while (DateTimeOffset.UtcNow < deadline)
             {
@@ -222,7 +171,7 @@ public sealed class ImportJobBackgroundServiceTests
         {
             Cts.Cancel();
             try { await Worker.StopAsync(CancellationToken.None); }
-            catch (OperationCanceledException) { /* expected on shutdown */ }
+            catch (OperationCanceledException) { }
             await Queue.DisposeAsync();
             Cts.Dispose();
         }

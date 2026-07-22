@@ -9,45 +9,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Interfold.Api.Services.ImportJobs;
 
-/// <summary>
-/// Single-consumer worker that drains <see cref="IImportJobQueue"/> and drives each
-/// import job through its lifecycle. Owns the side-effects that used to live inside the
-/// synchronous command handlers — calling <see cref="ISimplyPluralImportService.ImportAsync"/>,
-/// transitioning <c>import_operations</c> rows to terminal states, and publishing
-/// completion / failure events for the WebSocket pump to relay to the client.
-///
-/// <para>
-/// <b>Startup sweep.</b> Before consuming the queue the worker scans
-/// <c>import_operations</c> for any row stuck in <see cref="ImportOperationStatus.Running"/>
-/// older than <see cref="StaleRunningThreshold"/>. Those rows belong to a previous
-/// process that crashed mid-import; we mark them <see cref="ImportOperationStatus.Failed"/>
-/// with code <c>host_restart</c> and publish the matching failure event so any
-/// reconnecting client can re-trigger. This is the only path that frees an
-/// LWT-protected slot without the owning worker — the
-/// <see cref="IImportOperationRepository.MarkFailedAsync"/> contract guards the slot
-/// release with <c>IF operation_id = ?</c> so we cannot evict an unrelated newer
-/// operation.
-/// </para>
-///
-/// <para>
-/// <b>Per-job exception isolation.</b> The runner contract specifies graceful failures
-/// are returned, not thrown — but a thrown exception still must not kill the loop. We
-/// wrap each iteration in try/catch and treat an escaped exception identically to a
-/// failed runner outcome (<c>error_code = "exception"</c>) so the worker stays alive
-/// for the next dispatch.
-/// </para>
-/// </summary>
+/// <summary>Single-consumer worker: drains <see cref="IImportJobQueue"/>, transitions
+/// <c>import_operations</c> rows, and publishes completion/failure events for the WS pump.
+/// On startup, sweeps rows stuck in <see cref="ImportOperationStatus.Running"/> older than
+/// <see cref="StaleRunningThreshold"/> (previous-host crashes) and marks them failed with
+/// code <c>host_restart</c>. Per-job try/catch treats escaped exceptions as failed runner
+/// outcomes (<c>error_code = "exception"</c>) so the loop survives.</summary>
 public sealed class ImportJobBackgroundService : BackgroundService
 {
-    /// <summary>
-    /// How long a <c>running</c> row may stay running before the startup sweep declares
-    /// it abandoned and rewrites it to <c>failed</c>. Imports on the slowest known host
-    /// (Pi 4 + Cassandra) complete in well under a minute; 10 minutes is comfortable
-    /// headroom for any future expansion of scope while still bounding orphan-row lifetime
-    /// to "one host restart cycle". This value is paired with the LWT mutex — every
-    /// extra minute here is an extra minute the affected system cannot dispatch a new
-    /// import.
-    /// </summary>
+    // Paired with the LWT mutex — every extra minute here delays new imports for the
+    // affected system by that much.
     private static readonly TimeSpan StaleRunningThreshold = TimeSpan.FromMinutes(10);
 
     private readonly IImportJobQueue _queue;
@@ -66,9 +37,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         _queue = queue;
         _operations = operations;
         _eventBus = eventBus;
-        // Materialise runners into a kind-keyed dictionary at startup so the per-job
-        // resolve is an O(1) lookup. Duplicate kinds throw at startup rather than racing
-        // at dispatch time — better to fail-fast on a misregistered DI graph.
+        // Duplicate kinds throw here rather than racing at dispatch time.
         _runners = runners.ToDictionary(r => r.Kind);
         _logger = logger;
     }
@@ -89,10 +58,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Normal shutdown path. Any in-flight Cassandra writes for the
-            // currently-processing job have already been awaited by ProcessOneAsync;
-            // anything still queued will be rediscovered by the next process via the
-            // sweep on startup.
+            // Normal shutdown. Any queued work is rediscovered by the next sweep.
         }
 
         _logger.LogInformation("[import-worker] Stopped.");
@@ -120,11 +86,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                     errorMessage: "Operation was running when the previous host shut down.",
                     cancellationToken).ConfigureAwait(false);
 
-                // Repositories persist scoped ids on write, so a stale row swept here
-                // should be parse-clean. If it isn't (a legacy row that survived migration)
-                // we log and skip the client-visible event so a malformed id can't
-                // propagate into the topic name — the row is still marked failed above,
-                // so the slot frees regardless.
+                // Skip the client event on a legacy unscoped row (the slot still frees).
                 if (ScopedSystemId.TryParseScoped(row.SystemId, out var scopedSweepId))
                 {
                     await PublishFailureAsync(scopedSweepId, row.Kind, cancellationToken).ConfigureAwait(false);
@@ -139,8 +101,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // A sweep failure must not block the worker from accepting new work — a stuck
-            // sweep query (e.g. Cassandra under load) would otherwise pin the loop forever.
+            // Must not block new work — a stuck sweep would pin the loop forever.
             _logger.LogError(ex, "[import-worker] Startup sweep failed; continuing without it.");
         }
     }
@@ -149,10 +110,8 @@ public sealed class ImportJobBackgroundService : BackgroundService
     {
         if (!_runners.TryGetValue(item.Kind, out var runner))
         {
-            // Unknown kind shouldn't happen because the controller validates at dispatch
-            // time, but a misregistered DI graph plus a runtime push could land here.
-            // Fail the operation row so the slot frees and the caller gets a failure
-            // frame rather than a perpetual "running" state.
+            // Guard against a misregistered DI graph so the row terminates instead of
+            // stranding in "running".
             _logger.LogError("[import-worker] No runner registered for kind={Kind} (operation={OperationId}).",
                 item.Kind, item.OperationId);
             await _operations.MarkFailedAsync(
@@ -175,9 +134,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
                     item.SystemId, item.OperationId, item.Kind, outcome.AlterCount, cancellationToken)
                     .ConfigureAwait(false);
 
-                // Pin the legacy "settings profile updated" signal for the SP path so any
-                // dependent client view (e.g. encryption status pill) refreshes — same
-                // semantics as the pre-async handler's emit-on-accept.
+                // Pin the legacy settings-profile-updated signal so encryption-status views refresh.
                 if (item.Kind == ImportOperationKind.SimplyPlural)
                 {
                     await _eventBus.PublishAsync(
@@ -204,10 +161,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Host is shutting down mid-job. Mark the operation failed with a stable code
-            // so the client receives a definitive frame instead of a never-resolving
-            // spinner. The next startup's sweep will not double-process because the row
-            // has already terminated here.
+            // Terminate the row so the client sees a definitive frame; the next sweep won't double-process.
             await TryMarkFailedSafelyAsync(item, ImportErrorCode.HostShutdown, "Worker was cancelled mid-job.").ConfigureAwait(false);
             throw;
         }
@@ -220,9 +174,7 @@ public sealed class ImportJobBackgroundService : BackgroundService
 
     private async Task TryMarkFailedSafelyAsync(ImportJobItem item, ImportErrorCode errorCode, string errorMessage)
     {
-        // Use CancellationToken.None for the terminal write — if the host token has just
-        // fired we still want the operation row to land in a definite state and the slot
-        // to free. The Cassandra write itself is bounded by the resilience pipeline.
+        // CancellationToken.None so a host cancel still lands the terminal write and frees the slot.
         try
         {
             await _operations.MarkFailedAsync(

@@ -6,42 +6,18 @@ using Npgsql;
 
 namespace Interfold.Api.Services.Secrets;
 
-/// <summary>
-/// Populates the API's <see cref="SecretsSnapshot"/> before <c>WebApplicationBuilder.Build()</c>,
-/// unifying the retired post-Build <c>SecretsSnapshotLoader</c> hosted service and the bare-Npgsql
-/// leaf-PFX loader that used to live in <c>Program.cs</c>. Called from <c>Program.cs</c>
-/// immediately after <c>AddServiceDefaults()</c>; the returned snapshot is registered as an
-/// instance singleton (valid pre-<c>Build()</c>).
-/// </summary>
-/// <remarks>
-/// <para>
-/// <b>Branch.</b> When <c>OCTOCON_POSTGRES_CONNECTION</c> is set, every snapshot row plus the leaf
-/// PFX password is fetched in one batched query on a bare <see cref="NpgsqlConnection"/> —
-/// <see cref="ISecretsStore"/> isn't built yet. Otherwise the four mandatory auth secrets are read
-/// from the same <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c> env-var family that
-/// <c>AddInMemoryPersistence</c> uses, just one layer earlier; OAuth / Firebase-client / FCM rows
-/// stay null (no InMemory seed path exists, matching the retired <c>InMemorySecretsStore</c>).
-/// The bare connection has no retry, matching the retired leaf-PFX loader.
-/// </para>
-/// <para>
-/// <b>Dedicated pool.</b> Npgsql keys pools on the canonical connection string, so
-/// <see cref="WithDedicatedPoolIdentity"/> rewrites it with a distinct <c>Application Name</c> and
-/// bounded <c>Maximum Pool Size</c>. Without this, parallel <c>InterfoldWebApplicationFactory</c>
-/// builds contend for the fixture's pinned 5-slot app pool and blow the 15s pool timeout; an
-/// earlier <c>Pooling=false</c> attempt just pushed the problem down to Postgres's
-/// <c>max_connections</c>. The dedicated pool fixes both.
-/// </para>
-/// </remarks>
+/// <summary>Populates the API's <see cref="SecretsSnapshot"/> before
+/// <c>WebApplicationBuilder.Build()</c>. Postgres branch: batched read on a bare Npgsql
+/// connection (ISecretsStore isn't built yet). InMemory branch: reads
+/// <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c> env vars. Rewrites the pg connection string
+/// via <see cref="WithDedicatedPoolIdentity"/> so parallel factory builds don't contend
+/// with the fixture's pinned 5-slot app pool.</summary>
 internal static class SecretsPreBuildLoader
 {
-    /// <summary>
-    /// Every row consulted by the API's <c>IPostConfigureOptions</c> patchers. Keep in sync with
-    /// <see cref="AuthenticationSecretsPostConfigure"/>, <see cref="FirebaseClientSecretsPostConfigure"/>,
-    /// and <see cref="FcmSecretsPostConfigure"/>.
-    /// </summary>
+    // Every row read by AuthenticationSecretsPostConfigure /
+    // FirebaseClientSecretsPostConfigure / FcmSecretsPostConfigure — keep in sync.
     private static readonly SecretsStoreKey[] SnapshotKeys =
     [
-        // Auth secrets consumed by AuthenticationSecretsPostConfigure
         SecretsStoreKeys.OAuthGoogleClientSecret,
         SecretsStoreKeys.OAuthDiscordClientSecret,
         SecretsStoreKeys.OAuthAppleClientSecret,
@@ -50,12 +26,10 @@ internal static class SecretsPreBuildLoader
         SecretsStoreKeys.AuthJwtRsa256PrivatePem,
         SecretsStoreKeys.AuthJwtEs256PrivatePem,
 
-        // Firebase client-init rows consumed by FirebaseClientSecretsPostConfigure
         SecretsStoreKeys.FirebaseClientAndroid,
         SecretsStoreKeys.FirebaseClientIos,
         SecretsStoreKeys.FirebaseClientWeb,
 
-        // FCM v1 service-account credential consumed by FcmSecretsPostConfigure
         SecretsStoreKeys.FcmServiceAccountJson,
     ];
 
@@ -96,10 +70,6 @@ internal static class SecretsPreBuildLoader
         return buffer;
     }
 
-    /// <summary>
-    /// Reads the four mandatory auth secrets from the <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c>
-    /// env-var family, mirroring <c>AddInMemoryPersistence</c>'s seeding one layer earlier.
-    /// </summary>
     private static Dictionary<SecretsStoreKey, string?> BuildInMemorySeedBuffer(IConfigurationRoot config) => new()
     {
         [SecretsStoreKeys.EncryptionPepper] = config[OctoconEnvKeys.InMemorySecretsSeedEncryptionPepper],
@@ -108,11 +78,8 @@ internal static class SecretsPreBuildLoader
         [SecretsStoreKeys.AuthJwtRsa256PrivatePem] = config[OctoconEnvKeys.InMemorySecretsSeedAuthJwtRsa256PrivatePem],
     };
 
-    /// <summary>
-    /// One batched round trip for every snapshot row plus the leaf PFX password. Any failure
-    /// surfaces as a fail-fast <see cref="InvalidOperationException"/>, same effect as the retired
-    /// <c>SecretsSnapshotLoader.StartingAsync</c>.
-    /// </summary>
+    /// <summary>Batched read of every snapshot row plus the leaf PFX password. Failures
+    /// throw fail-fast.</summary>
     private static Dictionary<string, string?> FetchFromPostgres(string pgConn)
     {
         var rows = new Dictionary<string, string?>(StringComparer.Ordinal);
@@ -148,29 +115,16 @@ internal static class SecretsPreBuildLoader
         return rows;
     }
 
-    /// <summary>
-    /// Loader's distinct <c>application_name</c>, giving it its own Npgsql pool identity and
-    /// surfacing loader connections in <c>pg_stat_activity</c> for triage.
-    /// </summary>
+    // Distinct application_name → own Npgsql pool identity and easier pg_stat_activity triage.
     internal const string LoaderApplicationName = "octocon-secrets-preload";
 
-    /// <summary>
-    /// Bounded pool ceiling for the loader. 10 is ample for observed peak factory-build
-    /// concurrency (~3-5) and, with the fixture's 5-slot app pool, keeps our total Postgres
-    /// client footprint at 15 — well under the default <c>max_connections=100</c>.
-    /// </summary>
+    // Caps footprint at 10; with the fixture's 5-slot app pool we stay well under
+    // default max_connections=100.
     internal const int LoaderMaxPoolSize = 10;
 
-    /// <summary>
-    /// Returns <paramref name="pgConn"/> rewritten to route through a dedicated Npgsql pool:
-    /// <c>Application Name=</c><see cref="LoaderApplicationName"/> shifts the canonical string
-    /// (distinct pool identity), <c>Maximum Pool Size=</c><see cref="LoaderMaxPoolSize"/> caps the
-    /// footprint, and <c>Pooling</c> stays on. Round-tripped through
-    /// <see cref="NpgsqlConnectionStringBuilder"/> so operator-supplied keywords survive intact;
-    /// both values are overwritten rather than defaulted, since any pre-existing values would
-    /// defeat the isolation this helper guarantees. Extracted so
-    /// <c>SecretsPreBuildLoaderPoolingTests</c> can exercise it without spinning up Postgres.
-    /// </summary>
+    /// <summary>Rewrites <paramref name="pgConn"/> to route through a dedicated Npgsql pool
+    /// (distinct <c>Application Name</c>, bounded <c>Maximum Pool Size</c>). Overwrite is
+    /// intentional — pre-existing values would defeat the isolation.</summary>
     internal static string WithDedicatedPoolIdentity(string pgConn)
     {
         var builder = new NpgsqlConnectionStringBuilder(pgConn)
@@ -183,11 +137,8 @@ internal static class SecretsPreBuildLoader
         return builder.ConnectionString;
     }
 
-    /// <summary>
-    /// Self-host only. No-op unless the AppHost injects a Kestrel default-cert path (local dev
-    /// uses the dev cert and skips). Preserves the retired <c>LoadLeafPfxPasswordFromStoreIfNeeded</c>'s
-    /// throw semantics: PFX path set + no Postgres → throw; path set + row missing/empty → throw.
-    /// </summary>
+    /// <summary>Self-host only. No-op unless AppHost injects a Kestrel default-cert path.
+    /// PFX path set + no Postgres → throw; path set + row missing/empty → throw.</summary>
     private static void ApplyLeafPfxPasswordIfNeeded(
         IConfigurationBuilder cfg,
         IConfigurationRoot config,
@@ -198,8 +149,7 @@ internal static class SecretsPreBuildLoader
                       ?? Environment.GetEnvironmentVariable("ASPNETCORE_Kestrel__Certificates__Default__Path");
         if (string.IsNullOrWhiteSpace(pfxPath)) return;
 
-        // If the operator pinned a password via env (the legacy path) prefer that over the
-        // store lookup. Lets local dev or one-off recovery flows bypass the DB roundtrip.
+        // Operator-pinned env password wins over the store lookup for local dev / recovery.
         var existingPassword = config["Kestrel:Certificates:Default:Password"];
         if (!string.IsNullOrWhiteSpace(existingPassword)) return;
 

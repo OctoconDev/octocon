@@ -7,29 +7,11 @@ using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>
-/// One-shot Docker image update workflow. Backs up the database, pulls new images,
-/// recreates the stack, health-checks Postgres + Scylla/Cassandra + the API, and either
-/// succeeds cleanly, prints the manual restore recipe on failure, or (with
-/// <see cref="BootstrapOptions.AutoRestore"/> / <see cref="UpdateSection.AutoRestoreOnFailure"/>)
-/// invokes <see cref="RestorePhase"/> inline against the archives captured in the same run.
-/// </summary>
-/// <remarks>
-/// <para>
-/// The pre-update backup is <em>always</em> taken unless the operator passes the
-/// <see cref="BootstrapOptions.SkipPreUpdateBackup"/> escape hatch. This is deliberate:
-/// image updates can bring a schema-incompatible database version (a Postgres major bump
-/// via <c>latest-pg19</c>, a Scylla format change, etc.), and the recovery path assumes
-/// a matching snapshot exists on disk.
-/// </para>
-/// <para>
-/// The phase is idempotent for the "nothing changed" case — after the pull it compares
-/// image digests against the pre-pull snapshot and short-circuits if every service still
-/// references the same image ID. Old backups are still pruned per
-/// <see cref="BackupSection.RetainCount"/> even on the no-op path so scheduled updates
-/// don't accidentally accumulate archives forever.
-/// </para>
-/// </remarks>
+/// <summary>Docker image update workflow: backup → pull → digest-diff → recreate →
+/// health-check → prune. Auto-restores or prints the manual rollback recipe on failure.
+/// Pre-update backup is always taken unless <see cref="BootstrapOptions.SkipPreUpdateBackup"/>
+/// is set (major schema bumps need the snapshot to exist). Idempotent on "no digest change";
+/// old backups are still pruned so scheduled runs can't accumulate archives forever.</summary>
 internal static class UpdateImagesPhase
 {
     private static readonly string Phase = BootstrapCommand.UpdateImages.ToPhaseLogName();
@@ -44,9 +26,8 @@ internal static class UpdateImagesPhase
 
         var composeFile = PhaseArtifactLoader.RequireComposeFileOrFail(options, logger, Phase);
 
-        // Whitelist precedence: CLI --service beats config.update.services beats "every service".
-        // The empty-array sentinel means "pass no service names to docker compose" which
-        // compose interprets as "act on every service".
+        // CLI --service > config.update.services > every service. Empty array → pass no names
+        // to `docker compose`, which interprets that as "act on every service".
         var services = ResolveServiceWhitelist(options, config);
         if (services.Count > 0)
         {
@@ -62,15 +43,12 @@ internal static class UpdateImagesPhase
         var autoRestore = options.AutoRestore || config.Update.AutoRestoreOnFailure;
         var recreate = config.Update.RecreateOnUpdate;
 
-        // Snapshot the current digests BEFORE anything else so the "did anything change"
-        // comparison in step 6 has a stable baseline. If this fails (e.g. stack isn't up
-        // yet) we can't safely diff later, so fail fast rather than silently always-recreate.
+        // Snapshot digests first so the post-pull diff has a stable baseline; fail fast if
+        // the stack isn't up rather than silently always-recreate.
         logger.Info("    snapshotting pre-pull image digests");
         var preDigests = await SnapshotImageDigestsAsync(composeFile, logger, ct).ConfigureAwait(false);
 
-        // Pre-update backup. Uses BackupPhase directly so retention + argv shape stay in
-        // one place. `all` (both postgres + scylla) is the only sensible choice here — a
-        // partial backup couldn't safely feed an auto-restore.
+        // `all` is the only sensible choice — a partial snapshot couldn't feed an auto-restore.
         (string PostgresArchive, string ScyllaArchive)? backupArtifacts = null;
         if (!options.SkipPreUpdateBackup)
         {
@@ -97,21 +75,16 @@ internal static class UpdateImagesPhase
             logger.Warn("--skip-pre-update-backup set; NO pre-update backup will be taken");
         }
 
-        // Cassandra mode: rebuild the local interfold-cassandra:local image before the pull so
-        // Dockerfile edits (base image bump, entrypoint tweak, JVM opts) actually take effect
-        // via update-images instead of forcing operators to re-run `bootstrap publish`. Docker's
-        // layer cache makes this cheap when nothing changed. The matching pull-skip is handled
-        // declaratively by PublishPhase.StampCassandraPullPolicyNever, which marks the cassandra
-        // service pull_policy: never in the emitted compose file — `docker compose pull` reports
-        // it as Skipped instead of failing on the non-registry-backed tag.
+        // Rebuild interfold-cassandra:local pre-pull so Dockerfile edits land via update-images
+        // without a `bootstrap publish` re-run. Docker's layer cache makes this cheap on no-op.
+        // Pull side is handled by PublishPhase.StampCassandraPullPolicyNever.
         if (ShouldRebuildCassandra(config, services))
         {
             logger.Info("    cassandra mode: rebuilding interfold-cassandra:local before pull");
             await CassandraImagePhase.EnsureBuiltAsync(logger, ct).ConfigureAwait(false);
         }
 
-        // Pull new images. Non-zero exit here means we never left the pre-pull state —
-        // no recreate has happened yet, so the stack is safe to leave alone.
+        // Non-zero here means we never left the pre-pull state; safe to leave the stack alone.
         logger.Info("    docker compose pull ...");
         var pull = await Util.DockerCompose.PullAsync(composeFile, services, ct: ct).ConfigureAwait(false);
         if (pull.ExitCode != 0)
@@ -119,18 +92,13 @@ internal static class UpdateImagesPhase
             logger.PhaseFail(Phase, PhaseFailureReasons.PullFailed);
             throw new InvalidOperationException($"docker compose pull exited {pull.ExitCode}: {pull.StdErr.Trim()}");
         }
-        // Forward BOTH streams on success — docker compose writes machine-readable payloads
-        // (rare for `pull`) to stdout but per-service progress (`msg-db Pulling`,
-        // `cassandra Skipped`, `msg-db Pulled`) to stderr. Suppressing stderr on success
-        // would hide the "which services actually pulled anything" signal from the operator
-        // (and from the integration tests that assert on the `Skipped` marker to prove
-        // `pull_policy: never` fired for locally-built images like `interfold-cassandra:local`).
+        // Forward both streams — docker compose writes per-service progress ("Pulling",
+        // "Skipped", "Pulled") to stderr; integration tests assert on "Skipped" to prove
+        // pull_policy: never fired for interfold-cassandra:local.
         if (!string.IsNullOrWhiteSpace(pull.StdOut)) logger.Info(pull.StdOut.Trim());
         if (!string.IsNullOrWhiteSpace(pull.StdErr)) logger.Info(pull.StdErr.Trim());
 
-        // Compare digests. If nothing changed, we've paid for the backup and the pull
-        // (which was a no-op at the layer level) — but we can skip the recreate + health
-        // check + downtime, which is the whole point of the diff.
+        // Skip recreate + health check + downtime when nothing actually changed.
         logger.Info("    snapshotting post-pull image digests");
         var postDigests = await SnapshotImageDigestsAsync(composeFile, logger, ct).ConfigureAwait(false);
         var changedServices = DiffDigests(preDigests, postDigests);
@@ -142,9 +110,7 @@ internal static class UpdateImagesPhase
         }
         logger.Info($"    {changedServices.Count} service(s) will be recreated: {string.Join(", ", changedServices)}");
 
-        // Recreate. `up -d` is the compose primitive that recreates only containers whose
-        // image ID changed — matching our diff above. `restart` is the two-step escape
-        // hatch for operators who explicitly disabled RecreateOnUpdate.
+        // `up -d` recreates only containers whose image ID changed, matching our diff.
         if (recreate)
         {
             await Util.DockerCompose.UpCheckedAsync(
@@ -157,9 +123,7 @@ internal static class UpdateImagesPhase
                         "The new image will NOT take effect until a manual `up -d` is issued.");
         }
 
-        // Health check bounded by healthTimeout. Any failure path leads to the log-and-stop
-        // or auto-restore branch — we never leave the stack in a half-updated state without
-        // an operator-facing recovery instruction.
+        // Failure never leaves the stack half-updated without operator-facing recovery.
         var healthErr = await CheckStackHealthAsync(composeFile, config, healthTimeout, logger, ct).ConfigureAwait(false);
         if (healthErr is not null)
         {
@@ -170,9 +134,7 @@ internal static class UpdateImagesPhase
             return 1;
         }
 
-        // Success: prune old backups per retention. Only touches the postgres/ and scylla/
-        // subdirectories that the pre-update backup wrote to; on --skip-pre-update-backup
-        // we skip pruning entirely because there's no new archive to justify deleting old ones.
+        // Skip pruning on --skip-pre-update-backup: no new archive justifies deleting old ones.
         if (backupArtifacts is not null)
         {
             var backupRoot = BackupPhase.ResolveBackupRoot(options, config);
@@ -189,13 +151,9 @@ internal static class UpdateImagesPhase
         return 0;
     }
 
-    /// <summary>
-    /// Resolves the effective service whitelist. CLI <c>--service</c> wins over
-    /// <see cref="UpdateSection.Services"/>; both empty means "every service".
-    /// Config-sourced values were already validated by <c>ConfigPhase</c>; CLI values bypass
-    /// it, so they are checked here against the same
-    /// <see cref="ComposeServices.AllValidUpdateServices"/> whitelist.
-    /// </summary>
+    /// <summary>CLI <c>--service</c> beats <see cref="UpdateSection.Services"/>; both empty →
+    /// every service. CLI values bypass <c>ConfigPhase</c>, so they're re-checked here against
+    /// <see cref="ComposeServices.AllValidUpdateServices"/>.</summary>
     internal static IReadOnlyList<string> ResolveServiceWhitelist(BootstrapOptions options, BootstrapConfig config)
     {
         if (options.UpdateServices is { Length: > 0 })
@@ -215,19 +173,9 @@ internal static class UpdateImagesPhase
         return config.Update.Services;
     }
 
-    /// <summary>
-    /// Cassandra mode uses a locally-built image (<c>interfold-cassandra:local</c>) that has no
-    /// registry to pull from. This helper decides whether the current update should rebuild it:
-    /// only in cassandra mode, and only when <c>cassandra</c> is in the effective service scope.
-    /// Operators who narrow the update with <c>--service msg-db</c> don't get an unrelated
-    /// rebuild.
-    /// </summary>
-    /// <remarks>
-    /// The matching pull-side plumbing lives in <see cref="PublishPhase.StampCassandraPullPolicyNever"/>,
-    /// which stamps <c>pull_policy: never</c> onto the cassandra service in the emitted compose
-    /// file so <c>docker compose pull</c> reports it as <c>Skipped</c> instead of failing on
-    /// the non-registry-backed tag.
-    /// </remarks>
+    /// <summary>Only cassandra mode, and only when <c>cassandra</c> is in scope; otherwise
+    /// <c>--service msg-db</c> would trigger an unrelated rebuild. Pull side is handled by
+    /// <see cref="PublishPhase.StampCassandraPullPolicyNever"/>.</summary>
     internal static bool ShouldRebuildCassandra(BootstrapConfig config, IReadOnlyList<string> effectiveServices)
     {
         if (!CassandraImagePhase.IsCassandraDeployment(config)) return false;
@@ -235,29 +183,21 @@ internal static class UpdateImagesPhase
         return effectiveServices.Contains(ComposeServices.Cassandra, StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// Builds the <c>docker compose images --format json</c> argv used by the digest
-    /// snapshot. Compose v2 emits JSON Lines (one object per container/service).
-    /// </summary>
+    /// <summary>Argv for <c>docker compose images --format json</c>.</summary>
     internal static IReadOnlyList<string> BuildComposeImagesArgs(string composeFile)
     {
         return ["compose", "-f", composeFile, "images", "--format", "json"];
     }
 
-    /// <summary>
-    /// Parses <c>docker compose images --format json</c> output into a service → image ID
-    /// map. Compose v2 emits either a single JSON array or JSON Lines depending on the
-    /// version; both shapes are accepted. Duplicate service entries (multiple replicas)
-    /// collapse to the last-seen image ID — updates always recreate every replica of a
-    /// service in lockstep, so a per-replica differentiation isn't meaningful here.
-    /// Internal so unit tests can drive a canned JSON payload without invoking docker.
-    /// </summary>
+    /// <summary>Parses <c>docker compose images --format json</c> into service → image ID.
+    /// Accepts both the JSON-array and JSON-Lines shapes (compose plugin version dependent).
+    /// Duplicate service rows collapse to last-seen; replicas always recreate in lockstep.</summary>
     internal static IDictionary<string, string> ParseComposeImagesJson(string json)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(json)) return result;
 
-        // Try the JSON-array shape first (older compose plugin versions).
+        // Older compose plugin versions emit a single JSON array.
         var trimmed = json.TrimStart();
         if (trimmed.StartsWith('['))
         {
@@ -272,8 +212,7 @@ internal static class UpdateImagesPhase
             }
         }
 
-        // Fall through to JSON Lines: one object per line, blank lines ignored. This
-        // matches what modern (v2.20+) compose plugin emits.
+        // JSON Lines (compose plugin v2.20+): one object per line.
         foreach (var line in json.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (!line.StartsWith('{')) continue;
@@ -284,8 +223,7 @@ internal static class UpdateImagesPhase
             }
             catch (JsonException)
             {
-                // Skip malformed lines — surfacing them would fail the whole diff on a
-                // benign compose stderr leak into stdout, which some older versions do.
+                // Older compose versions occasionally leak stderr into stdout; don't fail the diff.
             }
         }
         return result;
@@ -296,9 +234,7 @@ internal static class UpdateImagesPhase
             if (!obj.TryGetProperty("Service", out var svc) || svc.ValueKind != JsonValueKind.String) return;
             var service = svc.GetString();
             if (string.IsNullOrEmpty(service)) return;
-            // Prefer "ID" (docker's stable image ID) over "Repository:Tag" — the tag can
-            // stay the same across a floating-tag pull, but the ID always shifts on a
-            // real image change.
+            // Use the stable ID — the tag can stay the same across a floating-tag pull.
             var id = obj.TryGetProperty("ID", out var idProp) && idProp.ValueKind == JsonValueKind.String
                 ? idProp.GetString() ?? string.Empty
                 : string.Empty;
@@ -306,11 +242,7 @@ internal static class UpdateImagesPhase
         }
     }
 
-    /// <summary>
-    /// Compares two service → image-ID maps and returns the services whose image ID
-    /// changed (or that appeared/disappeared between snapshots). Ordering is
-    /// alphabetical for stable log output.
-    /// </summary>
+    /// <summary>Services whose image ID changed, appeared, or disappeared. Alphabetical output.</summary>
     internal static IReadOnlyList<string> DiffDigests(
         IDictionary<string, string> before, IDictionary<string, string> after)
     {
@@ -346,14 +278,9 @@ internal static class UpdateImagesPhase
         return parsed;
     }
 
-    /// <summary>
-    /// Runs a bounded probe against Postgres (pg_isready via compose exec), Scylla
-    /// (CQL <c>DESCRIBE CLUSTER</c> via compose exec / <c>nodetool status</c> for
-    /// Cassandra), and the API (<c>GET /health/ready</c> on the host-mapped HTTP port).
-    /// Returns <c>null</c> on success, or a short operator-facing description of what
-    /// failed on timeout. The three checks share a single deadline so a Postgres that
-    /// takes 90% of the budget doesn't starve the API check.
-    /// </summary>
+    /// <summary>Bounded probe across Postgres (pg_isready), Scylla/Cassandra (nodetool status),
+    /// and the API (<c>GET /health/ready</c>). Returns null on success, else an operator-facing
+    /// message. Shared deadline so no single tier can starve the others.</summary>
     private static async Task<string?> CheckStackHealthAsync(
         string composeFile, BootstrapConfig config, TimeSpan totalTimeout,
         PhaseLogger logger, CancellationToken ct)
@@ -361,21 +288,16 @@ internal static class UpdateImagesPhase
         var deadline = DateTime.UtcNow + totalTimeout;
         logger.Info($"    health-check: bounded to {totalTimeout.TotalSeconds:F0}s across postgres+scylla+api");
 
-        // Postgres: pg_isready inside the container. TCP probe — successful means the
-        // new image finished its entrypoint boot AND the listener is accepting connections
-        // (not just the Unix socket during init).
+        // pg_isready TCP probe — succeeds only after the listener (not just the init Unix socket) is up.
         var pgErr = await WaitForPostgresReadyAsync(composeFile, deadline, logger, ct).ConfigureAwait(false);
         if (pgErr is not null) return pgErr;
 
-        // Scylla / Cassandra: nodetool status is the leanest probe that doesn't require
-        // knowing the app password — it succeeds when the node has finished gossip
-        // bootstrap and is UN (Up/Normal).
+        // nodetool status is the leanest probe that doesn't need the app password; passes
+        // once the node reports UN.
         var (scyllaService, _) = BackupPhase.ResolveScyllaSeed(config);
         var scErr = await WaitForScyllaReadyAsync(composeFile, scyllaService, deadline, logger, ct).ConfigureAwait(false);
         if (scErr is not null) return scErr;
 
-        // API: HTTP GET /health/ready on the host-mapped HTTP port. Same shape as
-        // LaunchPhase's health probe.
         var apiErr = await WaitForApiReadyAsync(config.Ports.ApiHttp, deadline, logger, ct).ConfigureAwait(false);
         if (apiErr is not null) return apiErr;
 
@@ -395,10 +317,7 @@ internal static class UpdateImagesPhase
         {
             ct.ThrowIfCancellationRequested();
             attempt++;
-            // `nodetool status` exits 0 once the node is UN and gossip has settled;
-            // during startup or when the coordinator can't reach itself yet it exits
-            // non-zero. Cheaper than authenticating a CQL session and doesn't need the
-            // app password.
+            // nodetool exits 0 once gossip settles and the node is UN.
             var probe = await ProcessRunner.RunAsync("docker",
                 ["compose", "-f", composeFile, "exec", "-T", service, "nodetool", "status"],
                 ct: ct).ConfigureAwait(false);
@@ -424,13 +343,11 @@ internal static class UpdateImagesPhase
     {
         logger.Error($"health check failed: {healthErr}");
 
-        // Best-effort: dump the failing tier's logs so operators have a diagnosis without
-        // having to shell into the box.
+        // Best-effort log dump so operators don't have to shell in for a diagnosis.
         var suspects = new[] { ComposeServices.Postgres, ComposeServices.ScyllaSingle, ComposeServices.ScyllaNam, ComposeServices.Cassandra, ComposeServices.InterfoldApi, ComposeServices.OctoconWeb };
         await ComposeLogDumper.DumpAsync(composeFile, suspects, tailLines: 200, logger, ct).ConfigureAwait(false);
 
-        // Compose down: leave the stack in a clean stopped state so a subsequent
-        // restore or re-attempt doesn't fight with half-recreated containers.
+        // Clean stopped state so a restore/retry doesn't fight half-recreated containers.
         logger.Info("    docker compose down ...");
         var down = await DockerCompose.DownAsync(composeFile, ct: ct).ConfigureAwait(false);
         if (down.ExitCode != 0)
@@ -461,7 +378,7 @@ internal static class UpdateImagesPhase
             return;
         }
 
-        // No auto-restore: print the exact copy-pasteable command.
+        // Copy-pasteable manual rollback command.
         if (backupArtifacts is { } bs)
         {
             logger.Warn("update failed; the pre-update backup is on disk. To roll back manually:");
@@ -476,14 +393,9 @@ internal static class UpdateImagesPhase
         }
     }
 
-    /// <summary>
-    /// Picks the newest postgres and scylla archive paths under the resolved backup
-    /// root, based on file mtime. Called immediately after the pre-update
-    /// <see cref="BackupPhase"/> invocation so the "newest" archive is exactly the one
-    /// this run produced. Returns null if either component is missing on disk (which
-    /// would indicate a broken pre-update backup — the caller downgrades auto-restore
-    /// to a warning in that case).
-    /// </summary>
+    /// <summary>Newest postgres + scylla archive by mtime — called immediately after the
+    /// pre-update backup, so "newest" is this run's output. Null when either is missing
+    /// (auto-restore downgrades to a warning).</summary>
     internal static (string PostgresArchive, string ScyllaArchive)? ResolveLatestBackupArtifacts(
         BootstrapOptions options, BootstrapConfig config)
     {

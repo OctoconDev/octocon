@@ -4,20 +4,10 @@ using Interfold.Contracts;
 
 namespace Interfold.Api.Socket;
 
-//TODO: Move to another place?
-/// <summary>
-/// A parsed inbound Phoenix frame — either the array format
-/// (<c>[join_ref, ref, topic, event, payload]</c>) or the object format
-/// (<c>{topic, event, payload, ref, join_ref}</c>). Replaces the previous 7-out-param
-/// parser; <see cref="ReplyAsArrayFrame"/> records which format the client spoke so
-/// replies mirror it.
-///
-/// <para>
-/// Ref semantics are intentionally asymmetric and preserved from the original parser:
-/// the array format keeps JSON null refs as null (so replies mirror null), while the
-/// object format normalises present-but-string refs and leaves absent ones null.
-/// </para>
-/// </summary>
+/// <summary>Parsed inbound Phoenix frame — array (<c>[join_ref, ref, topic, event, payload]</c>)
+/// or object (<c>{topic, event, payload, ref, join_ref}</c>). <see cref="ReplyAsArrayFrame"/>
+/// records which so replies mirror the client's shape. Array-format null refs stay null;
+/// object-format absent refs stay null while present ones normalise to string.</summary>
 internal sealed record PhoenixInboundFrame(
     string EventName,
     string Topic,
@@ -26,7 +16,6 @@ internal sealed record PhoenixInboundFrame(
     string? JoinReference,
     bool ReplyAsArrayFrame)
 {
-	//TODO: To make more simple 
     public static bool TryParse(string frame, [NotNullWhen(true)] out PhoenixInboundFrame? result)
     {
         result = null;
@@ -59,7 +48,6 @@ internal sealed record PhoenixInboundFrame(
                     EventName: eventElement.GetString() ?? string.Empty,
                     Topic: topicElement.GetString() ?? PhoenixEventNames.PhoenixTopic,
                     Payload: root[4].Clone(),
-                    // Preserve JSON null so replies can mirror it back as null (not "").
                     Reference: refElement.ValueKind == JsonValueKind.String ? refElement.GetString() : null,
                     JoinReference: joinRefElement.ValueKind == JsonValueKind.String ? joinRefElement.GetString() : null,
                     ReplyAsArrayFrame: true);

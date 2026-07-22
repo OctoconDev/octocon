@@ -4,22 +4,11 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 
-/// <summary>
-/// Pins the invariants that make <see cref="ScopedSystemId"/> a safe stand-in for hand-
-/// formatted <c>$"{region}:{id}"</c> concatenations: idempotency across scoped/raw inputs
-/// (so a repeated Compose call cannot double-prefix), byte-exact JSON wire compatibility
-/// with <c>SystemId</c>, and strict parsing at trust boundaries. Pure C# with no host /
-/// DI / IO; wire byte-freeze tests that need the full stack live in the integration suite.
-/// </summary>
+// Pins the invariants that make ScopedSystemId a safe stand-in for hand-formatted
+// $"{region}:{id}" concatenations: idempotency across scoped/raw inputs, byte-exact
+// JSON wire compatibility with SystemId, and strict parsing at trust boundaries.
 public sealed class ScopedSystemIdTests
 {
-    // ---------------- Compose: happy path + idempotency ---------------------
-
-    /// <summary>
-    /// Composing from a bare raw id produces the canonical <c>{region}:{rawId}</c> form.
-    /// This is the "no-prefix" input shape (repositories generating a new id and asking
-    /// the resolver to attach a region).
-    /// </summary>
     [Test]
     public async Task Compose_RawId_ProducesScopedValue()
     {
@@ -36,12 +25,8 @@ public sealed class ScopedSystemIdTests
         }
     }
 
-    /// <summary>
-    /// Composing with an already-scoped input strips the existing prefix and re-applies
-    /// the argument's region. Load-bearing anti-double-prefix invariant — without it a
-    /// caller that passes an already-prefixed SystemId ends up with
-    /// <c>"nam:nam:abcdefg"</c>.
-    /// </summary>
+    // Load-bearing anti-double-prefix invariant: without idempotency an already-prefixed
+    // input becomes "nam:nam:abcdefg".
     [Test]
     public async Task Compose_AlreadyScopedInput_IsIdempotent()
     {
@@ -52,12 +37,8 @@ public sealed class ScopedSystemIdTests
             .Because("Compose is the anti-double-prefix guardrail — a scoped input must produce the same Value as the equivalent raw input.");
     }
 
-    /// <summary>
-    /// Composing with a different-region prefix strips and re-applies to the argument region
-    /// — this is deliberate. The friendship-canonicalisation code re-applies the *principal's*
-    /// region to a candidate id that may have carried its own home-region prefix, and every
-    /// persistence adapter also uses "explicit region wins" semantics.
-    /// </summary>
+    // Explicit-region-wins matches FriendshipIdNormalization.CanonicalizeForPrincipal
+    // and every persistence adapter's semantics.
     [Test]
     public async Task Compose_DifferentRegionPrefix_ArgumentRegionWins()
     {
@@ -71,11 +52,6 @@ public sealed class ScopedSystemIdTests
         }
     }
 
-    /// <summary>
-    /// Compose from a <see cref="SystemId"/> is idempotent for the same reason the string
-    /// overload is — the SystemId's Value may already carry a scoped form (this is the
-    /// current live shape of every principal id).
-    /// </summary>
     [Test]
     public async Task Compose_FromSystemId_MatchesStringOverload()
     {
@@ -86,11 +62,8 @@ public sealed class ScopedSystemIdTests
             .Because("The SystemId overload is a strict alias for the string overload — same idempotency, same output.");
     }
 
-    /// <summary>
-    /// An unrecognised prefix (e.g. <c>"username:"</c>, <c>"discord:"</c>) is NOT a region and
-    /// must NOT be stripped. This preserves the <c>ScyllaUserRegistryRegionContext.LookupAsync</c>
-    /// branch that routes those prefixes to the discriminator column.
-    /// </summary>
+    // Non-region prefixes (username:, discord:) are opaque so ScyllaUserRegistryRegionContext's
+    // discriminator-column routing keeps working.
     [Test]
     public async Task Compose_UnknownPrefixNotStripped()
     {
@@ -111,14 +84,10 @@ public sealed class ScopedSystemIdTests
     [Test]
     public async Task Compose_OnlyPrefixNoRaw_Throws()
     {
-        // "nam:" strips the prefix, leaving "" (blank) — must fail with the same error as a
-        // bare blank input rather than emitting "nam:" and getting stored as a phantom row.
         await Assert.That(() => ScopedSystemId.Compose(ScyllaKeyspace.Nam, "nam:"))
             .Throws<ArgumentException>()
             .Because("A bare region prefix with no raw id is a caller bug — never produce a scoped id whose raw component is empty.");
     }
-
-    // ---------------- TryParseScoped: strict at trust boundaries ------------
 
     [Test]
     public async Task TryParseScoped_ValidScoped_ReturnsTrue()
@@ -134,11 +103,7 @@ public sealed class ScopedSystemIdTests
         }
     }
 
-    /// <summary>
-    /// Case-normalisation on parse: the canonical wire form is lowercase (matches the
-    /// <see cref="ScyllaKeyspace"/> wire values). Preserves the six existing comparison
-    /// sites' assumption that Value is comparable byte-for-byte with a canonical form.
-    /// </summary>
+    // Canonical wire form is lowercase (matches ScyllaKeyspace's JsonStringEnumMemberName).
     [Test]
     public async Task TryParseScoped_MixedCaseRegion_Normalises()
     {
@@ -156,11 +121,11 @@ public sealed class ScopedSystemIdTests
     [Arguments((string?)null)]
     [Arguments("")]
     [Arguments("   ")]
-    [Arguments("abcdefg")]           // unscoped bare id
-    [Arguments(":abcdefg")]          // empty region
-    [Arguments("nam:")]              // empty raw
-    [Arguments("xxx:abcdefg")]       // unknown region tag
-    [Arguments("username:alice")]    // non-region discriminator prefix
+    [Arguments("abcdefg")]
+    [Arguments(":abcdefg")]
+    [Arguments("nam:")]
+    [Arguments("xxx:abcdefg")]
+    [Arguments("username:alice")]
     public async Task TryParseScoped_InvalidInputs_ReturnsFalse(string? input)
     {
         var parsed = ScopedSystemId.TryParseScoped(input, out var result);
@@ -181,8 +146,6 @@ public sealed class ScopedSystemIdTests
             .Because("ParseScoped is the strict variant used at trust boundaries — unscoped input surfaces as a fail-fast rather than a silent default.");
     }
 
-    // ---------------- IParsable (ASP.NET route binding) ---------------------
-
     [Test]
     public async Task IParsable_TryParse_DelegatesToTryParseScoped()
     {
@@ -198,21 +161,12 @@ public sealed class ScopedSystemIdTests
     [Test]
     public async Task IParsable_Parse_ThrowsOnUnscoped()
     {
-        // Route-bound values come from client URLs; unscoped input is deliberately a 400
-        // rather than a silent success (matches ParseScoped's strictness).
         await Assert.That(() => ScopedSystemId.Parse("no-scope", provider: null))
             .Throws<ArgumentException>();
     }
 
-    // ---------------- Wire compatibility with SystemId ----------------------
-
-    /// <summary>
-    /// The JSON representation MUST be byte-identical to <see cref="SystemId"/>'s. A
-    /// serialised <see cref="ScopedSystemId"/> and a serialised <see cref="SystemId"/> holding
-    /// the same wire string produce identical bytes — this is the pre-condition for
-    /// retyping <c>CommandEnvelope.PrincipalId</c> and <c>ITargetedClusterEvent.TargetSystemId</c>
-    /// without a wire migration.
-    /// </summary>
+    // Byte-identical JSON with SystemId is the precondition for retyping
+    // CommandEnvelope.PrincipalId / ITargetedClusterEvent.TargetSystemId without migration.
     [Test]
     public async Task Json_RoundTripsThroughValue()
     {
@@ -237,19 +191,11 @@ public sealed class ScopedSystemIdTests
     [Test]
     public async Task Json_DeserialiseUnscoped_Throws()
     {
-        // Strict JSON deserialise — a bad publisher that hand-crafts an unscoped id gets
-        // caught at the byte boundary, not silently stored as an invalid ScopedSystemId.
         await Assert.That(() => JsonSerializer.Deserialize<ScopedSystemId>("\"unscoped\""))
             .Throws<ArgumentException>();
     }
 
-    // ---------------- Value equality (record struct semantics) --------------
-
-    /// <summary>
-    /// Two <see cref="ScopedSystemId"/>s with the same <see cref="ScopedSystemId.Value"/> are
-    /// equal — the record-struct default. This is the semantics
-    /// <c>InProcessEventBus</c>'s <c>TargetSystemId == subscriber.SystemId</c> filter relies on.
-    /// </summary>
+    // Record-struct equality is what InProcessEventBus's TargetSystemId filter relies on.
     [Test]
     public async Task Equality_SameValue_Equal()
     {
@@ -273,17 +219,8 @@ public sealed class ScopedSystemIdTests
             .Because("AsSystemId is the wire-boundary escape hatch — it must produce the identical byte string, not a re-parse.");
     }
 
-    // ---------------- WireEnum delegation parity ----------------------------
-    // TryParseRegion (called by TryParseScoped for the prefix side) now delegates
-    // to EnumWire<ScyllaKeyspace>.TryParse. These tests pin that behaviour so a
-    // future refactor cannot silently reintroduce a hand-rolled switch that drifts
-    // from the JsonStringEnumMemberName attributes on the enum.
-
-    /// <summary>
-    /// Every wire spelling produced by EnumWire's ToWire (i.e. every declared enum
-    /// member) must parse back through the scoped path. A regression here means the
-    /// hand-rolled switch has come back and skipped a region.
-    /// </summary>
+    // TryParseRegion delegates to EnumWire<ScyllaKeyspace>.TryParse; these tests catch a
+    // hand-rolled switch drifting from the JsonStringEnumMemberName attributes on the enum.
     [Test]
     public async Task TryParseScoped_EveryWireRegion_Parses()
     {
@@ -301,10 +238,6 @@ public sealed class ScopedSystemIdTests
         }
     }
 
-    /// <summary>
-    /// Uppercase / mixed-case region prefixes are accepted (EnumWire's TryParse is
-    /// case-insensitive) and normalise to the lowercase wire form on the way out.
-    /// </summary>
     [Test]
     [Arguments("NAM")]
     [Arguments("Eur")]
@@ -323,12 +256,8 @@ public sealed class ScopedSystemIdTests
         }
     }
 
-    /// <summary>
-    /// Every unknown region tag must be rejected. This pins the "no silent default"
-    /// contract at the scoped-parse boundary — TryParseRegion drops the
-    /// blank-defaults-to-Nam fallback that <c>EnumWireExtensions.ParseScyllaKeyspace</c>
-    /// carries.
-    /// </summary>
+    // No blank-defaults-to-Nam fallback: TryParseRegion drops the tolerant behaviour
+    // that EnumWireExtensions.ParseScyllaKeyspace carries.
     [Test]
     [Arguments("xxx:abcdefg")]
     [Arguments("dev:abcdefg")]

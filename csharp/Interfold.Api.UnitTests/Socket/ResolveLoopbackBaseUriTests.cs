@@ -2,25 +2,14 @@ using Interfold.Api.Socket;
 
 namespace Interfold.Api.UnitTests.Socket;
 
-/// <summary>
-/// Unit tests for <see cref="WebSocketHandler.ResolveLoopbackBaseUri"/>, the helper that
-/// translates Kestrel's <c>IServerAddressesFeature.Addresses</c> into a loopback-safe base
-/// URL for the WebSocket "endpoint" relay's self-call.
-///
-/// The pre-fix behaviour built the proxy's outbound URL from the inbound request's
-/// <c>Scheme</c> + <c>Host</c>, which crashed in published docker deployments because the
-/// inbound Host is the operator-facing hostname:port (e.g. <c>pineapple.local:5001</c>) that
-/// the container itself can neither resolve nor reach (port 5001 is the host-side of the
-/// docker port mapping; the container listens on <c>ASPNETCORE_HTTP(S)_PORTS</c> internally,
-/// default 5100/5101). This helper resolves the URL from Kestrel's actual bindings
-/// instead, so the regression cannot return without these tests catching it.
-/// </summary>
+// Guards against the pre-fix behaviour where the proxy dialed its self-call using the
+// inbound request Scheme+Host (operator-facing hostname:port), which crashed in
+// container topologies because the container couldn't reach that address. The helper
+// resolves from Kestrel's actual bindings instead.
 public sealed class ResolveLoopbackBaseUriTests
 {
-    /// <summary>The fallback used when no addresses are reported (e.g. under TestServer's
-    /// no-op <c>IServerAddressesFeature</c>). Kestrel always reports its bindings in
-    /// production so this branch is unreachable there; it exists so the in-memory
-    /// integration test harness keeps working.</summary>
+    // Fallback used under TestServer's no-op IServerAddressesFeature. Kestrel always
+    // reports its bindings in production so this branch is unreachable there.
     private const string TestServerFallback = "http://localhost";
 
     [Test]
@@ -50,43 +39,36 @@ public sealed class ResolveLoopbackBaseUriTests
     [Test]
     public async Task SingleHttpListener_TrimsTrailingSlash()
     {
-        // Kestrel can report addresses with a trailing slash depending on how the URL was
-        // configured; HttpRequestMessage tolerates either, but the test pins the canonical
-        // shape so we don't emit double-slashes when concatenating the request path.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://127.0.0.1:5100/"]);
         await Assert.That(result).IsEqualTo("http://127.0.0.1:5100")
             .Because("Trailing slash on the base URL would produce '/api//systems' when concatenated with a leading-slash path.");
     }
 
+    // 0.0.0.0 is Kestrel's shape when bound via ASPNETCORE_HTTP_PORTS; the outbound
+    // request cannot dial 0.0.0.0 from inside the same process — rewrite to loopback.
     [Test]
     public async Task WildcardZeroes_AreRewrittenToLoopback()
     {
-        // The exact shape Kestrel reports when bound via `ASPNETCORE_HTTP_PORTS=5100` — see
-        // csharp/Interfold.AppHost/InterfoldAppHost.cs:647 (ConfigureApiSelfHostEnv). The
-        // outbound HTTP request from inside the container cannot dial 0.0.0.0; it must
-        // target the loopback equivalent.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://0.0.0.0:5100"]);
         await Assert.That(result).IsEqualTo("http://127.0.0.1:5100")
             .Because("0.0.0.0 is a wildcard bind address — calling 0.0.0.0 from inside the same process is not portable; loopback is.");
     }
 
+    // [::] is the IPv6 wildcard Kestrel reports on dual-stack Linux; loopback rewrites
+    // to 127.0.0.1 (not [::1]) because the http transport prefers v4 by default.
     [Test]
     public async Task IPv6Wildcard_IsRewrittenToLoopback()
     {
-        // `[::]` is the IPv6 unspecified address — the canonical wildcard shape Kestrel
-        // reports on dual-stack Linux hosts (the deployment topology that triggered the
-        // original bug). Must rewrite to loopback for the same reason as 0.0.0.0.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://[::]:5100"]);
         await Assert.That(result).IsEqualTo("http://127.0.0.1:5100")
             .Because("[::] is the IPv6 wildcard — the loopback equivalent for self-calls is 127.0.0.1 (we don't try [::1] because the http transport prefers v4 by default).");
     }
 
+    // Legacy HTTP.sys wildcard shapes; accepted defensively in case an operator's
+    // UseUrls("http://+:5100") reintroduces the original bug.
     [Test]
     public async Task PlusWildcard_IsRewrittenToLoopback()
     {
-        // `+` is the legacy Windows/HTTP.sys wildcard shape — Kestrel doesn't typically
-        // emit it, but accept it defensively so an operator's UseUrls("http://+:5100")
-        // can't reintroduce the original bug.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://+:5100"]);
         await Assert.That(result).IsEqualTo("http://127.0.0.1:5100")
             .Because("`+` is the strong-wildcard shape from the HTTP.sys era; covered defensively because UseUrls accepts it.");
@@ -95,23 +77,17 @@ public sealed class ResolveLoopbackBaseUriTests
     [Test]
     public async Task StarWildcard_IsRewrittenToLoopback()
     {
-        // Same rationale as `+` — accept the weak-wildcard form defensively.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://*:5100"]);
         await Assert.That(result).IsEqualTo("http://127.0.0.1:5100")
             .Because("`*` is the weak-wildcard shape from the HTTP.sys era; covered defensively because UseUrls accepts it.");
     }
 
+    // Prefer HTTPS to avoid the UseHttpsRedirection 308 round-trip; TLS validation
+    // against the local leaf cert is handled by LoopbackHttpClient's permissive validator
+    // (safe: dial target is loopback, cannot be MITM'd from outside the process).
     [Test]
     public async Task PrefersHttpsListener_OverHttp_WhenBothPresent()
     {
-        // In the published deployment topology Kestrel binds BOTH http and https endpoints
-        // (the AppHost wires ASPNETCORE_HTTP_PORTS and ASPNETCORE_HTTPS_PORTS — see
-        // csharp/Interfold.AppHost/InterfoldAppHost.cs:647-648). The self-call prefers
-        // HTTPS so it doesn't get 308-redirected by UseHttpsRedirection (which would land
-        // us on the HTTPS listener anyway, with the round-trip cost of two requests). TLS
-        // validation against the local leaf cert is handled by LoopbackHttpClient's
-        // permissive validator — safe because the dial target is loopback and therefore
-        // cannot be MITM'd from outside the process.
         var result = WebSocketHandler.ResolveLoopbackBaseUri([
             "http://[::]:5100",
             "https://[::]:5101",
@@ -123,9 +99,6 @@ public sealed class ResolveLoopbackBaseUriTests
     [Test]
     public async Task PrefersHttpsListener_RegardlessOfOrdering()
     {
-        // Same as the previous case but with the https entry listed first. Defends the
-        // ordering-stable preference logic against accidental reliance on Kestrel's
-        // emission order (which is implementation-defined and may vary across versions).
         var result = WebSocketHandler.ResolveLoopbackBaseUri([
             "https://[::]:5101",
             "http://[::]:5100",
@@ -137,11 +110,6 @@ public sealed class ResolveLoopbackBaseUriTests
     [Test]
     public async Task FallsBackToHttp_WhenOnlyHttpAvailable()
     {
-        // Operator-overridden topology — running an HTTP-only Kestrel (e.g. when TLS
-        // termination is delegated entirely to an upstream proxy). The helper still
-        // returns a usable URL; the proxy will dial HTTP directly. UseHttpsRedirection
-        // would redirect this if the AppHost set ASPNETCORE_HTTPS_PORTS, but in an
-        // HTTP-only topology that variable is not set and the middleware passes through.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://[::]:5100"]);
         await Assert.That(result).IsEqualTo("http://127.0.0.1:5100")
             .Because("HTTP-only topology is supported — the helper returns a loopback HTTP URL when no HTTPS listener is bound.");
@@ -150,9 +118,6 @@ public sealed class ResolveLoopbackBaseUriTests
     [Test]
     public async Task SpecificBoundIp_IsLeftUntouched()
     {
-        // When Kestrel is bound to a specific NIC IP (e.g. via UseUrls("http://192.168.1.5:5100"))
-        // the loopback rewrite must NOT fire — the address is already reachable and rewriting
-        // it would defeat operator intent.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://192.168.1.5:5100"]);
         await Assert.That(result).IsEqualTo("http://192.168.1.5:5100")
             .Because("A specific NIC bind address is already reachable as-is — only wildcards (0.0.0.0 / [::] / + / *) get rewritten.");
@@ -161,24 +126,16 @@ public sealed class ResolveLoopbackBaseUriTests
     [Test]
     public async Task LocalhostBinding_IsLeftUntouched()
     {
-        // The dev `aspire run` topology: launchSettings drives Kestrel to bind to
-        // http://localhost:<port>. The helper should pass the URL through unchanged because
-        // `localhost` is already loopback-correct.
         var result = WebSocketHandler.ResolveLoopbackBaseUri(["http://localhost:5100"]);
         await Assert.That(result).IsEqualTo("http://localhost:5100")
             .Because("localhost is already loopback — no wildcard substitution needed.");
     }
 
+    // Original bug: proxy dialed the inbound operator-facing hostname:port. Pin that
+    // the helper NEVER returns that shape regardless of input.
     [Test]
     public async Task RegressionGuard_DoesNotReturnOperatorFacingHostname()
     {
-        // The original bug surfaced as the proxy dialing `https://pineapple.local:5001/api/...`
-        // — the operator-facing hostname + host-side port baked into the inbound request.
-        // The helper has no business returning that shape regardless of input: it MUST
-        // only ever return either the TestServer fallback or one of the inputs (post
-        // wildcard rewrite). This test pins that contract by passing the exact strings
-        // that triggered the production failure and asserting the result is neither of
-        // them.
         var deploymentTopology = new[]
         {
             "http://0.0.0.0:5100",

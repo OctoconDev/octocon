@@ -49,19 +49,9 @@ public sealed record SettingsCommandResult(SystemId SystemId, SettingsAction Act
     public SettingsCommandResult WithReplay() => this with { Replay = true };
 }
 
-/// <summary>
-/// Result of dispatching an asynchronous third-party import (SP or PK) onto the in-process
-/// worker queue. Returned by <c>ImportSpCommandHandler</c> / <c>ImportPkCommandHandler</c>
-/// and serialised by the controller as the HTTP 202 Accepted body.
-///
-/// <para>
-/// The <see cref="Status"/> field distinguishes the two dispatch outcomes:
-/// </para>
-/// <list type="bullet">
-///   <item><c>"queued"</c> — this dispatch claimed a fresh per-system slot; a worker will pick it up.</item>
-///   <item><c>"running"</c> — an import was already in flight for the same system; this dispatch collapsed onto the existing operation and the caller can subscribe to the same WebSocket completion frame.</item>
-/// </list>
-/// </summary>
+/// <summary>Result of dispatching an async SP/PK import onto the in-process worker queue;
+/// serialised as the HTTP 202 body. Status: <c>"queued"</c> = fresh slot claimed;
+/// <c>"running"</c> = collapsed onto an existing operation.</summary>
 public sealed record ImportDispatchCommandResult(
     SystemId SystemId,
     ImportOperationId OperationId,

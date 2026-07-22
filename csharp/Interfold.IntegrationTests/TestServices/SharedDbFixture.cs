@@ -20,71 +20,36 @@ using TUnit.Aspire;
 
 namespace Interfold.IntegrationTests.TestServices;
 
-/// <summary>
-/// Single Aspire host that backs every DB-bound integration test in the suite. Replaces the
-/// previous per-fixture hosts (<c>SingleNodeScyllaFixture</c>, <c>CassandraFixture</c>) with
-/// one shared launch so cold-start, seeding, and migrations only run once per test session.
-/// </summary>
-/// <remarks>
-/// <para>
-/// Conditionally provisions resources based on which <see cref="IWebFactoryFixture"/>
-/// implementations the current test session actually references (discovered ahead of time by
-/// <see cref="RequiredFixtures.DiscoverRequiredFixtures"/>). Postgres always runs because the
-/// shared <c>internal.secrets</c> table is the API's source of truth even for the in-memory
-/// persistence path. Scylla and Cassandra only spin up when at least one selected test class
-/// references their respective fixture — for an InMemory-only run this fixture isn't even
-/// instantiated and Docker is never touched.
-/// </para>
-/// <para>
-/// Migrations against each enabled CQL backend run once here (after seeding) via the static
-/// <c>MigrateAsync</c> entry points on <see cref="ScyllaMigrationService"/> and
-/// <see cref="PostgresMigrationService"/>. The per-test
-/// <see cref="InterfoldWebApplicationFactory"/> strips those hosted services from its host
-/// builder so the same migrations don't run again on every factory build.
-/// </para>
-/// </remarks>
+/// <summary>Session-shared Aspire host for every DB-bound integration test. Postgres always
+/// runs (internal.secrets is the shared source of truth); Scylla/Cassandra spin up only when
+/// <see cref="RequiredFixtures"/> reports a dependent test in the session. Migrations run once
+/// here; the per-test <see cref="InterfoldWebApplicationFactory"/> strips the migration
+/// hosted services so they don't replay on every rebuild.</summary>
 public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_AppHost>
 {
-    /// <summary>Postgres connection string resolved after startup. Always populated.</summary>
+    /// <summary>Postgres connection string; always populated after startup.</summary>
     public string PostgresConnectionString { get; private set; } = string.Empty;
 
-    /// <summary>
-    /// Host port for the ScyllaDB CQL endpoint, or <c>null</c> when the discovery hook
-    /// determined no test in the current run uses the Scylla fixture chain.
-    /// </summary>
+    /// <summary>Host port for the ScyllaDB CQL endpoint; null when Scylla wasn't required.</summary>
     public int? ScyllaPort { get; private set; }
 
-    /// <summary>
-    /// Host port for the Cassandra CQL endpoint, or <c>null</c> when the discovery hook
-    /// determined no test in the current run uses the Cassandra fixture chain.
-    /// </summary>
+    /// <summary>Host port for the Cassandra CQL endpoint; null when Cassandra wasn't required.</summary>
     public int? CassandraPort { get; private set; }
 
-    /// <summary>
-    /// Non-null when the Scylla container failed to reach Running, the host-level CQL
-    /// connectivity probe failed, or the Scylla seed/migration sequence threw during fixture
-    /// initialization. <see cref="ScyllaWebFactoryFixture"/> rethrows this from its own
-    /// <c>InitializeAsync</c> so only the tests that actually depend on Scylla fail when this
-    /// one backend is broken — Cassandra-only and InMemory-only tests in the same run keep
-    /// passing instead of inheriting the Scylla failure transitively through this fixture.
-    /// </summary>
+    /// <summary>Captured Scylla init failure (container / probe / seed / migration). The
+    /// per-backend web-factory fixture rethrows this so only Scylla-dependent tests fail —
+    /// Cassandra-only and InMemory-only tests survive.</summary>
     public Exception? ScyllaInitException { get; private set; }
 
-    /// <summary>
-    /// Mirror of <see cref="ScyllaInitException"/> for the Cassandra backend. See that
-    /// property's remarks for the rationale (per-backend failure attribution instead of
-    /// fail-the-whole-suite when one container can't start).
-    /// </summary>
+    /// <summary>Cassandra mirror of <see cref="ScyllaInitException"/>.</summary>
     public Exception? CassandraInitException { get; private set; }
 
     protected override string[] Args => BuildArgs();
 
     private static string[] BuildArgs()
     {
-        // Toggle each container based on which fixture types the current test session
-        // references. The [Before(HookType.TestDiscovery)] hook on BaseEndpointTest has
-        // populated RequiredFixtures by the time AspireFixture.InitializeAsync (the only
-        // caller of this Args getter) runs.
+        // BaseEndpointTest's [Before(TestDiscovery)] hook populates RequiredFixtures before
+        // AspireFixture.InitializeAsync (the only caller of this getter) runs.
         LifecycleProbe.Log("SharedDbFixture.BuildArgs");
         var args = new List<string>
         {
@@ -99,15 +64,9 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             $"{AppHostParameterKeys.PortsCassandra}=19043",
             $"{AppHostParameterKeys.PostgresUser}={TestDbCredentials.PostgresAppUser}",
             $"{AppHostParameterKeys.PostgresPassword}={TestDbCredentials.PostgresAppPassword}",
-            // db_init bootstrap superuser password. Pinning a deterministic value here keeps
-            // the test process and DbInitHelper aligned without having to read back the
-            // GenerateParameterDefault output from the AppHost service provider.
+            // Pinned so the AppHost's GenerateParameterDefault output can't drift from DbInitHelper.
             $"{AppHostParameterKeys.PostgresInitPassword}={TestDbCredentials.PostgresInitPassword}",
-            // Pin the application database name so the AppHost's `Parameters:postgres-db`
-            // default and the in-process DbInitHelper.DefaultPostgresDb cannot silently diverge
-            // (e.g. if someone changes the AppHost default later). Both currently resolve to
-            // "interfold"; routing both through the same constant means a single rename moves
-            // them in lockstep.
+            // Route both sides through DbInitHelper.DefaultPostgresDb so a rename moves in lockstep.
             $"{AppHostParameterKeys.PostgresDb}={DbInitHelper.DefaultPostgresDb}",
             $"{AppHostParameterKeys.ScyllaUser}={TestDbCredentials.ScyllaAppUser}",
             $"{AppHostParameterKeys.ScyllaPassword}={TestDbCredentials.ScyllaAppPassword}",
@@ -119,35 +78,19 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
     protected override TimeSpan ResourceTimeout => TimeSpan.FromMinutes(5);
     protected override bool EnableTelemetryCollection => false;
 
-    /// <summary>
-    /// Per-container readiness budget enforced in addition to the outer
-    /// <see cref="ResourceTimeout"/>. Without this each individual
-    /// <c>WaitForResourceAsync(name, Running)</c> would happily eat the full 5-minute outer
-    /// budget on its own (a Scylla container that never reports Running starves the Cassandra
-    /// wait that follows it, and vice-versa). 2 minutes gives a comfortably loaded Docker
-    /// host enough headroom for image pulls + container start while still surfacing a
-    /// permanently-broken backend (e.g. missing <c>docker buildx</c>, image-pull auth
-    /// failure) as a clean per-backend timeout instead of a session-wide TimeoutException.
-    /// </summary>
+    /// <summary>Per-container readiness budget so one stuck backend can't starve the other of
+    /// the outer <see cref="ResourceTimeout"/>.</summary>
     private static readonly TimeSpan PerContainerReadyTimeout = TimeSpan.FromMinutes(2);
 
-    // The AppHost only registers TCP healthchecks against `localhost:<hard-coded port>` when
-    // `include-api=true`, so test mode has no Aspire-level health checks at all. The default
-    // `AllHealthy` behaviour would also try to drive parameter resources (postgres-user, etc.)
-    // through health gates - those never report "Healthy" and would hang the wait. We own the
-    // readiness logic in <see cref="WaitForResourcesAsync"/> below (waiting on the actual
-    // container resources to reach `Running` via `ResourceNotificationService`), so we tell
-    // the base class not to do its own pre-flight wait.
+    // No Aspire-level healthchecks fire in test mode (include-api=false), and the default
+    // AllHealthy behaviour would hang on parameter resources. WaitForResourcesAsync owns
+    // readiness directly via ResourceNotificationService.
     protected override ResourceWaitBehavior WaitBehavior => ResourceWaitBehavior.None;
 
     public override async Task InitializeAsync()
     {
-        // Raise fs.aio-max-nr before any Scylla node starts. We pass the *session-wide*
-        // total (this fixture's optional 1 + MultiNodeScyllaFixture's optional 7) so a mixed
-        // session that runs both fixtures together gets sized for all 8 nodes from the first
-        // call; MultiNodeScyllaFixture re-asserts the same total and short-circuits via
-        // HostAioPrerequisite's cache. No-op when neither Scylla nor MultiNode is requested
-        // (Cassandra-only / InMemory-only runs).
+        // Raise fs.aio-max-nr session-wide (this fixture + optional MultiNodeScyllaFixture)
+        // before any Scylla node starts; MultiNode re-asserts and short-circuits via cache.
         await HostAioPrerequisite
             .EnsureAsync(HostAioPrerequisite.TotalScyllaNodesForSession())
             .ConfigureAwait(false);
@@ -181,18 +124,12 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
     {
         var notifications = app.Services.GetRequiredService<ResourceNotificationService>();
 
-        // Postgres is foundational: every IWebFactoryFixture (InMemory aside) reads from
-        // internal.secrets, and the seed step below populates that table for both CQL backends
-        // in one go. Any failure here is unrecoverable for the suite, so we let it propagate.
-        // Wait for Running (not Healthy) — Aspire testing randomises host ports, so the
-        // hardcoded-port health checks declared in AppHost never pass in test mode.
+        // Postgres is foundational (internal.secrets); failures propagate. Wait for Running,
+        // not Healthy — Aspire testing randomises ports so hardcoded-port checks never pass.
         await notifications.WaitForResourceAsync("msg-db", KnownResourceStates.Running, cancellationToken);
 
         var pgEndpoint = App.GetEndpoint("msg-db", "postgres");
 
-        // The CQL endpoints are looked up lazily inside each backend's section, so a Cassandra
-        // resource that never reached Running can't make us call App.GetEndpoint("cassandra")
-        // (which throws InvalidOperationException for a never-started resource).
         var initConnectionString =
             $"Host={pgEndpoint.Host};Port={pgEndpoint.Port};" +
             $"Username={DbInitHelper.PostgresInitUser};Password={TestDbCredentials.PostgresInitPassword};" +
@@ -201,10 +138,8 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             initConnectionString,
             new Interfold.DatabaseBootstrap.PostgresReadinessOptions(TimeSpan.FromMinutes(6), 3),
             cancellationToken);
-        // The seed writes the *Scylla* contact-point row into internal.secrets. We pass
-        // localhost+default-port as a placeholder when neither backend is enabled (an
-        // InMemory-only run never instantiates this fixture, so the placeholder only matters
-        // when the run is fully broken before this point and we still want a well-formed row).
+        // Seed also writes the Scylla contact-point row; localhost placeholder is only
+        // observable when the run is already broken before this point.
         await DbInitHelper.SeedPostgresAsync(
             initConnectionString,
             BuildPostgresSeedOptions(cqlEndpoint: null),
@@ -215,15 +150,11 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             $"Username={TestDbCredentials.PostgresAppUser};Password={TestDbCredentials.PostgresAppPassword};" +
             $"Database={DbInitHelper.DefaultPostgresDb};SSL Mode=Disable;Maximum Pool Size=5";
 
-        // Verify Postgres is actually reachable as the app user from the host before the
-        // migration runner connects. Docker Desktop on Windows can delay host port forwarding
-        // even after the container reports healthy and we want a hard failure here rather
-        // than during the first test.
+        // Docker Desktop on Windows can delay host port forwarding even after healthy;
+        // hard-fail here rather than during the first test.
         await WaitForPostgresConnectivityAsync(PostgresConnectionString, cancellationToken);
 
-        // Run the Postgres migrations once for the whole session. The per-test
-        // InterfoldWebApplicationFactory strips PostgresMigrationService from its host so this
-        // is the single migration pass against msg-db for the entire run.
+        // Single session-wide Postgres migration pass; per-test factories strip the hosted service.
         var persistenceConfig = new PersistenceConfiguration
         {
             Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
@@ -240,12 +171,8 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             NullLoggerFactory.Instance.CreateLogger<PostgresMigrationService>(),
             cancellationToken);
 
-        // Each CQL backend gets its own try/catch around the container-wait + seed + migration
-        // sequence. A failure is captured into the matching `*InitException` property so only
-        // the per-backend web-factory fixture surfaces it (see ScyllaWebFactoryFixture and
-        // CassandraWebFactoryFixture). Scylla-only test runs survive a broken cassandra
-        // container, and vice versa, instead of every DB-bound test in the session failing
-        // with the same generic AspireFixture timeout.
+        // Each backend's init is captured into *InitException so only the per-backend
+        // web-factory fixture surfaces it; the other backend and InMemory keep running.
         if (RequiredFixtures.NeedScylla)
         {
             ScyllaInitException = await TryInitialiseCqlBackendAsync(
@@ -271,12 +198,9 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         }
     }
 
-    /// <summary>
-    /// Runs the full container-wait + connectivity-probe + seed + migration sequence for one
-    /// CQL backend, returning <c>null</c> on success or the captured exception on failure.
-    /// Never throws so the caller can attribute the failure to a single backend without
-    /// aborting the rest of <see cref="WaitForResourcesAsync"/>.
-    /// </summary>
+    /// <summary>Container-wait + probe + seed + migration for one CQL backend. Never throws;
+    /// returns null on success or the captured exception on failure so the outer method can
+    /// attribute per backend.</summary>
     private async Task<Exception?> TryInitialiseCqlBackendAsync(
         string resourceName,
         string endpointName,
@@ -302,20 +226,14 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         }
         catch (Exception ex)
         {
-            // Swallow everything — including OperationCanceledException tied to the outer
-            // ResourceTimeout. Letting OCE propagate would let the base AspireFixture
-            // recategorise it as a session-wide "Timed out after Xs waiting for Aspire
-            // resources" exception and re-fail every test in the session.
+            // Swallow OCE too — otherwise the base AspireFixture recategorises it as a
+            // session-wide timeout and fails every test in the run.
             return ex;
         }
     }
 
-    /// <summary>
-    /// Waits for <paramref name="resourceName"/> to reach Running, racing the wait against a
-    /// transition into FailedToStart (immediate failure) and a per-container readiness budget
-    /// from <see cref="PerContainerReadyTimeout"/> (so a permanently-stuck container can't
-    /// starve any other resource of the outer <see cref="ResourceTimeout"/>).
-    /// </summary>
+    /// <summary>Waits for Running, racing against FailedToStart and
+    /// <see cref="PerContainerReadyTimeout"/>.</summary>
     private async Task WaitForContainerRunningAsync(
         ResourceNotificationService notifications,
         string resourceName,
@@ -335,9 +253,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             var completed = await Task.WhenAny(readyTask, failedTask).ConfigureAwait(false);
             if (completed == failedTask)
             {
-                // Observe the completed task (so any exception it carries is surfaced rather
-                // than being silently lost), then throw a domain-specific error the captured-
-                // exception machinery above can attribute to this backend.
+                // Observe first so any carried exception surfaces, then throw a domain error.
                 await failedTask.ConfigureAwait(false);
                 throw new InvalidOperationException(
                     $"Aspire resource '{resourceName}' entered FailedToStart before reaching Running. " +
@@ -362,10 +278,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         ISecretsStore secretsStore,
         CancellationToken cancellationToken)
     {
-        // Build the resolver with the host-mapped endpoint pinned via ScyllaOverrideOptions
-        // so the migration runs against the exact CQL listener the API will hit during the
-        // test. The keyspace is read straight off persistenceConfig.ScyllaKeyspace (single
-        // source of truth) — no throwaway IConfiguration needed anymore.
+        // Pin the host-mapped endpoint so migrations hit the same CQL listener the API uses.
         var overrides = new ScyllaOverrideOptions
         {
             ContactPoints = [cqlEndpoint.Host],
@@ -397,11 +310,8 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             DiscordOAuthClientSecret: "TEST",
             AppleOAuthClientSecret: "TEST",
             EncryptionPepper: "TEST",
-            // The API process runs on the test host and reaches scylla/cassandra via the host
-            // port mapping, so contact_points carries the resolved endpoint host. When neither
-            // backend is enabled (InMemory-only sessions never hit this path because
-            // SharedDbFixture isn't constructed), fall back to localhost so the seeded value
-            // stays well-formed.
+            // API runs on the host and reaches scylla/cassandra via the host port mapping;
+            // localhost placeholder keeps the row well-formed when no CQL backend is enabled.
             ScyllaContactPoints: cqlEndpoint?.Host ?? "127.0.0.1",
             ScyllaLocalDatacenter: "nam",
             ScyllaAppUser: TestDbCredentials.ScyllaAppUser,
@@ -413,8 +323,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             JwtEs256PrivateKeyPem: TestDbCredentials.JwtEs256PrivateKeyPem,
             DeepLinkSecret: TestDbCredentials.DeepLinkSecret,
             LeafPfxPassword: TestDbCredentials.LeafPfxPassword,
-            // Tests want db_init's password stable across idempotent reruns within the same
-            // fixture session, so we never scramble it. Production callers always set true.
+            // Tests want db_init stable across idempotent reruns; production always scrambles.
             ScrambleInitUserPassword: false);
 
     private static ScyllaSeedOptions BuildScyllaSeedOptions()

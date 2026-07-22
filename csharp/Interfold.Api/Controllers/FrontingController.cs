@@ -44,7 +44,6 @@ public sealed class FrontingController : InterfoldControllerBase
         _updateCommentHandler = updateCommentHandler;
     }
 
-    //TODO: To ensure route works as expected
     [HttpPost]
     public async Task<Response> Update([FromBody] FrontBulkUpdateRequest req, CancellationToken ct)
     {
@@ -93,7 +92,6 @@ public sealed class FrontingController : InterfoldControllerBase
         , ct);
     }
 
-    //TODO: To ensure route works as expected
     [HttpGet("month")]
     public async Task<Response<IReadOnlyList<FrontHistoryReadModel>>> Month(
         [FromQuery(Name = FrontingQueryKeys.EndAnchor)]
@@ -131,7 +129,6 @@ public sealed class FrontingController : InterfoldControllerBase
         return new SuccessResponse<IReadOnlyList<FrontHistoryReadModel>>(fronts);
     }
 
-    //TODO: To ensure route works as expected
     [HttpGet("{id}")]
     public async Task<Response<FrontActiveReadModel>> Show(FrontId id, CancellationToken ct)
     {

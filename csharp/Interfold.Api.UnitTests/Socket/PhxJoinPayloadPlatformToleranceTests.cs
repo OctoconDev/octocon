@@ -5,38 +5,21 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Socket;
 
-/// <summary>
-/// Pins the join-side tolerance contract for <see cref="PhxJoinPayload.Platform"/>: an
-/// unknown wire spelling on the <c>platform</c> member must round-trip to <c>null</c>
-/// WITHOUT throwing a <see cref="JsonException"/>, and — critically — must leave every
-/// sibling member (<c>token</c>, <c>protocolVersion</c>, <c>isReconnect</c>,
-/// <c>forceBatch</c>) intact.
-///
-/// <para>
-/// Regression guard for <c>Api_UserSocketEndpoint_AllowsWebSocketUpgrade</c>: the raw
-/// dictionary payload in that integration test sends <c>platform="wasm"</c>, which
-/// pre-fix threw a <see cref="JsonException"/> during
-/// <c>Deserialize&lt;PhxJoinPayload&gt;</c>. The handler's outer try/catch then
-/// substituted a defaulted <see cref="PhxJoinPayload"/> — wiping the token along with
-/// the platform — and the join was answered with <c>Unauthorized</c>. Fast-tier
-/// coverage here means a strict-converter regression on <c>Platform</c> breaks in
-/// sub-second unit runs instead of surfacing as three-fixture flake in the
-/// integration suite.
-/// </para>
-/// </summary>
+// Join-side tolerance for PhxJoinPayload.Platform: an unknown wire spelling round-trips
+// to null (never throws JsonException) and every sibling member survives. Regression
+// guard for Api_UserSocketEndpoint_AllowsWebSocketUpgrade — pre-fix, platform="wasm"
+// threw and the handler's outer catch substituted a defaulted payload, wiping the token
+// and answering the join with Unauthorized.
 public sealed class PhxJoinPayloadPlatformToleranceTests
 {
     [Test]
-    [Arguments("wasm")]        // the exact value from Api_UserSocketEndpoint_AllowsWebSocketUpgrade
-    [Arguments("WASM")]        // case variant — EnumWire<T>.TryParse is case-insensitive, unknown all the same
-    [Arguments("desktop")]     // unknown non-empty
-    [Arguments("")]            // empty string — TryParse treats as unknown, must not throw
-    [Arguments("   ")]         // whitespace — TryParse treats as unknown, must not throw
+    [Arguments("wasm")]
+    [Arguments("WASM")]
+    [Arguments("desktop")]
+    [Arguments("")]
+    [Arguments("   ")]
     public async Task Deserialize_WithUnknownPlatformString_ReturnsNullPlatform_AndPreservesSiblings(string platform)
     {
-        // Mirrors the raw-dictionary shape the integration test uses: token + protocolVersion +
-        // isReconnect + an unknown platform value. If the strict JsonStringEnumConverter is ever
-        // re-attached to Platform, this deserialize call will throw and the assertions never run.
         var json = $$"""
         {
           "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature",
@@ -69,8 +52,6 @@ public sealed class PhxJoinPayloadPlatformToleranceTests
     [Arguments("web",  ClientPlatform.Web)]
     public async Task Deserialize_WithKnownPlatformSpelling_MapsToEnumMember(string platform, ClientPlatform expected)
     {
-        // The tolerant converter must NOT weaken the happy path — every known wire spelling
-        // (case-insensitive, per EnumWire<T>.TryParse) still parses to its enum member.
         var json = $$"""
         {
           "token": "t",
@@ -87,10 +68,6 @@ public sealed class PhxJoinPayloadPlatformToleranceTests
     [Test]
     public async Task Deserialize_WithMissingPlatform_LeavesPlatformNull()
     {
-        // Platform is optional on the wire (JsonIgnore WhenWritingNull on the write side);
-        // its absence must remain null rather than defaulting to a member — the join
-        // branch treats null Platform as "not iOS" and skips the batched-init path
-        // accordingly.
         var json = """
         {
           "token": "t",
@@ -107,9 +84,6 @@ public sealed class PhxJoinPayloadPlatformToleranceTests
     [Test]
     public async Task Deserialize_WithNumericPlatform_ReturnsNull_WithoutThrowing()
     {
-        // Non-string tokens on the platform member (e.g. a legacy client that once emitted a
-        // numeric platform code) must degrade to null rather than propagate a JsonException
-        // upstream — same tolerance shape as the unknown-string case.
         var json = """
         {
           "token": "t",
@@ -129,9 +103,6 @@ public sealed class PhxJoinPayloadPlatformToleranceTests
     [Arguments(ClientPlatform.Web,     "web")]
     public async Task Serialize_KnownPlatform_EmitsCanonicalLowercaseWireSpelling(ClientPlatform value, string expectedWire)
     {
-        // Tolerant read must not skew the write side — Serialize<PhxJoinPayload>
-        // still needs to emit the canonical wire vocabulary that the enum's
-        // JsonStringEnumMemberNameAttribute pins.
         var payload = new PhxJoinPayload { Token = new SocketToken("t"), Platform = value };
 
         var json = JsonSerializer.Serialize(payload, SocketJson.Options);

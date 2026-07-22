@@ -20,15 +20,8 @@ public readonly record struct EntityRef
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(EntityRef)raw</c> instead of
-    /// <c>new EntityRef(raw)</c>. See <see cref="SystemId"/> for the wider rationale.
-    /// </summary>
     public static explicit operator EntityRef(string value) => new(value);
 
-    /// <summary>
-    /// Implicit widen to the raw <see cref="string"/> for error-body / wire boundary use.
-    /// </summary>
     public static implicit operator string(EntityRef value) => value.Value;
 
     public override string ToString() => Value;

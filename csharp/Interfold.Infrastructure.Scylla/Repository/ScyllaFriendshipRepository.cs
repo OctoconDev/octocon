@@ -12,8 +12,7 @@ namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 {
-    // Derived from the ScyllaKeyspace enum so the region list can't drift from the typed
-    // vocabulary the resolution APIs use.
+    // Derived from ScyllaKeyspace so the region list can't drift from the typed vocabulary.
     private static readonly string[] CanonicalRegions =
         Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray();
 
@@ -36,12 +35,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
     public async Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
     {
-        // FriendLookup guarantees the caller-supplied shape is either Kind.Id or
-        // Kind.Username at this point — the wire boundary already rejected every other
-        // shape with a 400. Pass the raw wire (OriginalValue via the implicit widen) into
-        // ResolveUserIdInScyllaAsync so its shared re-parse picks the right registry lane
-        // for both this public path and the internal defensive re-resolutions further
-        // down.
+        // FriendLookup arrives constrained to Kind.Id / Kind.Username by the wire boundary.
         return await _scopeResolver.ExecuteGlobalAsync<SystemId?>(async scope =>
         {
             var session = scope.Session;
@@ -376,17 +370,14 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             var session = scope.Session;
             var normalizedSystemId = _keyspaceResolver.NormalizeSystemId(systemId);
 
-            // Find all friendships for this user
             var friendsTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT friend_id FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ?",
                 normalizedSystemId));
 
-            // Find all outgoing requests
             var outgoingRequestsTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT to_id FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ?",
                 normalizedSystemId));
 
-            // Find all incoming requests
             var incomingRequestsTask = session.ExecuteAsync(new SimpleStatement(
                 $"SELECT from_id FROM {ScyllaGlobalKeyspace.Name}.friend_requests_by_to_id WHERE to_id = ?",
                 normalizedSystemId));
@@ -445,14 +436,9 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
         input = input.Trim();
 
-        // FriendLookup picks the routing lane at the friend-request wire boundary; the
-        // internal defensive re-resolutions in Send/Accept/Reject/Cancel below pass a
-        // post-normalization bare SystemId string which parses as Kind.Id here. An
-        // unparseable input (a rare shape that slipped past both route binding and
-        // NormalizeSystemId — should not happen in practice) falls through to the
-        // user_registry.user_id lookup with the WHOLE input, matching
-        // ScyllaUserRegistryRegionContext's fallback branch and keeping the read-side
-        // behaviour identical to the pre-merge shape.
+        // Send/Accept/Reject/Cancel pass post-normalisation bare ids which parse as Kind.Id.
+        // Anything that slips past FriendLookup falls through to user_registry.user_id with
+        // the whole input, matching the region-context fallback.
         if (!FriendLookup.TryParse(input, provider: null, out var handle))
         {
             return await LookupByUserIdAsync(session, input);
@@ -460,24 +446,15 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
         return handle.Kind switch
         {
-            // Kind.Username → per-region users_by_username fanout with the after-prefix
-            // Value ("alice" from "username:alice").
             FriendLookupKind.Username => await LookupByUsernameFanoutAsync(session, handle.Value),
-            // Kind.Id (bare or "id:"-prefixed) → user_registry.user_id lookup with the
-            // after-prefix Value.
             FriendLookupKind.Id => await LookupByUserIdAsync(session, handle.Value),
-            // Only Username/Id exist today. If a new FriendLookupKind is added (e.g. Discord,
-            // Region-scoped) it needs its own routing lane — silently falling through to
-            // user_registry.user_id would mis-route the lookup and produce phantom nulls or
-            // wrong hits. Throw so the omission is impossible to miss.
+            // A new FriendLookupKind needs an explicit routing lane; silently falling
+            // through would mis-route and produce phantom nulls.
             _ => throw new ArgumentOutOfRangeException(nameof(handle), handle.Kind,
                 $"Unhandled FriendLookupKind '{handle.Kind}' in ResolveUserIdInScyllaAsync."),
         };
     }
 
-    // Internal helper: forward a plain string to the private inner resolver. Used by the
-    // Send/Accept/Reject/Cancel defensive re-resolution paths that receive a normalized
-    // SystemId string rather than a FriendLookup.
     private Task<SystemId?> ResolveUserIdInScyllaAsync(
         ISession session,
         FriendLookup lookup,
@@ -499,11 +476,8 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     {
         var existingKeyspaces = await GetExistingRegionalKeyspacesAsync(session);
 
-        // Username lookup fans out across the regional keyspaces that actually exist —
-        // the users_by_username table is per-region and there is no global reverse
-        // index. Missing keyspaces / missing tables are skipped rather than propagated
-        // so a partially-provisioned cluster still resolves usernames in the regions it
-        // does have.
+        // users_by_username is per-region with no global reverse index; skip
+        // unavailable/missing keyspaces so a partial cluster still resolves what it can.
         foreach (var region in existingKeyspaces.Where(CanonicalRegions.Contains))
         {
             try
@@ -519,12 +493,10 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
             }
             catch (UnavailableException)
             {
-                // Region keyspace/table temporarily unavailable; skip and try next region
                 continue;
             }
             catch (InvalidQueryException)
             {
-                // Table doesn't exist in this keyspace; skip and try next region
                 continue;
             }
         }
@@ -581,7 +553,6 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
         var friendLevel = (short)FriendshipLevel.Friend;
         var batch = new BatchStatement();
         ScyllaFriendshipDenormalizedTable.AddInsertStatements(batch, systemId, otherSystemId, friendLevel);
-        // Clear requests in both directions
         batch.Add(new SimpleStatement(
             $"DELETE FROM {ScyllaGlobalKeyspace.Name}.friend_requests WHERE from_id = ? AND to_id = ?",
             systemId, otherSystemId));
@@ -631,7 +602,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
 
         var regionalKeyspace = typedRegion.ToWire();
 
-        // Friendship level from the friend's perspective (they control their own alter visibility)
+        // Friend's own view of the friendship — they own their alter visibility.
         var levelTask = session.ExecuteAsync(new SimpleStatement(
             $"SELECT level FROM {ScyllaGlobalKeyspace.Name}.friendships WHERE user_id = ? AND friend_id = ? LIMIT 1",
             friendSystemId.Value,

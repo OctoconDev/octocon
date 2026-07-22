@@ -5,29 +5,13 @@ using Microsoft.Extensions.Options;
 
 namespace Interfold.Api.Services.Secrets;
 
-/// <summary>
-/// Post-configure step that deserialises the three optional Firebase client-init JSON rows
-/// from <c>internal.secrets</c> onto <see cref="FirebaseClientConfiguration"/>.
-///
-/// <para>
-/// Each row is optional — a missing row leaves the matching platform property null and the
-/// <c>/api/settings/firebase-config</c> endpoint returns 503 for that platform. A row that
-/// is present but malformed is a hard fail so the bad seed surfaces at boot instead of at
-/// first fetch. The fail-fast is raised as
-/// <see cref="InvalidOperationException"/>, which
-/// <see cref="Microsoft.Extensions.Options.OptionsFactory{TOptions}"/> propagates through
-/// <c>.ValidateOnStart()</c> just like a validation failure.
-/// </para>
-/// </summary>
+/// <summary>Deserialises the three optional Firebase client-init JSON rows onto
+/// <see cref="FirebaseClientConfiguration"/>. Missing → property stays null (endpoint 503s);
+/// malformed → boot-time throw so bad seeds surface immediately.</summary>
 internal sealed class FirebaseClientSecretsPostConfigure(ISecretsSnapshot snapshot)
     : IPostConfigureOptions<FirebaseClientConfiguration>
 {
-    /// <summary>
-    /// System.Text.Json options matching the API's global snake_case-lower policy so a
-    /// row seeded from the bootstrapper's normalised JSON (which uses snake_case property
-    /// names to mirror the wire contract) round-trips cleanly onto the PascalCase record
-    /// properties.
-    /// </summary>
+    // snake_case_lower matches the bootstrapper's normalised JSON shape.
     private static readonly JsonSerializerOptions FirebaseClientJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -61,13 +45,7 @@ internal sealed class FirebaseClientSecretsPostConfigure(ISecretsSnapshot snapsh
         }
     }
 
-    /// <summary>
-    /// Deserialises a Firebase client-init row into the matching typed record. Empty /
-    /// whitespace payloads are treated as "row absent" by the caller so this method only
-    /// runs on non-blank strings; a null deserialisation result or any parse exception is
-    /// escalated to an <see cref="InvalidOperationException"/> so the API refuses to boot
-    /// on a bad seed rather than silently returning 503 forever.
-    /// </summary>
+    /// <summary>Throws on null deserialise / JsonException so a bad seed fails boot.</summary>
     private static T ParseOrThrow<T>(SecretsStoreKey key, string json)
     {
         try

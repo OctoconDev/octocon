@@ -3,72 +3,28 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Interfold.AppHostGraph;
 
-/// <summary>
-/// Runs a single readiness probe against a running Scylla container via <c>docker exec</c>.
-/// Used by the per-node <c>{name}-cql</c> <see cref="IHealthCheck"/> registrations in
-/// <see cref="InterfoldAppHost.Configure"/> to gate one node's start on the previous node's CQL
-/// listener actually accepting traffic.
-/// </summary>
-/// <remarks>
-/// <para>
-/// The probe is a shell one-liner: first try authenticated <c>cqlsh DESCRIBE CLUSTER</c> using
-/// the credentials the container already has in <c>CQLSH_USER</c>/<c>CQLSH_PASSWORD</c>; if that
-/// fails (typical pre-bootstrap state, before <c>DatabaseInitPhase</c> has minted the app role),
-/// fall back to <c>nodetool status | grep '^UN'</c>. The fallback covers the window between
-/// "Scylla started" and "the auth bootstrap landed", which is exactly the window during which
-/// non-seed nodes are joining the cluster. Same shape as the compose-level healthcheck at
-/// <c>InterfoldAppHost.cs</c> (search for <c>service.Healthcheck</c>) so the orchestration-time
-/// gate and the operator's runtime compose healthcheck stay in lockstep.
-/// </para>
-/// <para>
-/// Credentials are intentionally <em>not</em> threaded through C# — they live as env vars on
-/// the container itself, and the inner shell expands them. That keeps secrets out of the
-/// AppHost's argv and matches the in-container interpolation pattern operators already see in
-/// the generated compose file.
-/// </para>
-/// <para>
-/// Container resolution: rather than tracking DCP-assigned container names via a side-channel
-/// registry (which doesn't fire reliably under <c>Aspire.Hosting.Testing</c>'s in-process host —
-/// observed in <c>artifacts/multinode-stagger-debug.log</c>, where only the first of two
-/// nested AppHosts ever ran its <see cref="Microsoft.Extensions.Hosting.BackgroundService"/>),
-/// each invocation shells <c>docker ps --filter label=aspire-resource-name=&lt;resource&gt;</c>.
-/// This is stateless, works identically for <c>aspire run</c> and the testing host, and is fast
-/// enough for the 30 s health-check polling interval.
-/// </para>
-/// </remarks>
+/// <summary>Runs a readiness probe against a Scylla container via <c>docker exec</c>. Feeds
+/// the per-node <c>{name}-cql</c> health checks in <see cref="InterfoldAppHost.Configure"/>
+/// so each node's start gates on the previous node's CQL listener actually accepting
+/// traffic. Credentials stay in the container's env (CQLSH_USER/CQLSH_PASSWORD) so no
+/// secrets flow through the AppHost's argv. Container name is resolved per-probe by
+/// <c>docker ps</c> filter — the DCP side-channel doesn't fire reliably under
+/// Aspire.Hosting.Testing's in-process host (see multinode-stagger-debug.log).</summary>
 internal static class DockerExecCqlProbe
 {
-    /// <summary>
-    /// Probe timeout. Each <c>docker exec</c> invocation costs ~50-200ms of cold-start overhead,
-    /// the <c>cqlsh</c> connect handshake adds another ~500-1500ms, and the <c>nodetool</c>
-    /// fallback adds a similar amount. 10 s leaves comfortable headroom for the slowest CI hosts
-    /// while still failing fast enough that Aspire's health-check publisher can keep its
-    /// polling cadence (default 30 s).
-    /// </summary>
+    // 10s is a comfortable ceiling for the slowest CI: docker exec cold-start (~50–200ms)
+    // + cqlsh handshake (~500–1500ms) + nodetool fallback of the same order.
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// The in-container readiness script. The doubled <c>$$</c> in the compose-level healthcheck
-    /// at <see cref="InterfoldAppHost"/> is a compose-yaml escape; here we shell <c>docker exec</c>
-    /// directly, so single <c>$</c> is correct.
-    /// </summary>
+    // Single $ is correct here (docker exec bypasses compose YAML — the compose-level probe
+    // uses $$ to escape past compose's own interpolation pass).
     private const string ReadinessScript =
         $"cqlsh -u \"${ContainerEnvNames.CqlshUser}\" -p \"${ContainerEnvNames.CqlshPassword}\" -e 'DESCRIBE CLUSTER' >/dev/null 2>&1 " +
         "|| nodetool status | grep -q '^UN'";
 
-    /// <summary>
-    /// Resolves the runtime Docker container name for an Aspire resource and runs the readiness
-    /// probe against it. Returns Unhealthy if the container hasn't been allocated yet (Aspire
-    /// retries on its polling interval) or if the probe itself fails.
-    /// </summary>
-    /// <param name="resourceName">
-    /// The logical Aspire resource name (e.g. <c>scylla-nam</c>). The runtime Docker container
-    /// inherits this name + a unique <c>-{suffix}</c>; we resolve the suffix by listing
-    /// containers filtered by the <c>aspire-resource-name=&lt;resourceName&gt;</c> label DCP
-    /// emits, falling back to a name-prefix filter for older orchestrator builds that don't
-    /// stamp the label.
-    /// </param>
-    /// <param name="cancellationToken">Cancellation propagated from Aspire's health-check publisher.</param>
+    /// <summary>Resolves the runtime container name for <paramref name="resourceName"/>
+    /// and runs the probe. Returns Unhealthy while the container hasn't been allocated yet
+    /// (Aspire retries on its polling interval).</summary>
     public static async Task<HealthCheckResult> RunAsync(string resourceName, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(resourceName))
@@ -87,9 +43,8 @@ internal static class DockerExecCqlProbe
 
     private static async Task<(string? ContainerName, string? Error)> ResolveContainerNameAsync(string resourceName, CancellationToken cancellationToken)
     {
-        // Aspire's DCP labels every container with `aspire-resource-name=<logical>`. The label
-        // is stable across Aspire 9.x / 13.x, so we try that first. If a future orchestrator
-        // version stops stamping it we transparently fall back to a name prefix match.
+        // DCP stamps `aspire-resource-name=<logical>` on every container (stable across
+        // Aspire 9.x / 13.x). Prefix match is the fallback for orchestrator builds that don't.
         var labelMatch = await DockerPsAsync(
             ["--filter", $"label=aspire-resource-name={resourceName}", "--format", "{{.Names}}"],
             cancellationToken).ConfigureAwait(false);
@@ -147,7 +102,7 @@ internal static class DockerExecCqlProbe
         }
         if (exit == -1)
         {
-            return HealthCheckResult.Unhealthy(stderr); // timeout / spawn failure
+            return HealthCheckResult.Unhealthy(stderr);
         }
 
         var detail = stderr.Length > 0 ? stderr : stdout;
@@ -213,6 +168,6 @@ internal static class DockerExecCqlProbe
         {
             return;
         }
-        try { proc.Kill(entireProcessTree: true); } catch { /* best-effort cleanup */ }
+        try { proc.Kill(entireProcessTree: true); } catch { }
     }
 }

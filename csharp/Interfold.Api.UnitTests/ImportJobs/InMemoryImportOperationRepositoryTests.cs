@@ -4,21 +4,12 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-/// <summary>
-/// Pins the per-system mutex contract of the in-memory <c>IImportOperationRepository</c>.
-/// The InMemory port has to behave identically to the Scylla port for the integration
-/// tests (which run against InMemory by default) to be a meaningful proxy for the
-/// production Cassandra LWT semantics. If these tests pass, both ports give us the
-/// invariant that protects against the duplicate-SP-import bug: <b>at most one
-/// queued-or-running operation per <c>(system, kind)</c> pair</b>.
-/// </summary>
+// Per-system mutex contract for the in-memory IImportOperationRepository. The InMemory
+// port must mirror the Scylla port so integration tests against InMemory are a
+// meaningful proxy for the production Cassandra LWT semantics: at most one
+// queued-or-running operation per (system, kind) pair.
 public sealed class InMemoryImportOperationRepositoryTests
 {
-    /// <summary>
-    /// A fresh claim against an empty store returns <c>IsNew = true</c> and a non-empty
-    /// operation_id. Establishes the baseline so the subsequent collision tests have a
-    /// reference shape.
-    /// </summary>
     [Test]
     public async Task TryClaim_NoActiveOperation_ReturnsIsNewTrue()
     {
@@ -35,12 +26,7 @@ public sealed class InMemoryImportOperationRepositoryTests
         }
     }
 
-    /// <summary>
-    /// Two sequential claims for the same system+kind: the first succeeds, the second
-    /// collapses onto it (same operation_id, <c>IsNew = false</c>). This is the load-bearing
-    /// invariant; if it ever fails, two simultaneous dispatches will each enqueue their
-    /// own worker run and reproduce the duplicate-import bug.
-    /// </summary>
+    // Load-bearing invariant: sequential claims collapse. Regression = duplicate-import bug.
     [Test]
     public async Task TryClaim_WhileActive_CollapsesOntoExistingOperation()
     {
@@ -58,11 +44,6 @@ public sealed class InMemoryImportOperationRepositoryTests
         }
     }
 
-    /// <summary>
-    /// Different systems do NOT collide — system A's in-flight import must not block
-    /// system B from dispatching. Pins that the mutex key includes system_id, not just
-    /// kind.
-    /// </summary>
     [Test]
     public async Task TryClaim_DifferentSystems_BothSucceed()
     {
@@ -81,11 +62,6 @@ public sealed class InMemoryImportOperationRepositoryTests
         }
     }
 
-    /// <summary>
-    /// SP and PK for the same system run independently — kind is part of the mutex key.
-    /// Pins that future cross-platform users (importing SP and PK in parallel for the
-    /// same account) aren't artificially serialised.
-    /// </summary>
     [Test]
     public async Task TryClaim_SameSystemDifferentKinds_BothSucceed()
     {
@@ -102,11 +78,6 @@ public sealed class InMemoryImportOperationRepositoryTests
         }
     }
 
-    /// <summary>
-    /// Once the slot is released via a terminal transition (MarkSucceeded /
-    /// MarkFailed), the same system can dispatch again. Combined with the
-    /// previous tests this gives the full lifecycle: claim → terminal → re-claim.
-    /// </summary>
     [Test]
     public async Task TryClaim_AfterSucceeded_ReleasesSlotAndAllowsReclaim()
     {
@@ -125,11 +96,6 @@ public sealed class InMemoryImportOperationRepositoryTests
         }
     }
 
-    /// <summary>
-    /// Same shape as the succeeded case but for the failed terminal. Re-claim must
-    /// still work — a user who got a failure frame must be able to retry without
-    /// waiting for the sweep.
-    /// </summary>
     [Test]
     public async Task TryClaim_AfterFailed_ReleasesSlotAndAllowsReclaim()
     {
@@ -143,12 +109,7 @@ public sealed class InMemoryImportOperationRepositoryTests
             .Because("MarkFailed must free the slot exactly like MarkSucceeded — both are terminal transitions.");
     }
 
-    /// <summary>
-    /// Parallel claims: 16 concurrent tasks racing for the same slot must converge on
-    /// exactly one winner. This is the strongest test of the mutex — if the in-memory
-    /// TryAdd were not actually atomic, multiple tasks would observe IsNew=true and we
-    /// would silently start parallel imports.
-    /// </summary>
+    // Strongest mutex test: 16 concurrent tasks must converge on one winner.
     [Test]
     public async Task TryClaim_ParallelDispatchers_ExactlyOneClaimsTheSlot()
     {
@@ -177,11 +138,7 @@ public sealed class InMemoryImportOperationRepositoryTests
         }
     }
 
-    /// <summary>
-    /// MarkRunning is a no-op when the row isn't in Queued. Pins the idempotency of the
-    /// pickup transition so a re-delivered queue item can't accidentally overwrite a
-    /// terminal status.
-    /// </summary>
+    // Idempotency of pickup: a re-delivered queue item must not overwrite a terminal.
     [Test]
     public async Task MarkRunning_OnAlreadyTerminal_IsNoOp()
     {
@@ -196,11 +153,7 @@ public sealed class InMemoryImportOperationRepositoryTests
             .Because("MarkRunning must not regress a terminal Succeeded status — the only valid transition is Queued -> Running.");
     }
 
-    /// <summary>
-    /// Stale-running sweep only returns rows older than the threshold. Pins the
-    /// startup-sweep query so a fresh in-flight job is never rewritten to failed by
-    /// accident.
-    /// </summary>
+    // Startup-sweep must never rewrite a fresh in-flight job to failed.
     [Test]
     public async Task GetStaleRunning_OnlyReturnsRowsOlderThanThreshold()
     {
@@ -208,7 +161,6 @@ public sealed class InMemoryImportOperationRepositoryTests
         var claim = await repo.TryClaimAsync(new("nam:sys-a"), ImportOperationKind.SimplyPlural, new("idem-1"));
         await repo.MarkRunningAsync(new("nam:sys-a"), claim.OperationId);
 
-        // A fresh row (started_at = now) shouldn't be returned for a 10 minute threshold.
         var stale = await repo.GetStaleRunningAsync(TimeSpan.FromMinutes(10));
 
         await Assert.That(stale.Count).IsEqualTo(0)

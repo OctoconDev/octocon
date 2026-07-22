@@ -28,19 +28,10 @@ public static partial class ServiceCollectionExtensions
         }
     }
     
-    /// <summary>
-    /// Registers the persistence adapters for <paramref name="mode"/>, layering the caller-
-    /// supplied snapshot values on top of the env-bound
-    /// <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/> pipeline. Consumers
-    /// resolve <see cref="Microsoft.Extensions.Options.IOptions{PersistenceConfiguration}"/>
-    /// (single source of truth).
-    ///
-    /// The mode-registration lambdas still receive a synchronous
-    /// <see cref="PersistenceConfiguration"/> snapshot because a few of them (e.g.
-    /// InMemoryRegionContext) capture <c>ScyllaKeyspace</c> at registration time — the
-    /// snapshot here is built from the caller's overrides only, and matches what the
-    /// container will hand to IOptions consumers once the layered PostConfigure runs.
-    /// </summary>
+    /// <summary>Registers persistence adapters for <paramref name="mode"/> and layers the
+    /// caller's overrides onto the <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/>
+    /// pipeline. Mode-registration lambdas still take a synchronous snapshot because a few
+    /// (e.g. InMemoryRegionContext) capture <c>ScyllaKeyspace</c> at registration time.</summary>
     public static IServiceCollection AddInterfoldPersistence(
         this IServiceCollection services,
         PersistenceMode mode,
@@ -63,18 +54,12 @@ public static partial class ServiceCollectionExtensions
         Action<PersistenceConfiguration>? configure = null
     )
     {
-        // Snapshot for the mode-registration lambdas' synchronous capture (e.g.
-        // InMemoryRegionContext takes ScyllaKeyspace at registration time). Only the
-        // caller's configure delegate contributes here — the env-bound values are
-        // owned by AddInterfoldOptions.ApplyPersistence and reach consumers via
-        // IOptions<PersistenceConfiguration>.
+        // Env-bound values live in IOptions<PersistenceConfiguration>; caller overrides
+        // are captured here for the mode-registration lambdas.
         var options = new PersistenceConfiguration();
         configure?.Invoke(options);
 
-        // Layer the caller-supplied overrides onto the options pipeline as a
-        // PostConfigure so IOptions<PersistenceConfiguration> consumers see the same
-        // values the mode-registration lambdas captured above. Without this the two
-        // views would drift for anything the caller set.
+        // Layer caller overrides onto IOptions so both views agree.
         if (configure is not null)
         {
             services.PostConfigure<PersistenceConfiguration>(configure);

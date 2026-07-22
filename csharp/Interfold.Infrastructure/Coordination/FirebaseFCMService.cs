@@ -14,20 +14,15 @@ using Interfold.Contracts;
 
 namespace Interfold.Infrastructure.Coordination;
 
-/// <summary>
-/// Real FCM v1 sender for the fronting-changed push flow. The DI factory in
-/// <c>ClusterServiceCollectionExtensions</c> only wires this implementation when the
-/// primary role is active and <c>fcm:service_account_json</c> is present in
-/// <c>internal.secrets</c>; otherwise <see cref="NullFCMService"/> takes over. Callers
-/// therefore never need to null-check the credential path.
-/// </summary>
+/// <summary>Real FCM v1 sender for the fronting-changed push flow. DI wires this only
+/// when the primary role is active and <c>fcm:service_account_json</c> is present;
+/// otherwise <see cref="NullFCMService"/> takes over.</summary>
 public sealed class FirebaseFCMService : IFCMService, IDisposable
 {
-    // Process-local registry key for FirebaseApp.Create/GetInstance. Never leaves the
-    // process; unrelated to any client-facing Firebase project identifier.
+    // Process-local registry key for FirebaseApp.Create/GetInstance.
     private const string FirebaseAppName = "interfold-fcm";
 
-    // FCM v1 multicast cap. https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages/send
+    // FCM v1 multicast cap: https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages/send
     private const int FcmMulticastMax = 500;
 
     private readonly IOptions<FcmConfiguration> _options;
@@ -79,8 +74,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             ? username.Value
             : "A friend";
 
-        // Relative path so each client resolves against its own origin. The SW's
-        // notificationclick handler and mobile handlers both hard-code this shape.
+        // Relative path — each client resolves against its own origin.
         var deepLink = $"/system/{Uri.EscapeDataString(systemId.Value)}";
         var frontEnded = currentAlterIds.Count == 0;
         var currentAlterSet = frontEnded ? null : new HashSet<AlterId>(currentAlterIds);
@@ -96,8 +90,6 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             }
             else
             {
-                // Guarded lookup returns only the alters this friend is allowed to see;
-                // intersect with the currently-fronting set to get their visible view.
                 var guarded = await _alters
                     .ListGuardedAsync(systemId, friendGroup.FriendSystemId, cancellationToken)
                     .ConfigureAwait(false);
@@ -107,8 +99,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
 
                 if (visibleAlters.Length == 0)
                 {
-                    // Nothing this friend is allowed to see — skip rather than leak
-                    // "something changed" via a message with an empty payload.
+                    // Skip rather than leak "something changed" via an empty payload.
                     _logger.LogDebug(
                         "[fcm] Skipping friend={FriendSystemId} for system={SystemId}: no visible fronting alters.",
                         friendGroup.FriendSystemId, systemId);
@@ -169,8 +160,8 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         }
     }
 
-    // Removes tokens the SDK flags as permanently invalid (Unregistered / InvalidArgument).
-    // Everything else is logged and left in place so the next flush can retry.
+    // Prune tokens flagged as permanently invalid (Unregistered / InvalidArgument); other
+    // failures are logged and left in place so the next flush retries.
     private async Task PruneInvalidTokensAsync(
         IReadOnlyList<PushToken> tokens,
         BatchResponse response,
@@ -219,8 +210,8 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             : token.Length <= 6 ? "***"
             : token[..6];
 
-    // FirebaseApp.Create throws if the same name is registered twice, so first-use
-    // construction is gated and "already exists" is treated as a race we lost.
+    // FirebaseApp.Create throws on duplicate name — gate first-use and treat
+    // "already exists" as a race we lost.
     private async Task<FirebaseMessaging?> EnsureMessagingAsync(CancellationToken ct)
     {
         var existing = Volatile.Read(ref _messaging);
@@ -234,10 +225,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
             var serviceAccountJson = _options.Value.ServiceAccountJson;
             if (string.IsNullOrWhiteSpace(serviceAccountJson))
             {
-                // Row was absent from the snapshot the DI factory consulted when it picked
-                // us over NullFCMService. Should be unreachable in practice (the snapshot
-                // is populated once at startup and doesn't change mid-process) — kept as a
-                // defensive belt-and-braces guard.
+                // Defensive: the snapshot is startup-populated and shouldn't change mid-process.
                 _logger.LogError(
                     "[fcm] {Key} disappeared between DI-graph build and first send. " +
                     "Restart the API after re-seeding the row, or drop it and let the factory pick NullFCMService.",
@@ -271,9 +259,8 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         }
     }
 
-    // Hand-rolled because FirebaseAdmin owns its own HttpClient — Microsoft.Extensions.Http
-    // .Resilience can't wrap it. Retries only the two FCM error codes documented as
-    // transient (Unavailable, Internal) plus low-level transport failures.
+    // Hand-rolled — FirebaseAdmin owns its HttpClient so Microsoft.Extensions.Http.Resilience
+    // can't wrap it. Retries only the two transient FCM codes + transport failures.
     private static ResiliencePipeline BuildResiliencePipeline(ILogger logger) =>
         new ResiliencePipelineBuilder()
             .AddRetry(new RetryStrategyOptions
@@ -308,7 +295,7 @@ public sealed class FirebaseFCMService : IFCMService, IDisposable
         }
         catch
         {
-            // Delete throws on double-dispose races; harmless at shutdown.
+            // Double-dispose race — harmless at shutdown.
         }
     }
 }

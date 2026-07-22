@@ -40,17 +40,8 @@ public sealed class PhxJoinPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ProtocolVersion { get; init; }
 
-    // Join-side platform is deliberately tolerant: unknown wire spellings (e.g. a
-    // future "wasm" client, or a typo from an older release the server has to
-    // interop with) must round-trip to null WITHOUT throwing a JsonException on
-    // this property, otherwise a wholesale Deserialize<PhxJoinPayload> failure
-    // upstream would take the token and protocolVersion siblings down with it and
-    // turn a valid join into a bogus Unauthorized reply. The ClientPlatform
-    // docstring pins this contract ("unknown values are handled by callers via
-    // EnumWire<T>.TryParse so the legacy invalid-platform responses are
-    // preserved"); this converter is the enforcement point for the socket-join
-    // boundary specifically — every other JSON caller of ClientPlatform keeps
-    // the default strict JsonStringEnumConverter<ClientPlatform>.
+    // Join-side platform tolerates unknown wire spellings → null (so a stray value can't
+    // fail the whole join). Every other ClientPlatform site keeps the strict converter.
     [JsonPropertyName("platform")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonConverter(typeof(TolerantWireEnumJsonConverter<ClientPlatform>))]

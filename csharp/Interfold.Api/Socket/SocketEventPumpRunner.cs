@@ -21,11 +21,8 @@ public static class SocketEventPumpRunner
         IJournalRepository journalRepository,
         IEncryptionStateRepository encryptionStateRepository)
     {
-        // Every event subscription below is scoped to context.JoinedScopedSystemId via the bus's
-        // targetSystemId filter. Because every event the pump cares about implements
-        // ITargetedClusterEvent, the bus delivers an event to this socket only when its
-        // TargetSystemId equals the socket's JoinedScopedSystemId — i.e. the per-socket pump
-        // only does work when the publish is actually for this user.
+        // All subscriptions filter on context.JoinedScopedSystemId (ITargetedClusterEvent
+        // → only this user's publishes fire).
         return Task.WhenAll(
             SubscribeAsync<FrontingStartedEvent>(eventBus, context, evt => FrontingSocketEventHandlers.HandleAsync(evt, context, frontingRepository)),
             SubscribeAsync<FrontingEndedEvent>(eventBus, context, evt => FrontingSocketEventHandlers.HandleAsync(evt, context)),
@@ -81,22 +78,9 @@ public static class SocketEventPumpRunner
         Func<TEvent, Task> handler)
         where TEvent : class
     {
-        // Guard against a single handler exception killing the per-event subscription
-        // loop. Without this, the await foreach would unwind on the first throw from
-        // handler(evt) — e.g. a transient cancellation propagating out of a retry's
-        // Task.Delay under thread-pool contention, or a socket write failing during a
-        // teardown window — and every subsequent event of TEvent for this socket would
-        // be silently dropped because the channel reader is gone. Under sustained
-        // parallel-test load this manifested as Api_UserSocketEndpoint_PushesFriendTrust
-        // missing its friend_request_received push on Scylla/Cassandra fixtures only.
-        //
-        // Keep the loop alive across handler faults; if cancellation comes through
-        // context.CancellationToken we still exit cleanly because SubscribeAsync's
-        // enumerator observes it and MoveNextAsync simply returns false.
-        // SubscribeAsync takes ScopedSystemId?. Feed it the scoped composite that
-        // WebSocketHandler parsed from the JWT sub — the scoped-to-scoped compare in
-        // InProcessEventBus.PublishAsync is byte-equivalent when regions match and
-        // correctly rejects cross-region false positives (same raw id, different region).
+        // Wrap the per-event dispatch so a single handler exception can't kill the
+        // subscription (transient cancel from a retry Task.Delay, socket write during
+        // teardown, etc.). Cancellation still exits cleanly via MoveNextAsync.
         await foreach (var evt in eventBus.SubscribeAsync<TEvent>(context.JoinedScopedSystemId, context.CancellationToken).ConfigureAwait(false))
         {
             try
@@ -105,8 +89,6 @@ public static class SocketEventPumpRunner
             }
             catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
             {
-                // Context is shutting down; let the foreach observe cancellation
-                // on its next MoveNextAsync rather than tearing down via throw.
                 return;
             }
             catch (Exception ex)

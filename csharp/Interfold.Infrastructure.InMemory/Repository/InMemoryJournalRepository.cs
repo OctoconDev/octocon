@@ -38,8 +38,6 @@ public sealed class InMemoryJournalRepository : IJournalRepository
     private readonly IRegionContext _regionContext;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<EntryId, EntryState>> _bySystem = new();
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<EntryId, (bool Pinned, bool Locked)>> _stateBySystem = new();
-    // Keyed on the (ScopedSystemId, EntryId) tuple rather than a hand-concatenated
-    // "{systemKey}:{entryId}" string — ValueTuple gives structural equality for free.
     private readonly ConcurrentDictionary<(ScopedSystemId System, EntryId EntryId), ConcurrentDictionary<AlterId, bool>> _entryAlters = new();
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<EntryId, AlterEntryState>> _alterEntriesBySystem = new();
 
@@ -209,9 +207,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
 
         if (TryGetAlterStore(systemId, out var store))
         {
-            // Snapshot the keys to remove first; mutating the ConcurrentDictionary while
-            // enumerating its values is undefined behaviour (entries may be skipped or
-            // double-visited).
+            // Snapshot before mutation — enumerating a ConcurrentDictionary during writes is undefined.
             var toRemove = store.Values.Where(e => e.AlterId == alterId).Select(e => e.EntryId).ToArray();
             foreach (var entryId in toRemove)
             {
@@ -222,11 +218,8 @@ public sealed class InMemoryJournalRepository : IJournalRepository
             }
         }
 
-        // Detach from any global journals this alter was attached to. _entryAlters is keyed
-        // by (system, entry) and the inner dictionary's keys are alter ids; we don't need
-        // to know which global entries exist - just sweep every inner dict for this alter.
-        // Mirrors the Scylla path's global_journal_alters cleanup, where the row identity
-        // is (user_id, global_journal_id, alter_id) and only the alter_id rows are deleted.
+        // Sweep every entry's alter map so the detached alter is dropped from every attached
+        // global entry (mirrors ScyllaJournalRepository.global_journal_alters cleanup).
         foreach (var alters in _entryAlters.Values)
         {
             alters.TryRemove(alterId, out _);
@@ -297,8 +290,7 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         if (!TryGetGlobalStore(systemId, out var store))
             return Task.FromResult<IReadOnlyList<JournalReadModel>>(Array.Empty<JournalReadModel>());
 
-        // Sort key is the wire form (lowercase "N" hex) to keep list ordering byte-identical
-        // to the historic string-backed EntryId — Guid.CompareTo bytewise reorders differently.
+        // Sort by wire form (lowercase "N" hex) — Guid.CompareTo reorders differently.
         var entries = store.Values
             .OrderByDescending(e => e.EntryId.Value.ToString("N"), StringComparer.Ordinal)
             .Select(e =>
@@ -339,7 +331,6 @@ public sealed class InMemoryJournalRepository : IJournalRepository
         return alters.Keys.ToArray();
     }
 
-    // Typed tuple key for the _entryAlters dict, replacing a stringly-typed concat.
     private (ScopedSystemId System, EntryId EntryId) GetEntryKey(SystemId systemId, EntryId entryId)
         => (InMemoryStorageKeys.ForSystem(_regionContext, systemId), entryId);
 

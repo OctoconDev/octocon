@@ -42,10 +42,8 @@ public sealed class InMemoryNotificationTokenRepository : INotificationTokenRepo
         return Task.FromResult(true);
     }
 
-    // Delegates friend enumeration to IFriendshipRepository, then attaches each friend's
-    // token set. Friends with zero registered tokens are omitted so callers can iterate
-    // groups without a Count > 0 guard. Mirrors the Scylla impl's shape so backends
-    // stay swappable via OCTOCON_PERSISTENCE.
+    // Friends with zero registered tokens are omitted so callers can iterate without a
+    // Count > 0 guard. Mirrors the Scylla port so backends stay swappable via OCTOCON_PERSISTENCE.
     public async Task<IReadOnlyList<FriendNotificationTokens>> ListTokensForFriendsOfAsync(
         SystemId systemId,
         CancellationToken cancellationToken = default)

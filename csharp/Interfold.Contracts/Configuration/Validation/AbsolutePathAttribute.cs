@@ -3,25 +3,12 @@ namespace Interfold.Contracts.Configuration.Validation;
 using System.ComponentModel.DataAnnotations;
 using System.IO;
 
-/// <summary>
-/// Requires a string configuration value to be an absolute filesystem path
-/// (<see cref="Path.IsPathRooted(string)"/>). Null and empty values are accepted (use
-/// <see cref="RequiredAttribute"/> when the value is mandatory) so this attribute stacks
-/// cleanly on optional properties like <c>AvatarStorageRoot</c>.
-///
-/// Mirrors the bootstrapper's <c>ValidateOptionalAbsoluteHttpUri</c> sibling for URL
-/// values: the pair enforces the same "operator gave us a rooted-path or an absolute
-/// http(s) URL" contract on both sides of the bootstrap → API boundary.
-/// </summary>
+/// <summary>Requires an absolute filesystem path. Null/empty is accepted; combine with
+/// <c>[Required]</c> when mandatory. Mirrors the bootstrapper's runtime path validator.</summary>
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false)]
 public sealed class AbsolutePathAttribute : ValidationAttribute
 {
-    /// <summary>
-    /// When <c>true</c>, whitespace-only strings are treated the same as empty (skipped).
-    /// Defaults to <c>true</c> to match the .NET
-    /// <see cref="Microsoft.Extensions.Configuration.EnvironmentVariables.EnvironmentVariablesConfigurationProvider"/>
-    /// convention where <c>OCTOCON_FOO=</c> surfaces as an empty string rather than null.
-    /// </summary>
+    /// <summary>Whitespace-only counts as empty when true (default).</summary>
     public bool AllowEmpty { get; init; } = true;
 
     /// <inheritdoc />
@@ -62,12 +49,7 @@ public sealed class AbsolutePathAttribute : ValidationAttribute
         return ValidationResult.Success;
     }
 
-    /// <summary>
-    /// Pure-logic core check reused by both this <see cref="ValidationAttribute"/> and the
-    /// bootstrapper's runtime validator so a change to the "what counts as absolute" rule
-    /// lands on both sides in one place. Whitespace/empty returns <c>false</c>; callers
-    /// that treat blank as "field disabled" should short-circuit before calling this.
-    /// </summary>
+    /// <summary>Pure-logic core check reused by the bootstrapper. Whitespace/empty → false.</summary>
     public static bool IsAbsolutePath(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

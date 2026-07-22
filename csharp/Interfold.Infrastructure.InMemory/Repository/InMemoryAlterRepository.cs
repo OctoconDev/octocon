@@ -23,13 +23,8 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public string? Pronouns { get; set; }
         public string? ProxyName { get; set; }
         public string Name { get; set; } = string.Empty;
-        // Match Scylla insert semantics: ScyllaAlterRepository.CreateAsync stamps
-        // security_level = (short)VisibilityLevel.Private on the INSERT, so new alters are
-        // private until the owner opens visibility explicitly. Kept as a plain
-        // field default here so a bare `new AlterState()` in tests mirrors what the API
-        // would see after a real create.
+        // Matches Scylla insert semantics: alters are Private until owner opens visibility.
         public VisibilityLevel VisibilityLevel { get; set; } = VisibilityLevel.Private;
-        // Keyed on FieldId (Guid-backed record-struct → value-based equality on Guid).
         public Dictionary<FieldId, string?> Fields { get; } = new();
         public bool Untracked { get; set; }
         public bool Archived { get; set; }
@@ -38,10 +33,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
 
     private readonly IRegionContext _regionContext;
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, AlterState>> _bySystem = new();
-    // Retyped short alongside AlterId.Value so the counter cannot silently overflow the
-    // smallint canonical range. AddOrUpdate's update delegate widens to int in the arithmetic
-    // and narrows back with a checked cast — an out-of-range increment throws at the cast
-    // site (OverflowException) rather than truncating and handing back an already-used id.
+    // checked((short)…) on increment traps overflow instead of handing back an already-used id.
     private readonly ConcurrentDictionary<ScopedSystemId, short> _nextIdBySystem = new();
     private readonly IFriendshipRepository? _friendships;
     private readonly ISettingsFieldRepository? _settingsFields;
@@ -137,8 +129,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
         else if (command.AvatarUrl is not null)
         {
-            // avatar_url and avatar_source must move together; the domain handler
-            // rejects the half-set case so we treat AvatarSource as required here.
+            // Domain handler rejects half-set; treat AvatarSource as required here.
             existing.AvatarUrl = command.AvatarUrl;
             existing.AvatarSource = command.AvatarSource ?? AvatarSource.Local;
         }
@@ -192,7 +183,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             return Array.Empty<AlterReadModel>();
         }
 
-        // Owner can be treated as trusted_friend for visibility resolution
         var definitions = await ResolveVisibleDefinitionsAsync(systemId, FriendshipLevel.TrustedFriend, cancellationToken);
 
         var rows = store.Values
@@ -341,12 +331,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.Pinned);
     }
 
-    /// <summary>
-    /// InMemory-specific adapter around <see cref="AlterFieldProjection.ResolveVisibleDefinitionsAsync"/>
-    /// that folds the null-<c>_settingsFields</c> branch (nullable historically — see the
-    /// constructor) into an empty-list short-circuit so the shared domain helper can keep
-    /// its non-null repository contract.
-    /// </summary>
+    // Short-circuits when _settingsFields is null so the shared helper keeps a non-null repo contract.
     private Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
         SystemId systemId,
         FriendshipLevel? friendshipLevel,

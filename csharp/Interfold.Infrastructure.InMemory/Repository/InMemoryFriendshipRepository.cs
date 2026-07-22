@@ -24,13 +24,8 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, FriendshipState>> _friendships = new();
     private readonly ConcurrentDictionary<SystemId, ConcurrentDictionary<SystemId, RequestState>> _outgoingRequests = new();
 
-    /// <summary>
-    /// Parameterless / find-only-account ctor used from the DI container.
-    /// <paramref name="accounts"/> is accepted (and ignored) so the DI signature stays
-    /// stable across the friend-request tightening that removed the Discord dispatch
-    /// lane; production and test wiring can keep passing whatever they used to. A
-    /// follow-up may drop the parameter once every consumer stops passing it.
-    /// </summary>
+    // accounts parameter kept for DI-signature stability; unused after the Discord
+    // dispatch lane was removed.
     public InMemoryFriendshipRepository(IAccountRepository? accounts = null)
     {
         _ = accounts;
@@ -38,19 +33,9 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
 
     public Task<SystemId?> ResolveUserIdAsync(FriendLookup lookup, CancellationToken cancellationToken = default)
     {
-        // Mirror ScyllaFriendshipRepository's dispatch so both backends resolve identically.
-        // InMemory has no user_registry / users_by_username tables, so Kind.Id inputs
-        // collapse onto "normalise and return" — tests explicitly seed users via
-        // EnsureUserExistsAsync so the returned SystemId always maps to a real record.
-        // Kind.Username has no reverse-index — returning null matches "no such username"
-        // cleanly and lines up with the 422 friend_request:no_user surface exercised by
-        // SendFriendRequestPrefixTests's InMemory branch.
-        //
-        // Non-id/username shapes (Discord, region-scoped, unknown-prefix, blank) never
-        // reach here — FriendLookup.TryParse rejects them at route binding with a 400,
-        // so this method's switch only has to cover the two remaining kinds. If a new
-        // FriendLookupKind is added it needs an explicit branch: the previous silent-null
-        // fallback masqueraded as "no such user" and hid the omission from every caller.
+        // Mirrors ScyllaFriendshipRepository. InMemory has no username reverse-index, so
+        // Username collapses to null (surfaces as the 422 friend_request:no_user). Adding
+        // a FriendLookupKind requires an explicit branch here — silent-null would hide it.
         SystemId? result = lookup.Kind switch
         {
             FriendLookupKind.Id => InMemoryStorageKeys.Normalize(new SystemId(lookup.Value)),
@@ -277,7 +262,6 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
         var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
         var friendIds = new List<SystemId>();
 
-        // Remove all friendships where this user is involved
         if (_friendships.TryRemove(normalizedSystemId, out var friends))
         {
             foreach (var friendId in friends.Keys)
@@ -290,10 +274,9 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
             }
         }
 
-        // Remove all outgoing requests from this user
         _outgoingRequests.TryRemove(normalizedSystemId, out _);
 
-        // Remove all incoming requests to this user (we need to scan for this in-memory)
+        // In-memory scan for incoming requests targeting this user.
         foreach (var requesterId in _outgoingRequests.Keys)
         {
             if (_outgoingRequests.TryGetValue(requesterId, out var requests))

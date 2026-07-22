@@ -1,12 +1,7 @@
 namespace Interfold.Contracts.Secrets;
 
-/// <summary>
-/// Typed row key for <c>internal.secrets</c>. Defined in this file (not a separate one)
-/// because the file is compiled into both Interfold.Contracts and — via a linked
-/// <c>&lt;Compile&gt;</c> item — Interfold.DatabaseBootstrap; keeping struct and registry
-/// together preserves that single-source arrangement. Unwrap <see cref="Value"/> at DB
-/// parameters and dictionary keys.
-/// </summary>
+// Typed row key for `internal.secrets`. Struct + registry share this file because it's
+// linked into DatabaseBootstrap; unwrap Value at DB parameters and dictionary keys.
 #if INTERFOLD_DBBOOT_LINKED
 internal
 #else
@@ -24,20 +19,8 @@ readonly record struct SecretsStoreKey
     public override string ToString() => Value;
 }
 
-/// <summary>
-/// Well-known row keys stored in <c>internal.secrets</c> and read back through
-/// <see cref="ISecretsStore"/>. Centralising the strings here keeps the seeding side
-/// (<c>Interfold.DatabaseBootstrap.SeedKeys</c>) and the runtime consumers (Infrastructure
-/// DI wiring, <c>SecretsBootstrapService</c>, <c>FirebaseFCMService</c>) from drifting.
-/// The values are the persisted wire format — CHANGING ANY VALUE HERE IS A BREAKING
-/// SCHEMA CHANGE for existing self-hosted deployments.
-/// </summary>
-/// <remarks>
-/// The file is included in <c>Interfold.DatabaseBootstrap</c> as a linked
-/// <c>&lt;Compile&gt;</c> item so both projects share the same source of truth without
-/// forcing DatabaseBootstrap to take a project reference on Contracts (which would blow
-/// the trimmed bootstrapper binary size guardrail).
-/// </remarks>
+/// <summary>Well-known row keys in <c>internal.secrets</c>. Persisted wire values —
+/// changing any string here is a breaking schema change for existing deployments.</summary>
 #if INTERFOLD_DBBOOT_LINKED
 internal
 #else
@@ -72,12 +55,7 @@ static class SecretsStoreKeys
     public static readonly SecretsStoreKey FirebaseClientIos = new("firebase:client:ios");
     public static readonly SecretsStoreKey FirebaseClientWeb = new("firebase:client:web");
 
-    /// <summary>
-    /// FCM v1 service-account credential (PRIVATE — authenticates the API to Google FCM).
-    /// Loaded into the secrets snapshot by <c>SecretsPreBuildLoader</c> and copied onto
-    /// <c>FcmConfiguration</c> by <c>FcmSecretsPostConfigure</c>; the <c>IFCMService</c> DI
-    /// factory reads <c>IOptions&lt;FcmConfiguration&gt;</c> — absent row → NullFCMService
-    /// fallback so deployments without Firebase silently no-op the push flow.
-    /// </summary>
+    /// <summary>FCM v1 service-account credential (PRIVATE). Absent row → NullFCMService,
+    /// so deployments without Firebase silently no-op the push flow.</summary>
     public static readonly SecretsStoreKey FcmServiceAccountJson = new("fcm:service_account_json");
 }

@@ -7,10 +7,8 @@ using Npgsql;
 
 namespace Interfold.Infrastructure.Postgres;
 
-/// <summary>
-/// Postgres-backed implementation of JWT token revocation tracking.
-/// Stores issued tokens by JTI (JWT ID) to enable per-token revocation without refresh tokens.
-/// </summary>
+/// <summary>Postgres-backed <see cref="IAuthTokenRevocationRepository"/> — one row per
+/// issued JWT keyed on JTI so tokens can be revoked without refresh tokens.</summary>
 public sealed class AuthTokenRevocationRepository : IAuthTokenRevocationRepository
 {
     private readonly IPostgresConnectionFactory _connectionFactory;

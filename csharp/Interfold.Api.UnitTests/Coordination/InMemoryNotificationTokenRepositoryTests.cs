@@ -3,14 +3,9 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Coordination;
 
-/// <summary>
-/// Contract tests for <see cref="InMemoryNotificationTokenRepository.ListTokensForFriendsOfAsync"/>
-/// — the repository method <see cref="Interfold.Infrastructure.Coordination.FirebaseFCMService"/>
-/// leans on to resolve recipients for a fronting-changed notification. The in-memory
-/// backend is what integration tests and the local dev loop run against, so its shape
-/// contract must match the Scylla implementation (groups by friend, drops friends with
-/// no tokens) or tests will diverge silently between backends.
-/// </summary>
+// Contract for InMemoryNotificationTokenRepository.ListTokensForFriendsOfAsync — the
+// InMemory backend must match Scylla (grouped by friend, friends without tokens dropped)
+// or integration tests diverge silently between backends.
 public sealed class InMemoryNotificationTokenRepositoryTests
 {
     [Test]
@@ -19,9 +14,6 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
 
-        // Alice registers a token for herself; Bob and Carol are her friends and each
-        // register their own tokens. A push to Alice's friends should hit Bob and Carol,
-        // not Alice — the whole point of the fronting-change flow is to notify others.
         await tokens.AddAsync(new("alice"), new("alice-token"), CancellationToken.None);
         await tokens.AddAsync(new("bob"), new("bob-token"), CancellationToken.None);
         await tokens.AddAsync(new("carol"), new("carol-token"), CancellationToken.None);
@@ -51,12 +43,11 @@ public sealed class InMemoryNotificationTokenRepositoryTests
         await Assert.That(result.Count).IsEqualTo(0);
     }
 
+    // Friends without tokens are omitted entirely (not returned as empty groups) so
+    // callers don't have to guard on Tokens.Count > 0.
     [Test]
     public async Task ListTokensForFriendsOf_OmitsFriendsWithoutTokens()
     {
-        // Bob is Alice's friend but never registered a push token. The grouped shape
-        // must skip him entirely (rather than returning a group with an empty Tokens
-        // list) so callers don't have to guard on group.Tokens.Count > 0.
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
 
@@ -70,9 +61,6 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     [Test]
     public async Task ListTokensForFriendsOf_MergesMultipleTokensPerFriend()
     {
-        // A single friend on multiple devices (phone + tablet, or Android + iOS) has
-        // multiple registered tokens. They collapse into one FriendNotificationTokens
-        // entry so the FCM sender can batch them under a single per-friend message.
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
         await tokens.AddAsync(new("bob"), new("bob-phone"), CancellationToken.None);
@@ -94,9 +82,6 @@ public sealed class InMemoryNotificationTokenRepositoryTests
     [Test]
     public async Task ListTokensForFriendsOf_HandlesBlankSystemIdGracefully()
     {
-        // Defensive: an empty systemId should return an empty list rather than crash.
-        // The FCMService entrypoint short-circuits on this too, but the repository
-        // shouldn't rely on the caller doing so.
         var friendships = new InMemoryFriendshipRepository();
         var tokens = new InMemoryNotificationTokenRepository(friendships);
 

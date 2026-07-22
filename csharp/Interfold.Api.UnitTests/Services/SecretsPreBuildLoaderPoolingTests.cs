@@ -3,37 +3,13 @@ using Npgsql;
 
 namespace Interfold.Api.UnitTests.Services;
 
-/// <summary>
-/// Pins the pool-isolation contract for <see cref="SecretsPreBuildLoader.WithDedicatedPoolIdentity"/>.
-/// If any of these break, the loader will silently re-enter shared-pool territory (or the
-/// bounded-pool guarantee will be lost) and one of two integration-suite regressions will come
-/// back:
-/// <list type="bullet">
-///   <item>
-///   Losing the dedicated pool identity → the loader rejoins the app's 5-slot pool
-///   (<c>SharedDbFixture</c> deliberately pins <c>Maximum Pool Size=5</c>) and parallel factory
-///   builds fail with <c>NpgsqlException: connection pool has been exhausted, either raise
-///   'Max Pool Size' (currently 5) or 'Timeout' (currently 15 seconds)</c>.
-///   </item>
-///   <item>
-///   Losing the bounded ceiling → each parallel factory build opens fresh physical connections
-///   without bound, and once we hit Postgres's <c>max_connections</c> (default 100) the suite
-///   fails with <c>Npgsql.PostgresException: 53300: sorry, too many clients already</c>.
-///   </item>
-/// </list>
-///
-/// Every test round-trips through the real <see cref="NpgsqlConnectionStringBuilder"/> so
-/// keyword aliases and casing quirks are covered by the same parser Npgsql uses at
-/// connection-open time.
-/// </summary>
+// Pins the pool-isolation contract for SecretsPreBuildLoader.WithDedicatedPoolIdentity.
+// Regressions here re-expose either the "pool exhausted" (loader joined the app's 5-slot
+// pool) or "too many clients already" (loader pool unbounded) integration-suite failures.
+// Every test round-trips through NpgsqlConnectionStringBuilder so keyword aliases and
+// casing quirks are covered by the same parser Npgsql uses at open-time.
 public sealed class SecretsPreBuildLoaderPoolingTests
 {
-    /// <summary>
-    /// Core invariant: the loader stamps its distinctive Application Name onto the output.
-    /// Npgsql keys its pool identity on the full canonical connection string, so this is what
-    /// gives the loader its own pool separate from the app's. If this ever gets dropped, the
-    /// loader silently re-joins the app pool and the "pool exhausted" regression returns.
-    /// </summary>
     [Test]
     public async Task WithDedicatedPoolIdentity_StampsLoaderApplicationName()
     {
@@ -45,11 +21,6 @@ public sealed class SecretsPreBuildLoaderPoolingTests
         await Assert.That(parsed.ApplicationName).IsEqualTo(SecretsPreBuildLoader.LoaderApplicationName);
     }
 
-    /// <summary>
-    /// Regression pin against a subtle failure mode: an operator (or upstream config) that
-    /// stamps its own Application Name would previously have been honoured, leaving the loader
-    /// sharing that consumer's pool identity. This test proves we override rather than defer.
-    /// </summary>
     [Test]
     public async Task WithDedicatedPoolIdentity_OverridesPreExistingApplicationName()
     {
@@ -62,12 +33,6 @@ public sealed class SecretsPreBuildLoaderPoolingTests
         await Assert.That(parsed.ApplicationName).IsEqualTo(SecretsPreBuildLoader.LoaderApplicationName);
     }
 
-    /// <summary>
-    /// Bounded-ceiling invariant: MaxPoolSize on the output must match the loader's constant.
-    /// This is what caps our Postgres client footprint at a known value. Without it, unbounded
-    /// pool growth under high parallelism trips Postgres's <c>max_connections</c> and the
-    /// "too many clients already" regression returns.
-    /// </summary>
     [Test]
     public async Task WithDedicatedPoolIdentity_StampsBoundedMaxPoolSize()
     {
@@ -79,12 +44,6 @@ public sealed class SecretsPreBuildLoaderPoolingTests
         await Assert.That(parsed.MaxPoolSize).IsEqualTo(SecretsPreBuildLoader.LoaderMaxPoolSize);
     }
 
-    /// <summary>
-    /// The specific shape the integration-test fixture uses (<c>SharedDbFixture</c>
-    /// pins <c>Maximum Pool Size=5</c>). Pinned here so the regression is visible
-    /// without re-running the whole integration suite: the loader must carry ITS OWN
-    /// ceiling, not the fixture's 5-slot value.
-    /// </summary>
     [Test]
     public async Task WithDedicatedPoolIdentity_OverridesFixtureMaxPoolSize()
     {
@@ -97,13 +56,8 @@ public sealed class SecretsPreBuildLoaderPoolingTests
         await Assert.That(parsed.MaxPoolSize).IsEqualTo(SecretsPreBuildLoader.LoaderMaxPoolSize);
     }
 
-    /// <summary>
-    /// Pooling must stay enabled (the Npgsql default) so subsequent factory builds reuse
-    /// physical connections instead of paying full TCP+auth handshake on every startup.
-    /// Explicitly asserted here because an earlier iteration of this loader forced
-    /// <c>Pooling=false</c>, which pushed the exhaustion problem down to Postgres itself
-    /// (<c>53300: sorry, too many clients already</c>) — that regression must not return.
-    /// </summary>
+    // An earlier iteration forced Pooling=false which pushed the exhaustion problem
+    // down to Postgres's max_connections; must stay on.
     [Test]
     public async Task WithDedicatedPoolIdentity_KeepsPoolingEnabled()
     {
@@ -116,11 +70,6 @@ public sealed class SecretsPreBuildLoaderPoolingTests
         await Assert.That(parsed.Pooling).IsTrue();
     }
 
-    /// <summary>
-    /// Round-trip invariant: setting our loader keywords must not clobber any other keyword
-    /// the operator supplied (credentials, TLS mode, timeouts, etc.). If this breaks, a
-    /// production deployment could silently lose critical settings on startup — no thanks.
-    /// </summary>
     [Test]
     public async Task WithDedicatedPoolIdentity_PreservesAllOtherKeywords()
     {
@@ -147,11 +96,6 @@ public sealed class SecretsPreBuildLoaderPoolingTests
         }
     }
 
-    /// <summary>
-    /// Idempotence: applying the transform twice must produce a string that still parses
-    /// with the loader's identity + ceiling. Guards against a future refactor that
-    /// accidentally double-appends keywords or produces a string Npgsql refuses to parse.
-    /// </summary>
     [Test]
     public async Task WithDedicatedPoolIdentity_IsIdempotent()
     {

@@ -3,54 +3,27 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Domain.Abstractions;
 
-/// <summary>
-/// In-process (and eventually cluster-wide) publish/subscribe bus for domain events.
-/// <para>
-/// Mirrors <c>Phoenix.PubSub</c> used in the legacy Elixir runtime for cache
-/// invalidation, fronting flush triggers, and other cross-component signals.
-/// </para>
-/// </summary>
+/// <summary>In-process (eventually cluster-wide) pub/sub for domain events (mirrors
+/// legacy Phoenix.PubSub).</summary>
 public interface IClusterEventBus
 {
-    /// <summary>
-    /// Publishes <paramref name="evt"/> to all current subscribers of <typeparamref name="TEvent"/>.
-    /// Subscribers that scoped themselves to a specific <c>targetSystemId</c> only receive the event
-    /// when <typeparamref name="TEvent"/> implements <see cref="ITargetedClusterEvent"/> and the
-    /// event's <see cref="ITargetedClusterEvent.TargetSystemId"/> matches.
-    /// </summary>
+    /// <summary>Publishes <paramref name="evt"/> to every subscriber of
+    /// <typeparamref name="TEvent"/>. Subscribers scoped to a
+    /// <c>targetSystemId</c> only receive events when <typeparamref name="TEvent"/> implements
+    /// <see cref="ITargetedClusterEvent"/> and the event's target matches.</summary>
     ValueTask PublishAsync<TEvent>(TEvent evt, CancellationToken ct = default)
         where TEvent : class;
 
-    /// <summary>
-    /// Returns an async stream that yields every event of <typeparamref name="TEvent"/>
-    /// published after the subscription is established (broadcast semantics).
-    /// The stream completes when <paramref name="ct"/> is cancelled.
-    /// </summary>
+    /// <summary>Broadcast subscribe — yields every event of <typeparamref name="TEvent"/>.
+    /// Stream completes on <paramref name="ct"/> cancellation.</summary>
     IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(CancellationToken ct = default)
         where TEvent : class
         => SubscribeAsync<TEvent>(targetSystemId: null, ct);
 
-    /// <summary>
-    /// Returns an async stream that yields events of <typeparamref name="TEvent"/> scoped to a
-    /// specific <paramref name="targetSystemId"/>.
-    /// <para>
-    /// When <paramref name="targetSystemId"/> is non-null and <typeparamref name="TEvent"/>
-    /// implements <see cref="ITargetedClusterEvent"/>, the bus only delivers events whose
-    /// <see cref="ITargetedClusterEvent.TargetSystemId"/> equals <paramref name="targetSystemId"/>.
-    /// When <paramref name="targetSystemId"/> is null, every event of <typeparamref name="TEvent"/>
-    /// is delivered (broadcast semantics, identical to the parameterless overload).
-    /// </para>
-    /// <para>
-    /// Events whose type does not implement <see cref="ITargetedClusterEvent"/> bypass filtering
-    /// and are delivered to all subscribers regardless of their scoping value.
-    /// </para>
-    /// <para>
-    /// Subscribe target and publish target are both <see cref="ScopedSystemId"/> so the
-    /// equality filter compares two wire-canonical strings by construction — no risk of a
-    /// raw-vs-scoped mismatch silently swallowing every delivery.
-    /// </para>
-    /// The stream completes when <paramref name="ct"/> is cancelled.
-    /// </summary>
+    /// <summary>Target-scoped subscribe. Non-null <paramref name="targetSystemId"/> filters
+    /// events implementing <see cref="ITargetedClusterEvent"/> by equality on TargetSystemId;
+    /// null delivers everything. Non-targeted event types bypass the filter and are delivered
+    /// to every subscriber.</summary>
     IAsyncEnumerable<TEvent> SubscribeAsync<TEvent>(
         ScopedSystemId? targetSystemId,
         CancellationToken ct = default)

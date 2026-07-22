@@ -20,20 +20,12 @@ public readonly record struct AvatarUrl
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(AvatarUrl)raw</c> instead of
-    /// <c>new AvatarUrl(raw)</c>. See <see cref="SystemId"/> for the wider rationale.
-    /// </summary>
     public static explicit operator AvatarUrl(string value) => new(value);
 
-    /// <summary>
-    /// Implicit widen to the raw <see cref="string"/> for wire / DB boundary use.
-    /// </summary>
     public static implicit operator string(AvatarUrl value) => value.Value;
 
     public override string ToString() => Value;
 
-    /// <summary>Null-preserving wrap for DB/state reads.</summary>
     public static AvatarUrl? FromNullable(string? value) => value is null ? null : new AvatarUrl(value);
 }
 

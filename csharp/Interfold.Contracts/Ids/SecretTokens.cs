@@ -2,19 +2,9 @@ using System.Text.Json.Serialization;
 
 namespace Interfold.Contracts.Ids;
 
-/// <summary>
-/// Shared redaction helper for the secret/token wrapper structs below. <c>ToString()</c> on
-/// these types intentionally does NOT return the raw value — accidental logging or string
-/// interpolation yields a redacted form (first 4 chars + "…"). Use <c>Value</c> explicitly
-/// at serialization/DB/HTTP boundaries.
-///
-/// <para>
-/// The JSON converters for these structs use <see cref="StringBackedJsonConverter{T}"/>
-/// (same as the non-secret wrappers) — the wire body IS the raw string in both families,
-/// so a single shared converter shape is enough; the "secret" behaviour lives on each
-/// struct's own <c>ToString()</c> override below.
-/// </para>
-/// </summary>
+// Shared redaction helper for the secret wrappers below. ToString() returns the redacted
+// "abcd…" form so accidental interpolation cannot leak the raw value; use .Value at
+// serialization / DB / HTTP boundaries.
 internal static class SecretRedaction
 {
     public static string Redact(string value)
@@ -36,23 +26,11 @@ public readonly record struct LinkToken
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(LinkToken)raw</c> instead of
-    /// <c>new LinkToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
-    /// operator xml-doc for the redaction-preservation rationale. Prefer
-    /// <see cref="From(string?)"/> when the input may be null/blank.
-    /// </summary>
     public static explicit operator LinkToken(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 
-    /// <summary>
-    /// Wrap a nullable raw string, returning <c>null</c> for null / empty / whitespace so the
-    /// caller's null check runs on the typed <see cref="LinkToken"/>? rather than on a bare
-    /// <c>string?</c> local. Keeps the raw token from lingering as a local across a guard/
-    /// wrap boundary where an incidental log statement could leak it. Total function — no
-    /// throw path.
-    /// </summary>
+    /// <summary>Total function: null/empty/whitespace input → null wrapper.</summary>
     public static LinkToken? From(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : new LinkToken(value);
 }
@@ -79,11 +57,6 @@ public readonly record struct PushToken
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(PushToken)raw</c> instead of
-    /// <c>new PushToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
-    /// operator xml-doc for the redaction-preservation rationale.
-    /// </summary>
     public static explicit operator PushToken(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
@@ -110,11 +83,6 @@ public readonly record struct ImportToken
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(ImportToken)raw</c> instead of
-    /// <c>new ImportToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
-    /// operator xml-doc for the redaction-preservation rationale.
-    /// </summary>
     public static explicit operator ImportToken(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
@@ -141,11 +109,6 @@ public readonly record struct RecoveryCode
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(RecoveryCode)raw</c> instead of
-    /// <c>new RecoveryCode(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
-    /// operator xml-doc for the redaction-preservation rationale.
-    /// </summary>
     public static explicit operator RecoveryCode(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
@@ -171,31 +134,15 @@ public readonly record struct Jti
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(Jti)raw</c> instead of <c>new Jti(raw)</c>.
-    /// No implicit widen by design — see <see cref="DiscordId"/>'s operator xml-doc for the
-    /// redaction-preservation rationale. Prefer <see cref="From(string?)"/> when the input
-    /// may be null/blank, and <see cref="NewJti"/> to mint a fresh id in one call.
-    /// </summary>
     public static explicit operator Jti(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);
 
-    /// <summary>
-    /// Wrap a nullable raw string, returning <c>null</c> for null / empty / whitespace so the
-    /// caller's null check runs on the typed <see cref="Jti"/>? rather than on a bare
-    /// <c>string?</c> local. Keeps the raw JTI from lingering across a guard/wrap boundary
-    /// where an incidental log statement could leak it. Total function — no throw path.
-    /// </summary>
+    /// <summary>Total function: null/empty/whitespace input → null wrapper.</summary>
     public static Jti? From(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : new Jti(value);
 
-    /// <summary>
-    /// Mint a fresh JWT ID as a wrapped <see cref="Jti"/> in one call so JWT-issue sites
-    /// don't hold the raw <c>Guid.NewGuid().ToString("N")</c> as a bare local across
-    /// downstream sites that would each rewrap. Format is 32-char lowercase hex, no dashes.
-    /// Total function — never returns <see langword="default"/>.
-    /// </summary>
+    /// <summary>Mint a fresh JWT ID (32-char lowercase hex, no dashes).</summary>
     public static Jti NewJti() => new(Guid.NewGuid().ToString("N"));
 }
 
@@ -220,11 +167,6 @@ public readonly record struct SocketToken
         Value = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    /// <summary>
-    /// Explicit narrow so call sites can write <c>(SocketToken)raw</c> instead of
-    /// <c>new SocketToken(raw)</c>. No implicit widen by design — see <see cref="DiscordId"/>'s
-    /// operator xml-doc for the redaction-preservation rationale.
-    /// </summary>
     public static explicit operator SocketToken(string value) => new(value);
 
     public override string ToString() => SecretRedaction.Redact(Value);

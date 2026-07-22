@@ -1,11 +1,8 @@
 namespace Interfold.Contracts.Configuration;
 
-/// <summary>
-/// The Scylla container layout the AppHost graph builds, carried by the
-/// <c>Parameters:scylla-topology</c> parameter. Deliberately distinct from
-/// <c>DatabaseMode</c> despite the shared "multi" spelling: <c>DatabaseMode</c> is the
-/// operator-facing single/multi/cassandra choice, this is the derived Scylla-only layout.
-/// </summary>
+/// <summary>Scylla container layout for the AppHost graph
+/// (<c>Parameters:scylla-topology</c>). Distinct from <c>DatabaseMode</c> — that's the
+/// operator-facing single/multi/cassandra choice; this is the derived Scylla-only layout.</summary>
 public enum ScyllaTopology
 {
     Single,
@@ -32,10 +29,7 @@ public static class ScyllaTopologyExtensions
             : ScyllaTopology.Single;
 }
 
-/// <summary>
-/// The <c>"true"</c>/<c>"false"</c> wire spellings used by Aspire parameter toggles,
-/// replacing inline comparisons scattered across the AppHost and PublishPhase.
-/// </summary>
+/// <summary>Wire spellings for Aspire boolean parameter toggles.</summary>
 public static class BoolWire
 {
     public const string TrueValue = "true";
@@ -43,8 +37,7 @@ public static class BoolWire
 
     public static string ToWireValue(bool value) => value ? TrueValue : FalseValue;
 
-    /// <summary>Null/empty resolves to <paramref name="fallback"/>; anything except a
-    /// case-insensitive <c>"false"</c> counts as on (the historical toggle semantics).</summary>
+    /// <summary>Historical toggle semantics: null/empty → fallback, else "false" (case-insensitive) → off, everything else → on.</summary>
     public static bool ParseToggle(string? raw, bool fallback)
         => string.IsNullOrEmpty(raw)
             ? fallback

@@ -46,7 +46,6 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         return OkOrNotFound(model, "System not found.", ErrorCodes.SystemNotFound);
     }
 
-    //TODO: To ensure route works as expected
     [HttpGet("alters")]
     [SystemMustExist]
     public async Task<Response<IReadOnlyList<BareAlter>>> ListAlters([FromRoute] SystemId systemId, CancellationToken ct)
@@ -69,7 +68,6 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         return OkOrNotFound(alter, "Alter not found.", ErrorCodes.AlterNotFound);
     }
 
-    //TODO: To ensure route works as expected
     [HttpGet("tags")]
     [SystemMustExist]
     public async Task<Response<IReadOnlyList<TagPublicReadModel>>> ListTags([FromRoute] SystemId systemId, CancellationToken ct)
@@ -86,7 +84,6 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         return OkOrNotFound(tag, "Tag not found.", ErrorCodes.TagNotFound);
     }
 
-    //TODO: To ensure route works as expected
     [HttpGet("fronting")]
     [SystemMustExist]
     public async Task<Response<IReadOnlyList<FrontActiveReadModel>>> ListFronting([FromRoute] SystemId systemId, CancellationToken ct)

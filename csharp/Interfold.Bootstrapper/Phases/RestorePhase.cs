@@ -5,41 +5,16 @@ using Interfold.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>
-/// One-shot database restore from backup archives on disk. The inverse of
-/// <see cref="BackupPhase"/> in argv shape and stack coordination. Postgres restores in-place
-/// via <c>pg_restore --clean --if-exists</c> against the running compose-exec endpoint;
-/// Scylla restores by stopping the API/web tier, stopping the seed container, streaming the
-/// tar.gz archive back into <c>/var/lib/scylla</c> via <c>docker cp -</c>, and starting the
-/// stack. Destructive: gated by an interactive confirmation prompt (or
-/// <see cref="BootstrapOptions.RestoreForce"/> in non-interactive mode).
-/// </summary>
-/// <remarks>
-/// <para>
-/// The postgres path uses <c>--clean --if-exists</c> so a partial-restore that hit an
-/// error mid-way through can be re-run cleanly against the same live database — the
-/// <c>DROP ... IF EXISTS</c> statements pg_restore emits during clean mode make the
-/// operation idempotent.
-/// </para>
-/// <para>
-/// The scylla path is heavier because the SSTable layout is filesystem-backed rather
-/// than transactional: any running scylla process holds file locks and caches that
-/// would poison a hot swap of the data volume. We stop the process, replace the
-/// contents of <c>/var/lib/scylla</c> (via a wipe + `docker cp` re-hydrate that
-/// mirrors the backup path's `docker cp` extract), and restart. The API and web tiers
-/// are stopped first so hydration queries don't race the scylla stop.
-/// </para>
-/// </remarks>
+/// <summary>Inverse of <see cref="BackupPhase"/>. Postgres restores in place via
+/// <c>pg_restore --clean --if-exists</c>. Scylla stops the API/web tier, stops the seed,
+/// wipes and re-hydrates <c>/var/lib/scylla</c> via <c>docker cp -</c>, and restarts.
+/// Destructive; gated by interactive confirmation or
+/// <see cref="BootstrapOptions.RestoreForce"/>.</summary>
 internal static class RestorePhase
 {
     private static readonly string Phase = BootstrapCommand.Restore.ToPhaseLogName();
 
-    /// <summary>
-    /// Compose services stopped BEFORE the scylla restore so client-side hydration
-    /// queries don't race the seed shutdown. Restarted at the end of the scylla path.
-    /// Kept as an internal readonly array so tests / SystemdInstallPhase can assert the
-    /// canonical set without hard-coding it.
-    /// </summary>
+    /// <summary>Client services stopped before the scylla restore and restarted after.</summary>
     internal static readonly string[] ScyllaRestoreClientServices = [ComposeServices.InterfoldApi, ComposeServices.OctoconWeb];
 
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
@@ -64,8 +39,8 @@ internal static class RestorePhase
                 $"(with archives under {backupRoot}/).");
         }
 
-        // Destructive-op confirmation. Non-interactive callers MUST pass --force so a
-        // rogue systemd unit or CI pipeline can't accidentally wipe a data volume.
+        // Non-interactive callers MUST pass --force so a stray systemd unit or CI job
+        // can't wipe a data volume.
         if (!options.RestoreForce)
         {
             if (options.NonInteractive || Console.IsInputRedirected)
@@ -104,13 +79,8 @@ internal static class RestorePhase
         return 0;
     }
 
-    /// <summary>
-    /// Applies the CLI archive selectors + <c>--restore-latest</c> to produce the pair
-    /// of paths that will actually be restored. Explicit paths always win over
-    /// <c>--restore-latest</c>; the resolver only fills in a component that wasn't
-    /// explicitly named. Returns <c>(null, null)</c> if neither component was chosen —
-    /// the caller surfaces that as a phase failure.
-    /// </summary>
+    /// <summary>Explicit paths beat <c>--restore-latest</c>; latest only fills components
+    /// left unnamed. Returns (null, null) when neither component was chosen.</summary>
     internal static (string? PostgresArchive, string? ScyllaArchive) ResolveArchives(
         BootstrapOptions options, string backupRoot, PhaseLogger logger)
     {
@@ -142,14 +112,8 @@ internal static class RestorePhase
         return (postgres, scylla);
     }
 
-    /// <summary>
-    /// Builds the <c>docker compose exec</c> argv for <c>pg_restore</c>. Uses
-    /// <c>--clean --if-exists</c> so a re-run against the same live database is
-    /// idempotent (pg_restore emits <c>DROP ... IF EXISTS</c> before the recreate).
-    /// The <c>--single-transaction</c> flag ensures a partial failure leaves the DB
-    /// in the pre-restore state instead of a half-restored soup. Internal for
-    /// unit-test coverage of the argv shape.
-    /// </summary>
+    /// <summary>pg_restore argv. <c>--clean --if-exists</c> keeps re-runs idempotent;
+    /// <c>--single-transaction</c> keeps a partial failure from leaving a half-restored DB.</summary>
     internal static IReadOnlyList<string> BuildPgRestoreArgs(
         string composeFile, string adminUser, string database)
         => DockerCompose.BuildPostgresExecArgs(
@@ -158,13 +122,8 @@ internal static class RestorePhase
             "--single-transaction",
             "--no-owner");
 
-    /// <summary>
-    /// Builds the top-level <c>docker cp - &lt;id&gt;:&lt;path&gt;</c> argv used to
-    /// stream a host-side tar payload back into a running container. Mirror of
-    /// <see cref="BackupPhase.BuildContainerCpArgs"/> — the source (<c>-</c>) means
-    /// "read a tar from stdin", the destination is the container-side path to write
-    /// into. Internal for unit-test coverage.
-    /// </summary>
+    /// <summary><c>docker cp - &lt;id&gt;:&lt;path&gt;</c> argv: <c>-</c> reads a tar from
+    /// stdin into the container. Mirror of <see cref="BackupPhase.BuildContainerCpArgs"/>.</summary>
     internal static IReadOnlyList<string> BuildContainerCpWriteArgs(string containerId, string dataPath)
         => DockerCompose.BuildContainerCpIntoContainer(containerId, dataPath);
 
@@ -174,8 +133,7 @@ internal static class RestorePhase
     {
         var (adminUser, adminPassword) = PhaseArtifactLoader.RequireAdminPassword(secrets, logger, Phase);
 
-        // Make sure the postgres container is up before we try to exec into it — an
-        // update-images rollback path may have left the whole stack stopped. Idempotent.
+        // Idempotent — update-images rollback may have left the stack stopped.
         await DockerCompose.UpCheckedAsync(composeFile, [ComposeServices.Postgres], logger, ct).ConfigureAwait(false);
         await WaitForPostgresAsync(composeFile, logger, ct).ConfigureAwait(false);
 
@@ -196,10 +154,8 @@ internal static class RestorePhase
     {
         var (service, dataPath) = BackupPhase.ResolveScyllaSeed(config);
 
-        // Stop clients first so a hydration query doesn't race the scylla stop and hit
-        // a half-shutdown coordinator. Best-effort — a service that isn't in the compose
-        // graph (e.g. cassandra-mode deployments don't ship octocon-web when web=false)
-        // exits non-zero, which we downgrade to a warning.
+        // Stop clients so hydration queries don't race the scylla stop. Best-effort:
+        // missing services (cassandra-mode without web) get a warning, not a failure.
         foreach (var client in ScyllaRestoreClientServices)
         {
             var stop = await DockerCompose.StopAsync(composeFile, [client], ct: ct).ConfigureAwait(false);
@@ -209,22 +165,18 @@ internal static class RestorePhase
             }
         }
 
-        // Stop the seed so the file locks release before we overwrite the data volume.
+        // Release file locks before overwriting the data volume.
         logger.Info($"    scylla: stopping {service}");
         await PhaseRunner.RunOrPhaseFailAsync(
             () => DockerCompose.StopAsync(composeFile, [service], ct: ct),
             logger, Phase, PhaseFailureReasons.StopScylla,
             $"docker compose stop {service}", ct).ConfigureAwait(false);
 
-        // We need a live container to run `docker cp` against. Compose stop leaves the
-        // container in the stopped state (docker cp is happy with that), but if the
-        // container had never been created (fresh box) we bring it up first, then stop
-        // it, so the cp target exists.
+        // docker cp needs a container (stopped is fine); fresh boxes need one created first.
         var containerId = await DockerCompose.ResolveContainerIdAsync(composeFile, service, includeStopped: true, ct: ct).ConfigureAwait(false);
         if (string.IsNullOrEmpty(containerId))
         {
-            // Create the container without starting it. `compose up --no-start` does exactly
-            // that on all compose v2 versions we care about.
+            // `compose up --no-start` creates without running on every compose v2 version.
             await PhaseRunner.RunOrPhaseFailAsync(
                 () => ProcessRunner.RunAsync("docker",
                     ["compose", "-f", composeFile, "up", "--no-start", service], ct: ct),
@@ -239,17 +191,10 @@ internal static class RestorePhase
                 $"Failed to resolve container id for compose service '{service}' even after create.");
         }
 
-        // Wipe the destination path inside the container before streaming the archive
-        // in. `docker cp -` extracts the tar over the top of the existing directory,
-        // which would leave any pre-existing files (SSTables from the failed update
-        // attempt, etc.) sitting alongside the restored ones and confuse Scylla's
-        // startup. `docker exec` needs a running container, but the container is
-        // stopped right now — the wipe is done via a throwaway short-lived container
-        // that mounts the same data volume via `--volumes-from`. Simpler alternative:
-        // use `docker cp` to also delete a marker file first — not viable, cp doesn't
-        // delete. So we run a one-shot `sh -c 'rm -rf .../ *'` in a helper alpine
-        // container mounted with `--volumes-from <id>`. That's the portable way to
-        // mutate a stopped container's volume without knowing its host mountpoint.
+        // `docker cp -` overlays; leftover SSTables from a failed prior run would confuse
+        // startup. `docker exec` needs a running container, so we wipe via a short-lived
+        // alpine helper mounted with `--volumes-from` (the portable way to mutate a stopped
+        // container's volume without knowing the host mountpoint).
         logger.Info($"    scylla: wiping {dataPath} inside container");
         var wipe = await ProcessRunner.RunAsync("docker",
             ["run", "--rm", "--volumes-from", containerId, "alpine:3.20", "sh", "-c",
@@ -257,8 +202,7 @@ internal static class RestorePhase
             ct: ct).ConfigureAwait(false);
         if (wipe.ExitCode != 0)
         {
-            // Non-fatal on some rootless-docker setups where the volume unmounts oddly;
-            // log and continue — docker cp will overlay the archive contents in any case.
+            // Some rootless-docker setups unmount oddly; docker cp still overlays.
             logger.Warn($"scylla wipe helper exited {wipe.ExitCode}: {wipe.StdErr.Trim()}");
         }
 
@@ -271,16 +215,14 @@ internal static class RestorePhase
             decompress: true,
             ct: ct).ConfigureAwait(false);
 
-        // Bring the seed back. It re-hydrates against the restored SSTables during
-        // its normal startup path; we don't have to reload anything explicitly.
+        // Startup re-hydrates from the restored SSTables — no explicit reload needed.
         logger.Info($"    scylla: starting {service}");
         await PhaseRunner.RunOrPhaseFailAsync(
             () => DockerCompose.StartAsync(composeFile, [service], ct: ct),
             logger, Phase, PhaseFailureReasons.StartScylla,
             $"docker compose start {service}", ct).ConfigureAwait(false);
 
-        // Restart clients. Order matters: API first (so the web tier's health probe
-        // hits a live upstream), then web.
+        // Order matters: API first so the web tier's health probe finds a live upstream.
         foreach (var client in ScyllaRestoreClientServices)
         {
             var start = await DockerCompose.StartAsync(composeFile, [client], ct: ct).ConfigureAwait(false);
@@ -296,10 +238,8 @@ internal static class RestorePhase
     private static Task WaitForPostgresAsync(
         string composeFile, PhaseLogger logger, CancellationToken ct)
     {
-        // Restore already runs against a live, warmed-up cluster (we've just paused the
-        // client tier around a hot swap), so the first successful pg_isready is a
-        // sufficient handoff signal — the 3-in-a-row check DatabaseInitPhase runs would
-        // pay ~4s per invocation for no meaningful safety gain here.
+        // Cluster is already warm; the DatabaseInitPhase 3-in-a-row check would cost ~4s
+        // for no real safety gain, so the first pg_isready is the handoff signal.
         return Util.PostgresReadinessProbe.WaitAsync(
             composeFile,
             ComposeServices.Postgres,

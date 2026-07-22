@@ -72,7 +72,6 @@ public sealed class AuthController : OAuthControllerBase
     public Task<IActionResult> CallbackPost([FromRoute] string provider)
         => Callback(provider);
 
-    //TODO: To ensure route works as expected
     /// <summary>
     /// Revokes the current authenticated token (logout).
     /// Requires authentication. The JTI claim from the current token is extracted and marked as revoked.

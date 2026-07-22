@@ -41,14 +41,8 @@ public static async Task HandleUserSocketAsync(HttpContext context)
         return;
     }
 
-    // Wrap the raw query-string value in SocketToken at the boundary. Every hop from here
-    // through the socket-join and endpoint-proxy paths carries the typed wrapper so an
-    // accidental $"{token}" interpolation (structured log, debug string) goes through
-    // SocketToken.ToString() and gets redacted instead of leaking the JWT. The wrapper is
-    // unwrapped via .Value in exactly three sites: the two IsNullOrWhiteSpace guards below
-    // (guards, not logs — no leak risk), the framework's JwtSecurityTokenHandler string-only
-    // API in IsSocketJoinTokenAuthorizedAsync, and the final Authorization: Bearer header
-    // write in HandleEndpointProxyAsync which needs the raw value on the wire.
+    // Wrap at the boundary so accidental $"{token}" interpolations go through SocketToken.ToString()
+    // and get redacted. .Value is unwrapped only where the raw JWT is unavoidable.
     SocketToken token = new(context.Request.Query[SocketQueryKeys.Token].ToString());
     logger.LogInformation("Token from query string length: {TokenLength}", token.Value.Length);
 
@@ -369,7 +363,6 @@ public static async Task HandleUserSocketAsync(HttpContext context)
             continue;
         }
 
-        //TODO: Add phx_leave
         await SendPhoenixReplyAsync(
             socket,
             topic,
@@ -531,30 +524,10 @@ static async Task<SocketEndpointProxyResponse> HandleEndpointProxyAsync(
 static string ToJsonString<T>(T value)
     => JsonSerializer.Serialize(value, SocketJson.Options);
 
-/// <summary>
-/// Picks a loopback-safe base URL from Kestrel's bound addresses for the socket
-/// endpoint relay's self-call. Prefers <c>https://</c> over <c>http://</c> so the
-/// self-call doesn't get 308-redirected by <c>UseHttpsRedirection</c> — we'd land on
-/// the HTTPS listener either way, so dial it directly. The leaf PFX served by Kestrel
-/// in self-host carries SANs for the operator-facing hostname (e.g.
-/// <c>api.example.com</c>), not the loopback literal, and is signed by a private CA
-/// not in the container's system trust store, so HTTPS loopback would fail TLS
-/// validation under the default <see cref="HttpClient"/>; the call site routes
-/// through <see cref="LoopbackHttpClient.Name"/>, whose permissive TLS validator is
-/// safe because the dial target is always loopback and therefore can't be MITM'd from
-/// outside the process.
-///
-/// <para>
-/// Wildcard hosts (<c>0.0.0.0</c>, <c>[::]</c>, <c>+</c>, <c>*</c>) are rewritten to
-/// <c>127.0.0.1</c> so the URL dials the local listener instead of trying to resolve
-/// a wildcard literal. Falls back to <c>http://localhost</c> when no bound addresses
-/// are reported — that branch is unreachable in production (Kestrel always reports
-/// its actual bindings) but keeps the proxy functional under
-/// <c>Microsoft.AspNetCore.TestHost.TestServer</c>, whose no-op
-/// <see cref="IServerAddressesFeature"/> exposes an empty address list because
-/// requests are routed in-memory rather than over a real socket.
-/// </para>
-/// </summary>
+/// <summary>Loopback-safe base URL for the socket relay's self-call. Prefers https to skip
+/// UseHttpsRedirection; wildcard hosts (0.0.0.0/[::]/+/*) → 127.0.0.1; empty addresses →
+/// http://localhost so TestServer stays functional. HTTPS TLS validation is handled by
+/// <see cref="LoopbackHttpClient"/>'s permissive validator (safe: loopback-only target).</summary>
 internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
 {
     const string testServerFallback = "http://localhost";
@@ -572,35 +545,10 @@ internal static string ResolveLoopbackBaseUri(ICollection<string>? addresses)
         .Replace("://*",       "://127.0.0.1", StringComparison.Ordinal);
 }
 
-/// <summary>
-/// Region-prefix-tolerant equality between the JWT <c>sub</c> claim and the socket topic id.
-/// <para>
-/// JWTs that land on an HTTP controller must carry a scoped <c>{region}:{rawId}</c> sub
-/// (enforced by <c>InterfoldPrincipalMiddleware</c>). Socket topics on the wire stay in
-/// raw <c>system:{rawId}</c> form. This helper is the third comparison site — after the
-/// middleware and after <c>InProcessEventBus.PublishAsync</c>'s publisher-side filter —
-/// that has to agree on what "same principal" means: without it, a scoped-sub JWT joining
-/// a raw-topic channel would 401 at the socket layer even though the middleware and pump
-/// would both accept it.
-/// </para>
-/// <para>
-/// The <c>ScopedSystemId?</c> first parameter can only be produced by
-/// <see cref="ScopedSystemId.TryParseScoped"/>, which is the identical parse call the
-/// middleware performs on the HTTP path — the "you must parse the sub first" rejection
-/// matrix is enforced by construction rather than by convention.
-/// </para>
-/// <para>
-/// Sub-side normalisation reads <see cref="ScopedSystemId.RawId"/> directly.
-/// Topic-side normalisation keeps <see cref="ScopedSystemId.StripRegionPrefix(string)"/>
-/// because <c>SystemTopic.TryParse</c> wraps whatever the client put after
-/// <c>system:</c> into a bare <c>SystemId</c>, which can still arrive raw <b>or</b>
-/// scoped depending on the client.
-/// </para>
-/// <para>
-/// Marked <c>internal</c> so unit tests can drive the scoped-sub × raw/scoped-topic
-/// matrix directly rather than spinning up a full <c>WebApplicationFactory</c>.
-/// </para>
-/// </summary>
+/// <summary>Region-prefix-tolerant equality between the scoped JWT sub and a possibly-raw
+/// socket topic id. Third of three sites (after middleware and <c>InProcessEventBus</c>)
+/// that must agree on "same principal"; scoped-sub type argument forces callers through the
+/// same TryParseScoped gate the middleware uses.</summary>
 internal static bool IsTokenSubjectAuthorizedForTopic(
     ScopedSystemId? tokenSubject,
     SystemId? requestedSystemId)
@@ -618,10 +566,8 @@ internal static bool IsTokenSubjectAuthorizedForTopic(
         StringComparison.Ordinal);
 }
 
-// The return tuple carries the parsed ScopedSystemId? so the caller in HandleAsync can
-// feed it into SocketPushContext.JoinedScopedSystemId without re-parsing the JWT. The
-// parse already happens at the TryParseScoped gate below, so returning it is free —
-// the scoped sub is the single source of truth end-to-end.
+// Returns the parsed ScopedSystemId so HandleAsync can populate SocketPushContext without
+// re-parsing the JWT.
 static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? TokenSubject)> IsSocketJoinTokenAuthorizedAsync(
     HttpContext context,
     SocketToken token,
@@ -642,11 +588,8 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
 
     logger.LogInformation("Validating token. RequestedSystemId: {SystemId}", requestedSystemId);
 
-    // The three .Value unwraps below are the JWT framework survival points:
-    // JwtSecurityTokenHandler.CanReadToken, ValidateToken, and the SignatureValidator
-    // callback are all typed as `string` by Microsoft.IdentityModel and can't take the
-    // wrapper. Everything else in this method — logging, comparisons, error return —
-    // uses the redacted-by-default typed value.
+    // .Value unwraps are the JWT framework survival points; everything else uses the
+    // redacted-by-default wrapper.
     var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
     if (!handler.CanReadToken(token.Value))
     {
@@ -667,9 +610,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
         ClockSkew = TimeSpan.FromMinutes(1),
         ValidateIssuerSigningKey = false,
         RequireSignedTokens = true,
-        // Framework hands the raw string back to us via this callback; forward straight to
-        // the ES256 verifier. Renamed from `socketToken` so this local can't be confused
-        // with the outer typed `token` — the framework's string leg is deliberately narrow.
+        // Framework hands the raw string via this callback; forward to the ES256 verifier.
         SignatureValidator = (frameworkRawToken, validationParameters) =>
             ValidateJwtTokenSignatureForSocket(frameworkRawToken, validationParameters, authConfig),
         NameClaimType = JwtClaimNames.Sub
@@ -684,12 +625,8 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
         logger.LogInformation("Token validated. TokenSystemId: {TokenSub}, RequestedSystemId: {RequestedSub}",
             tokenSub, requestedSystemId);
 
-        // Mirror InterfoldPrincipalMiddleware.ResolvePrincipalId: the HTTP path 401s on
-        // any JWT whose sub isn't in scoped {region}:{rawId} shape, and the socket path
-        // applies the identical parse so a legacy or hand-crafted unscoped-sub token
-        // can't authorise a socket join it would fail on any subsequent HTTP call.
-        // TryParseScoped rejects null, blank, no-colon, bare-colon, and unknown-region-
-        // prefix inputs — the exact rejection matrix the middleware uses.
+        // Same parse rejection matrix as InterfoldPrincipalMiddleware.ResolvePrincipalId
+        // so an unscoped-sub token can't authorise a socket join it would fail on HTTP.
         if (!ScopedSystemId.TryParseScoped(tokenSub, out var scopedSub))
         {
             logger.LogWarning("Token subject (sub) claim is missing, unscoped, or has an unknown region prefix");
@@ -702,9 +639,7 @@ static async Task<(bool IsAuthorized, ErrorCode? FailureReason, ScopedSystemId? 
             return (false, ErrorCodes.SocketReasons.UnauthorizedTopic, null);
         }
 
-            // Jti.From wraps the possibly-null JWT claim so the null-check runs on the
-            // typed Jti? and every log site routes through Jti.ToString (which redacts)
-            // rather than interpolating a bare string.
+            // Wrap so log sites route through Jti.ToString redaction.
             var jti = Jti.From(principal.FindFirstValue(JwtClaimNames.Jti));
             if (jti is { } typedJti)
             {

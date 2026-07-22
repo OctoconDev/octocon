@@ -4,34 +4,11 @@ using Interfold.Domain.Abstractions;
 
 namespace Interfold.Domain.Fronting;
 
-/// <summary>
-/// Intent-named publish helpers on <see cref="IClusterEventBus"/> for fronting events.
-/// Extensions so command-handler bodies read as
-/// <c>_eventBus.PublishStateChangedAndStartedAsync(systemId, frontId, ct)</c> — the bus,
-/// the noun the caller cares about, sits at the front instead of being buried as the
-/// first argument to a static method.
-///
-/// <para>
-/// Every method here bundles a related pair (or triple) of events under a single
-/// intent-shaped name so the individual call site can't reorder or drop one under
-/// refactor pressure. <c>PublishStateChangedAndStartedAsync</c>, for example, always
-/// emits <see cref="FrontingStateChangedEvent"/> first (so subscribers can invalidate
-/// caches) then <see cref="FrontingStartedEvent"/> (so subscribers can react to the
-/// specific transition).
-/// </para>
-///
-/// <para>
-/// Publish-only, side-effect-only. Nothing here touches idempotency, DB, or command
-/// orchestration; those live in <see cref="FrontingCommandFlow"/>.
-/// </para>
-/// </summary>
+// Intent-named publish helpers on IClusterEventBus for fronting events. Each method
+// emits FrontingStateChangedEvent first (cache invalidation), then the transition event
+// (specific reaction). Publish-only — orchestration lives in FrontingCommandFlow.
 internal static class FrontingEventBusExtensions
 {
-    /// <summary>
-    /// Publishes just <see cref="FrontingStateChangedEvent"/> — used by handlers that
-    /// signal "something about the fronting state moved, subscribers should re-read".
-    /// The "…And…" variants below all layer additional transition-specific events on top.
-    /// </summary>
     public static ValueTask PublishStateChangedAsync(
         this IClusterEventBus eventBus,
         ScopedSystemId systemId,
@@ -97,11 +74,8 @@ internal static class FrontingEventBusExtensions
         await eventBus.PublishAsync(new FrontingPrimaryChangedEvent(systemId, alterId), cancellationToken);
     }
 
-    /// <summary>
-    /// Publishes <see cref="FrontDeletedEvent"/>, prefixed by
-    /// <see cref="FrontingStateChangedEvent"/> only when the deleted row was the active
-    /// one (deleting a history row doesn't change the current state).
-    /// </summary>
+    /// <summary>Publishes FrontDeletedEvent; prefixes with FrontingStateChangedEvent only
+    /// when the deleted row was the active one.</summary>
     public static async ValueTask PublishDeletedAsync(
         this IClusterEventBus eventBus,
         ScopedSystemId systemId,
@@ -115,11 +89,8 @@ internal static class FrontingEventBusExtensions
         await eventBus.PublishAsync(new FrontDeletedEvent(systemId, frontId), cancellationToken);
     }
 
-    /// <summary>
-    /// Fans one <see cref="FrontingEndedEvent"/> per alter id, sequentially. Sequential
-    /// ordering matches every handler here — no parallelism is asked for and the bus's
-    /// subscribers assume in-order delivery per publisher.
-    /// </summary>
+    /// <summary>Fans one FrontingEndedEvent per alter id, sequentially (subscribers
+    /// assume in-order delivery per publisher).</summary>
     public static async ValueTask PublishEndedForAltersAsync(
         this IClusterEventBus eventBus,
         ScopedSystemId systemId,
@@ -132,11 +103,8 @@ internal static class FrontingEventBusExtensions
         }
     }
 
-    /// <summary>
-    /// Emits a "primary cleared" <see cref="FrontingPrimaryChangedEvent"/> only when a
-    /// primary was actually present before the mutation. Callers can invoke this
-    /// unconditionally and let the flag be the guard.
-    /// </summary>
+    /// <summary>"Primary cleared" event guarded by <paramref name="wasPrimaryPresent"/>
+    /// so callers can invoke unconditionally.</summary>
     public static ValueTask PublishPrimaryClearedIfNeededAsync(
         this IClusterEventBus eventBus,
         ScopedSystemId systemId,

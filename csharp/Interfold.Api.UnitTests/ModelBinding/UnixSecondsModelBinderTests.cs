@@ -11,19 +11,10 @@ using Microsoft.AspNetCore.Routing;
 
 namespace Interfold.Api.UnitTests.ModelBinding;
 
-/// <summary>
-/// Pins the wire-visible behaviour of <see cref="UnixSecondsModelBinder"/>: on a
-/// successful parse the binding lands as <see cref="ModelBindingResult.Success"/>
-/// with a populated <see cref="UnixSeconds"/>, on failure the binder emits the
-/// exact <see cref="UnixSecondsBindingAttribute.ErrorMessage"/> from the parameter
-/// as a <see cref="ModelError"/> AND stashes the accompanying
-/// <see cref="UnixSecondsBindingAttribute.ErrorCode"/> on
-/// <see cref="HttpContext.Items"/> so <c>InvalidModelStateResponseFactory</c> in
-/// Program.cs can lift it into the final <c>ErrorResponse.Code</c>. If either half
-/// of that contract regresses the Fronting <c>month</c> / <c>between</c> endpoints
-/// silently downgrade to the generic <c>bad_request</c> code and the Kotlin client
-/// stops matching on <c>invalid_end_anchor</c> / <c>invalid_anchor</c>.
-/// </summary>
+// UnixSecondsModelBinder wire behaviour: on success → ModelBindingResult.Success; on
+// failure → exact attribute ErrorMessage + attribute ErrorCode stashed on HttpContext.Items
+// for InvalidModelStateResponseFactory to lift into ErrorResponse.Code. Regressions
+// silently downgrade Fronting month/between endpoints to generic `bad_request`.
 public sealed class UnixSecondsModelBinderTests
 {
     private const string EndAnchorField = "end_anchor";
@@ -69,11 +60,11 @@ public sealed class UnixSecondsModelBinderTests
         await Assert.That(stashed).IsEqualTo(EndAnchorCode);
     }
 
+    // Between wires two params to invalid_anchor with per-param messages; pin the start-
+    // side wiring in isolation from the end-side.
     [Test]
     public async Task Bind_BetweenStartField_UsesInvalidAnchorCodeFromAttribute()
     {
-        // Between wires two parameters to code = invalid_anchor with per-parameter
-        // messages; this locks the start-side wiring in isolation from the end-side.
         var ctx = BuildContext(
             fieldName: StartField,
             rawValue: "abc",
@@ -88,12 +79,11 @@ public sealed class UnixSecondsModelBinderTests
         await Assert.That(stashed).IsEqualTo(BetweenCode);
     }
 
+    // Fronting endpoints require these params; an absent query string must still surface
+    // as invalid_end_anchor / invalid_anchor rather than MVC's generic "value is required".
     [Test]
     public async Task Bind_MissingValue_EmitsAttributeMessageAndStashesErrorCodeToo()
     {
-        // Fronting endpoints treat these params as required — no default. When the
-        // query string is absent altogether we still want the invalid_end_anchor /
-        // invalid_anchor wire shape rather than MVC's "value is required" generic.
         var ctx = BuildContext(
             fieldName: EndAnchorField,
             rawValue: null,
@@ -108,11 +98,11 @@ public sealed class UnixSecondsModelBinderTests
         await Assert.That(stashed).IsEqualTo(EndAnchorCode);
     }
 
+    // Defensive fallback for a parameter without [UnixSecondsBinding] — still fails
+    // cleanly (registry routes response to `bad_request`).
     [Test]
     public async Task Bind_UnparseableValue_WithoutAttribute_StashesNothing()
     {
-        // Defensive fallback for a parameter without [UnixSecondsBinding] — should
-        // still fail cleanly (registry then routes the response to `bad_request`).
         var ctx = BuildContext(
             fieldName: "raw",
             rawValue: "nope",
@@ -128,15 +118,7 @@ public sealed class UnixSecondsModelBinderTests
         await Assert.That(stashed).IsNull();
     }
 
-    /// <summary>
-    /// Builds a <see cref="DefaultModelBindingContext"/> wired the way MVC would
-    /// present it to the binder at request time: parameter-level
-    /// <see cref="ModelMetadata"/> (so <c>.Attributes.Attributes</c> carries the
-    /// <see cref="UnixSecondsBindingAttribute"/>), a live <see cref="HttpContext"/>
-    /// on the ActionContext (the binder writes to <c>HttpContext.Items</c>), and a
-    /// <see cref="ControllerParameterDescriptor"/> in the ActionDescriptor so the
-    /// reflection fallback in the binder resolves as well.
-    /// </summary>
+    // Builds the DefaultModelBindingContext MVC would present at request time.
     private static DefaultModelBindingContext BuildContext(
         string fieldName,
         string? rawValue,
@@ -187,15 +169,14 @@ public sealed class UnixSecondsModelBinderTests
         });
     }
 
-    // Test-only method that mirrors FrontingController.Month's parameter shape so the
-    // ParameterInfo reflection carries the real production attributes.
+    // Mirrors FrontingController.Month's parameter shape.
     private static void WithEndAnchor(
         [FromQuery(Name = EndAnchorField)]
         [UnixSecondsBinding(ErrorCode = EndAnchorCode, ErrorMessage = EndAnchorMessage)]
         UnixSeconds endAnchor)
     { _ = endAnchor; }
 
-    // Test-only method that mirrors FrontingController.Between's parameter shape.
+    // Mirrors FrontingController.Between's parameter shape.
     private static void WithBetweenAnchors(
         [FromQuery(Name = StartField)]
         [UnixSecondsBinding(ErrorCode = BetweenCode, ErrorMessage = StartMessage)]
@@ -205,7 +186,6 @@ public sealed class UnixSecondsModelBinderTests
         UnixSeconds endAnchor)
     { _ = startAnchor; _ = endAnchor; }
 
-    // Defensive-fallback case: no [UnixSecondsBinding], no [FromQuery(Name=...)].
     private static void WithoutAttribute(UnixSeconds raw)
     { _ = raw; }
 }

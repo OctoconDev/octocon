@@ -1,14 +1,9 @@
 namespace Interfold.Api.Services.SimplyPlural;
 
-/// <summary>
-/// Simply Plural's v1 API surface — base URL, endpoint path builders, CDN hosts, and the
-/// wire sentinels the importer matches on. All values are third-party wire contracts
-/// (frozen by SP, not by us); centralized here so the importer body carries no inline
-/// endpoint spellings.
-/// </summary>
+/// <summary>Simply Plural v1 API paths + CDN hosts + wire sentinels the importer matches
+/// on. All third-party wire contracts (frozen by SP).</summary>
 internal static class SpApiPaths
 {
-	//TODO: To make into something that is passed in as this has now been sunset.
     public const string ApiBase = "https://api.apparyllis.com/v1";
 
     public static string Me() => $"{ApiBase}/me";
@@ -26,17 +21,8 @@ internal static class SpApiPaths
     public const string RootGroupParent = "root";
 }
 
-/// <summary>
-/// Every public host SP currently serves the same <c>avatars/{uid}/{uuid}</c> bucket over.
-/// Checked by the importer so a pre-existing avatar URL on any of them is recognised as
-/// "needs rehost before sunset" rather than being misclassified as a third-party URL.
-/// Sources (SimplyPluralApi):
-///   * spaces.apparyllis.com — src/api/base/user/generateReports.ts:24 (SP's own report generator)
-///   * serve.apparyllis.com — src/api/v1/storage.ts:63, src/api/v2/storage/storage.utils.ts:46
-///     (canonical URL the upload endpoints return to clients post-v1.12)
-///   * simply-plural.sfo3.digitaloceanspaces.com — src/api/base/user.ts:11 (legacy v1 report base)
-/// All three CNAME the same DigitalOcean Spaces bucket; new entries here must be SP-owned too.
-/// </summary>
+/// <summary>SP-owned hosts fronting the same <c>avatars/{uid}/{uuid}</c> bucket. All three
+/// CNAME the same DigitalOcean Spaces bucket — new entries must be SP-owned too.</summary>
 internal static class SpCdnHosts
 {
     public const string Canonical = "https://spaces.apparyllis.com";

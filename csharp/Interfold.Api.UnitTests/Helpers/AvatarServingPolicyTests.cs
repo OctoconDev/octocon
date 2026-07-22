@@ -2,18 +2,9 @@ using Interfold.Api.Helpers;
 
 namespace Interfold.Api.UnitTests.Helpers;
 
-/// <summary>
-/// Unit tests for <see cref="AvatarServingPolicy.Resolve"/>, the decision-helper that
-/// Program.cs consults when deciding whether to mount a secondary static-file middleware
-/// for avatars. Each test corresponds to one branch of the
-/// <c>AvatarStorageRoot</c> × <c>AvatarPublicBase</c> matrix documented on the helper.
-/// </summary>
-/// <remarks>
-/// Tests that need an existing directory create a temp folder per-test under
-/// <see cref="Path.GetTempPath"/> and clean it up in a <c>try/finally</c>. A shared
-/// instance directory would race under TUnit's parallel runner; the per-test scope
-/// keeps the suite safe to parallelise without an <c>[NotInParallel]</c> tag.
-/// </remarks>
+// AvatarServingPolicy.Resolve — Program.cs uses this to decide whether to mount the
+// avatar static-file middleware. One test per branch of the AvatarStorageRoot ×
+// AvatarPublicBase matrix; per-test temp dirs avoid races under TUnit's parallel runner.
 public sealed class AvatarServingPolicyTests
 {
     [Test]
@@ -48,9 +39,6 @@ public sealed class AvatarServingPolicyTests
     [Test]
     public async Task MissingDirectoryOnDisk_DoesNotServe()
     {
-        // Pick a path that demonstrably does not exist; using a random Guid keeps the
-        // assertion deterministic without depending on platform-specific filesystem
-        // quirks like case-insensitivity or hidden directories.
         var nonexistent = Path.Combine(Path.GetTempPath(), $"avatar-policy-missing-{Guid.NewGuid():N}");
 
         var (shouldServe, _, _) = AvatarServingPolicy.Resolve(
@@ -99,14 +87,10 @@ public sealed class AvatarServingPolicyTests
         }
     }
 
+    // Only http(s) is treated as CDN delegation; exotic schemes fall through to path-only.
     [Test]
     public async Task NonHttpAbsoluteBase_IsTreatedAsPathOnly()
     {
-        // An exotic scheme (file://, ftp://, custom://) shouldn't be parsed as a CDN
-        // delegation. The helper only special-cases http/https — anything else falls
-        // through to the path-only branch. This isn't a real operator configuration,
-        // but pinning the behaviour means a future "any-absolute-uri-disables-serving"
-        // regression surfaces in tests instead of breaking integrations.
         var tempDir = CreateTempDirectory();
         try
         {
@@ -217,14 +201,11 @@ public sealed class AvatarServingPolicyTests
         }
     }
 
+    // A literal "/" would collapse to empty after trimming, causing StaticFileOptions to
+    // short-circuit every request (stealing /api/* and every SPA route).
     [Test]
     public async Task RootSlashBase_FallsBackToDefault()
     {
-        // After trimming the trailing slash a literal "/" collapses to the empty
-        // string, which StaticFileOptions.RequestPath would treat as "the static-file
-        // middleware short-circuits every request". That would steal /api/* and every
-        // SPA route. Pin the fallback so a future "let operators set / as the base"
-        // change has to consciously remove this guard.
         var tempDir = CreateTempDirectory();
         try
         {

@@ -76,9 +76,6 @@ public sealed class AltersController : InterfoldControllerBase
     {
         var fields = req.Fields?.Select(f => new AlterFieldCommand(f.Id, f.Value)).ToList();
 
-        // PATCH does not currently expose AvatarUrl as a mutable field — avatar updates go
-        // through the dedicated PUT .../avatar endpoints (multipart for Local, JSON for External)
-        // so we never observe a half-set (url-without-source) here.
         var payload = new UpdateAlterCommand
         {
             AlterId = alterId,
@@ -99,7 +96,6 @@ public sealed class AltersController : InterfoldControllerBase
         return await DispatchNoContentAsync(_updateHandler, OperationIds.AlterUpdate, payload, ct);
     }
 
-    //TODO: To ensure route works as expected - check if we delete alter journal entries, unattach from gobal journals when an alter is deleted and delete them from polls
     [HttpDelete("{alterId:int}")]
     public async Task<Response> Delete([FromRoute][ValidAlterId] AlterId alterId, CancellationToken ct)
     {

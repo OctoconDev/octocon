@@ -39,7 +39,6 @@ public sealed class PollsController : InterfoldControllerBase
         return new SuccessResponse<IReadOnlyList<PollReadModel>>(polls);
     }
 
-    //TODO: To ensure route works as expected
     [HttpGet("{id}")]
     public async Task<Response<PollReadModel>> Show(PollId id, CancellationToken ct)
     {

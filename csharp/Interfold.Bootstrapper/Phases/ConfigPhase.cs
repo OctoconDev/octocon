@@ -11,11 +11,8 @@ using Spectre.Console;
 
 namespace Interfold.Bootstrapper.Phases;
 
-/// <summary>
-/// Phase 2 — loads <c>interfold.bootstrap.json</c> from disk or builds it via an interactive
-/// Spectre.Console walkthrough (sectioned prompts → review-before-commit table → edit loop),
-/// then validates and persists the resulting <see cref="BootstrapConfig"/>.
-/// </summary>
+/// <summary>Phase 2 — loads <c>interfold.bootstrap.json</c> or builds it via a Spectre.Console
+/// walkthrough (sectioned prompts → review table → edit loop), validates, and persists.</summary>
 internal static class ConfigPhase
 {
     public static async Task<BootstrapConfig> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
@@ -42,12 +39,11 @@ internal static class ConfigPhase
         else if (!Console.IsInputRedirected)
         {
             logger.Info($"    no config at {configPath}; entering interactive setup");
-            // Pre-prompt mDNS banner returns the hostname to seed "Public host(s)" with (or
-            // null when .local won't resolve, so we don't pre-fill a broken name).
+            // mdnsHostname is null when .local won't resolve, so we don't pre-fill a broken name.
             var mdnsHostname = await ApplyPreFillMdnsCheckAsync(options, logger, ct).ConfigureAwait(false);
 
-            // maskSecrets: real TTY masks OAuth secrets; tests pass false so Spectre's
-            // ReadKey-driven secret path doesn't fight the TestConsole input queue.
+            // Tests pass maskSecrets: false so Spectre's ReadKey secret path doesn't
+            // fight the TestConsole input queue.
             config = PromptForConfig(
                 AnsiConsole.Console,
                 maskSecrets: true,
@@ -64,24 +60,20 @@ internal static class ConfigPhase
 
         Validate(config);
 
-        // Post-fill mDNS gate runs only for `bootstrap`; other subcommands load the JSON
-        // verbatim and would re-emit the same warning on every run.
+        // Post-fill mDNS gate is bootstrap-only — other subcommands load JSON verbatim.
         if (options.Command == BootstrapCommand.Bootstrap)
         {
             var mutated = await ApplyMdnsGateAsync(config, options, logger, ct).ConfigureAwait(false);
             if (mutated)
             {
-                // Strip could have emptied the list — re-validate to fail loudly rather than
-                // producing a cert with zero SANs later.
+                // Re-validate — a strip could have emptied the list, and issuing a cert with
+                // zero SANs later would be a harder failure to diagnose.
                 Validate(config);
-                // Re-persist so subsequent runs don't re-emit the same warning; one-time file
-                // touch beats indefinite noise.
                 logger.Info($"    updated {configPath} to reflect the mDNS strip");
                 await PersistAsync(config, configPath, ct).ConfigureAwait(false);
             }
         }
 
-        // Align the config's outputDir with the CLI override (if --output-dir was passed).
         if (!string.Equals(Path.GetFullPath(config.Deployment.OutputDir), options.OutputDir, StringComparison.Ordinal))
         {
             logger.Info($"    overriding config.outputDir with --output-dir={options.OutputDir}");
@@ -92,31 +84,12 @@ internal static class ConfigPhase
         return config;
     }
 
-    /// <summary>
-    /// Spectre.Console navigable form for <see cref="BootstrapConfig"/>. Every field renders
-    /// as a menu row (label + current value); arrow-keys navigate, Enter edits, and the
-    /// trailing <c>Confirm and save</c> entry returns the config to <see cref="RunAsync"/>.
-    /// </summary>
-    /// <param name="console">Spectre console. Production passes <see cref="AnsiConsole.Console"/>; tests pass a <c>TestConsole</c>.</param>
-    /// <param name="maskSecrets">
-    /// True masks OAuth secret prompts with <c>Secret('*')</c>. Off in tests because Spectre's
-    /// secret path is <see cref="Console.ReadKey"/>-driven and doesn't play nicely with the
-    /// <c>TestConsole</c> input queue.
-    /// </param>
-    /// <param name="localAddressProbe">
-    /// Device-IP pre-fill for the empty <c>Public host(s)</c> row. Defaults to
-    /// <see cref="LocalAddressDetector.TryDetectPrimaryIp"/>; tests pass <c>() =&gt; null</c>
-    /// for determinism. Non-interactive flows never consult it, so JSON with no <c>hosts</c>
-    /// still fails fast.
-    /// </param>
-    /// <param name="hostnameProbe">
-    /// mDNS-hostname pre-fill for the empty <c>Public host(s)</c> row (landed FIRST so
-    /// <see cref="ResolveDerivedDefaults"/> latches onto the mDNS name). Defaults to
-    /// <c>() =&gt; null</c> — the "should we pre-fill" decision lives in
-    /// <see cref="ApplyPreFillMdnsCheckAsync"/>, whose return value <see cref="RunAsync"/>
-    /// wraps into this lambda. Null here means the hostname can't sneak in on a path that
-    /// skipped the banner (JSON load, IP-only unit tests).
-    /// </param>
+    /// <summary>Spectre.Console navigable form for <see cref="BootstrapConfig"/>. Each field
+    /// is a menu row; arrows navigate, Enter edits, trailing <c>Confirm and save</c> returns.
+    /// Test seams: <paramref name="localAddressProbe"/> and <paramref name="hostnameProbe"/>
+    /// default to real detection but are stubbed out in unit tests for determinism.
+    /// <paramref name="hostnameProbe"/>'s value MUST land first in the seed list so
+    /// <see cref="ResolveDerivedDefaults"/> latches the mDNS name for the leaf cert.</summary>
     internal static BootstrapConfig PromptForConfig(
         IAnsiConsole console,
         bool maskSecrets = false,
@@ -125,9 +98,7 @@ internal static class ConfigPhase
     {
         var c = new BootstrapConfig();
 
-        // Auto-default "Public host(s)" only when the shipped-empty list is untouched. Order
-        // matters: hostname first, IP second, so HostParser.PickPrimary latches the mDNS
-        // name for the leaf cert. Non-interactive callers skip this entirely.
+        // Hostname before IP so HostParser.PickPrimary latches the mDNS name.
         if (c.Deployment.Hosts.Count == 0)
         {
             var seed = new List<string>();
@@ -139,7 +110,7 @@ internal static class ConfigPhase
             var detected = (localAddressProbe ?? LocalAddressDetector.TryDetectPrimaryIp)();
             if (detected is not null)
             {
-                // Bare IP literal — bracketing for URL contexts is done later by HostParser.ToUrlHost.
+                // Bare literal; HostParser.ToUrlHost brackets IPv6 later.
                 seed.Add(detected.ToString());
             }
             if (seed.Count > 0)
@@ -148,8 +119,7 @@ internal static class ConfigPhase
             }
         }
 
-        // Local helpers close over `console` (+ `maskSecrets` for the OAuth wrapper) so each
-        // field's Edit delegate below stays a one-liner.
+        // Local helpers close over `console` and `maskSecrets` to keep each Edit lambda short.
         string PromptStr(string label, string fallback) => console.Prompt(
             new TextPrompt<string>($"{label}:")
                 .DefaultValue(fallback)
@@ -169,13 +139,11 @@ internal static class ConfigPhase
             var p = new TextPrompt<string>($"{label} (blank to skip):")
                 .DefaultValue(fallback)
                 .AllowEmpty();
-            // Conditional Secret() — the test path stays on the plain TextReader seam.
             if (maskSecrets) p.Secret('*');
             return console.Prompt(p);
         }
 
-        // Blank input → null ("use the API's compile-time default"); non-blank must parse
-        // in range. Uses TextPrompt<string> because Spectre has no TextPrompt<int?>.
+        // Blank → null (use API default). Manual TextPrompt<string> because Spectre lacks TextPrompt<int?>.
         int? PromptNullableInt(string label, int? fallback, int min, int max)
         {
             var fallbackText = fallback?.ToString() ?? string.Empty;
@@ -197,10 +165,8 @@ internal static class ConfigPhase
             return string.IsNullOrWhiteSpace(raw) ? null : int.Parse(raw);
         }
 
-        // Grouped field declaration. Each group owns its header and ordered fields; the flat
-        // `fields` list and `sections` array below are DERIVED so headers can't drift out of
-        // sync. Field tuple is (Label, Show, Edit) — Show renders the current value, Edit
-        // runs the per-field prompt and writes back onto `c`.
+        // Grouped fields — the flat `fields` list and `sections` array are DERIVED from
+        // this so headers can't drift. Tuple is (Label, Show, Edit).
         (string Header, (string Label, Func<string> Show, Action Edit)[] Fields) Group(
             string header,
             params (string Label, Func<string> Show, Action Edit)[] fs) => (header, fs);
@@ -218,8 +184,7 @@ internal static class ConfigPhase
                                                     () => c.Deployment.CertYears = PromptInt("Leaf cert validity (years)", c.Deployment.CertYears, 1, 30)),
                 ("Install root CA in trust store",  () => c.Deployment.TrustStoreInstall.ToString(),
                                                     () => c.Deployment.TrustStoreInstall = PromptBool("Install root CA into system trust store", c.Deployment.TrustStoreInstall)),
-                // Independent from WebHttps below; publish wiring auto-promotes IncludeWeb
-                // when WebHttps is true, so the default false + WebHttps=true still ships.
+                // Publish wiring auto-promotes IncludeWeb when WebHttps is true.
                 ("Include octocon-web container",   () => c.Deployment.IncludeWeb.ToString(),
                                                     () => c.Deployment.IncludeWeb = PromptBool("Include the octocon-web (Kotlin/Wasm UI) container", c.Deployment.IncludeWeb)),
                 ("Terminate HTTPS at octocon-web",  () => c.Deployment.WebHttps.ToString(),
@@ -249,16 +214,15 @@ internal static class ConfigPhase
                                                     () => c.PostgresDatabase = PromptStr("Postgres application DB name", c.PostgresDatabase)),
                 ("Cluster name",                    () => c.ClusterName,
                                                     () => c.ClusterName = PromptStr("Cluster name (Scylla/Cassandra)", c.ClusterName)),
-                // Scylla keyspace == per-instance region identity; AddChoices enforces the
-                // seven valid values upfront (Validate does the same non-interactively).
+                // AddChoices enforces the seven valid keyspaces (Validate mirrors this non-interactively).
                 ("Scylla keyspace (region)",        () => c.ScyllaKeyspace.ToWire(),
                                                     () => c.ScyllaKeyspace = EnumWireExtensions.ParseScyllaKeyspace(console.Prompt(
                                                         new TextPrompt<string>("Scylla keyspace (region):")
                                                             .DefaultValue(c.ScyllaKeyspace.ToWire())
                                                             .AddChoices(ValidScyllaKeyspaces))))),
 
-            // Derivable rows (callback URL, JWT authority, CORS) call ResolveDerivedDefaults
-            // on a snapshot so the menu paints the computed default before Enter is pressed.
+            // Derivable rows snapshot into ResolveDerivedDefaults so the menu paints the
+            // computed default before Enter.
             Group("API",
                 ("OAuth callback base URL",         () => DerivedShow(c, ar => ar.CallbackBaseUrl),
                                                     () => c.ApiRuntime.CallbackBaseUrl = PromptStr(
@@ -277,24 +241,21 @@ internal static class ConfigPhase
                 ("Pre-built Interfold API image",   () => c.ApiImage,
                                                     () => c.ApiImage = PromptStr("Pre-built Interfold API image reference", c.ApiImage))),
 
-            // Cluster (NodeGroup) + Observability (OTLP) merged — both too small alone.
             Group("Cluster & telemetry",
                 ("Cluster node group",              () => c.Cluster.NodeGroup.ToWire(),
                                                     () => c.Cluster.NodeGroup = EnumWireExtensions.ParseNodeGroup(console.Prompt(
                                                         new TextPrompt<string>("Cluster node group:")
                                                             .DefaultValue(c.Cluster.NodeGroup.ToWire())
                                                             .AddChoices(ValidNodeGroups)))),
-                // Blank disables OTLP; ShowOrEmpty makes the unset state visible.
                 ("OTLP endpoint",                   () => ShowOrEmpty(c.Observability.OtlpEndpoint),
                                                     () => c.Observability.OtlpEndpoint = PromptStr(
                                                         "OTLP endpoint (blank to disable)",
                                                         c.Observability.OtlpEndpoint))),
 
-            // Storage rows are optional; blank = AppHost-managed default, not disabled.
-            //  - AvatarStorageRoot blank → AppHost mounts `interfold_avatars` at /app/data/avatars.
-            //    Non-blank = operator owns the mount + permissions for UID 1654 (app user).
-            //  - AvatarPublicBase blank → API serves /avatars/* directly. Non-blank https URL
-            //    hands byte-serving to a CDN (see AvatarServingPolicy.Resolve in the API).
+            // Storage rows are optional. Blank AvatarStorageRoot → AppHost mounts
+            // `interfold_avatars` at /app/data/avatars (non-blank puts the burden on
+            // the operator for UID 1654 permissions). Blank AvatarPublicBase → API
+            // serves /avatars/* directly.
             Group("Storage",
                 ("Avatar storage root (container path)", () => ShowOrEmpty(c.Storage.AvatarStorageRoot),
                                                     () => c.Storage.AvatarStorageRoot = PromptStr(
@@ -305,9 +266,8 @@ internal static class ConfigPhase
                                                         "Avatar public base URL (blank = API serves /avatars/* directly; set https URL to delegate to CDN)",
                                                         c.Storage.AvatarPublicBase))),
 
-            // Socket + Persistence tuning merged — all "knobs the operator leaves alone".
             Group("Performance tuning",
-                // Blank → null (use API's compile-time default); Show renders "<default>" when null.
+                // Blank → null (API compile-time default); Show renders "<default>" for null.
                 ("Socket batch flush threshold (bytes)",
                                                     () => c.Socket.BatchBytesThreshold?.ToString() ?? "<default>",
                                                     () => c.Socket.BatchBytesThreshold = PromptNullableInt(
@@ -329,8 +289,7 @@ internal static class ConfigPhase
                                                         "Hydration max concurrency",
                                                         c.Persistence.HydrationMaxConcurrency, 1, 1024))),
 
-            // Paired per provider (ID then secret). IDs are public → PromptStr + ShowOrEmpty.
-            // Secrets → masked PromptOAuth + Mask() (<set>/<empty>).
+            // ID (public → ShowOrEmpty) then secret (masked → <set>/<empty>) per provider.
             Group("OAuth credentials",
                 ("Google OAuth client ID",          () => ShowOrEmpty(c.OAuth.GoogleClientId),
                                                     () => c.OAuth.GoogleClientId = PromptStr("Google OAuth client ID", c.OAuth.GoogleClientId)),
@@ -346,22 +305,19 @@ internal static class ConfigPhase
                                                     () => c.OAuth.AppleClientSecret = PromptOAuth("Apple OAuth client secret", c.OAuth.AppleClientSecret))),
 
             Group("Backup & autostart",
-                // Master toggle. False = install unit files but don't enable the timer;
-                // the one-shot `backup` subcommand works either way.
                 ("Scheduled backups enabled",       () => c.Backup.Enabled.ToString(),
                                                     () => c.Backup.Enabled = PromptBool("Enable scheduled backups (systemd timer)", c.Backup.Enabled)),
                 ("Backup schedule (OnCalendar)",    () => c.Backup.Schedule,
                                                     () => c.Backup.Schedule = PromptStr("Backup schedule (systemd OnCalendar, e.g. 'daily', 'weekly', 'Mon..Fri 03:30')", c.Backup.Schedule)),
                 ("Backup retention (count per component)", () => c.Backup.RetainCount.ToString(),
                                                     () => c.Backup.RetainCount = PromptInt("Backup retention (number of archives to keep per component)", c.Backup.RetainCount, 1, 1000)),
-                // Blank = {outputDir}/backups. Non-blank must be absolute — systemd timer CWD is unpredictable.
+                // Blank = {outputDir}/backups; non-blank must be absolute (systemd CWD unpredictable).
                 ("Backup directory (absolute, blank=default)", () => ShowOrEmpty(c.Backup.Directory),
                                                     () => c.Backup.Directory = PromptStr("Backup directory (absolute path; leave blank to default to {outputDir}/backups)", c.Backup.Directory)),
                 ("Autostart server on boot",        () => c.Backup.AutostartServer.ToString(),
                                                     () => c.Backup.AutostartServer = PromptBool("Autostart the server on host boot (installs interfold.service)", c.Backup.AutostartServer))),
 
-            // Chains interfold-update.service after interfold-backup.service via a systemd
-            // OnSuccess= drop-in. Off by default; manual `update-images` works regardless.
+            // Chains via systemd OnSuccess= drop-in. Off by default; manual works regardless.
             Group("Updates",
                 ("Chain updates after backup",      () => c.Update.Enabled.ToString(),
                                                     () => c.Update.Enabled = PromptBool("Chain interfold-update.service after each successful backup", c.Update.Enabled)),
@@ -371,19 +327,16 @@ internal static class ConfigPhase
                                                     () => c.Update.AutoRestoreOnFailure = PromptBool("Auto-restore the pre-update backup on health-check failure (destructive)", c.Update.AutoRestoreOnFailure)),
                 ("Recreate containers on update",   () => c.Update.RecreateOnUpdate.ToString(),
                                                     () => c.Update.RecreateOnUpdate = PromptBool("Recreate containers on update (uses 'up -d'; disable only for staged pulls)", c.Update.RecreateOnUpdate)),
-                // Blank = every service; non-empty is validated against ValidUpdateServices.
                 ("Update service whitelist (blank=all)", () => c.Update.Services.Length == 0 ? "<all>" : string.Join(",", c.Update.Services),
                                                     () => c.Update.Services = PromptUpdateServices(console, c.Update.Services))),
 
-            // Single row → three-way wizard (auto-detect / per-file / clear). State lives on
-            // the four *Path fields; Show summarises how many are set. See PromptFirebase.
+            // One row → three-way wizard (auto-detect / per-file / clear). See PromptFirebase.
             Group("Firebase",
                 ("Firebase push notifications",     () => ShowFirebaseState(c.Firebase),
                                                     () => PromptFirebase(console, c.Firebase))),
         };
 
-        // Flatten groups into the index-addressable `fields` list; record each group's
-        // starting offset so the AddChoiceGroup loop and header sentinel can find their header.
+        // Flatten groups; record each group's starting offset for AddChoiceGroup and header sentinels.
         var fields = new List<(string Label, Func<string> Show, Action Edit)>();
         var sectionsList = new List<(int FirstFieldIndex, string Header)>(groups.Length);
         foreach (var g in groups)
@@ -393,26 +346,25 @@ internal static class ConfigPhase
         }
         var sections = sectionsList.ToArray();
 
-        // Sentinels: -1 = Confirm; 0..fields.Count-1 = selectable field indices; -(2+sectionIdx)
-        // = inert header slot (unique per section to satisfy AddChoiceGroup's key contract).
+        // Sentinels: -1 Confirm, 0..N-1 field indices, -(2+sectionIdx) inert header (must
+        // be unique per section for AddChoiceGroup's key contract).
         const int ConfirmSentinel = -1;
         int SectionHeaderSentinel(int sectionIdx) => -(2 + sectionIdx);
         int SectionLength(int sectionIdx) =>
             (sectionIdx + 1 < sections.Length ? sections[sectionIdx + 1].FirstFieldIndex : fields.Count)
             - sections[sectionIdx].FirstFieldIndex;
 
-        // Loop re-renders after every edit so the fresh value shows on its row.
         while (true)
         {
             var prompt = new SelectionPrompt<int>()
                 .Title(
                     "[bold]Configure interfold.bootstrap.json[/]\n" +
                     "[grey]Use arrow keys to navigate, Enter to edit, choose [green]Confirm and save[/] when done.[/]")
-                // 48 fields + 11 headers + 1 confirm = 60 rows; oversize the page so 60+ row
-                // TTYs don't scroll. Smaller TTYs paginate via MoreChoicesText.
+                // ~60 rows (48 fields + 11 headers + 1 confirm) — oversize so large TTYs
+                // don't scroll; smaller TTYs paginate via MoreChoicesText.
                 .PageSize(60)
                 .MoreChoicesText("[grey](move up/down to reveal more)[/]")
-                // Escape values — a future operator entry containing `[` would otherwise crash Spectre's parser.
+                // Escape values — a `[` in operator input would otherwise crash Spectre's parser.
                 .UseConverter(i =>
                 {
                     if (i == ConfirmSentinel) return "[green]Confirm and save[/]";
@@ -426,7 +378,6 @@ internal static class ConfigPhase
                     return $"{label} [grey]{value}[/]";
                 });
 
-            // AddChoiceGroup renders the group key as an inert header above its selectable children.
             for (var s = 0; s < sections.Length; s++)
             {
                 var firstIdx = sections[s].FirstFieldIndex;
@@ -443,10 +394,7 @@ internal static class ConfigPhase
         return c;
     }
 
-    /// <summary>
-    /// Comma-separated hosts prompt (DNS names, IP literals, or CIDR blocks). Twin of
-    /// <see cref="PromptCorsAllowedOrigins"/> — same parse shape, different per-entry validation.
-    /// </summary>
+    /// <summary>Comma-separated hosts prompt (DNS / IP / CIDR).</summary>
     private static List<string> PromptHosts(IAnsiConsole console, List<string> fallback)
     {
         var fallbackText = string.Join(",", fallback);
@@ -459,8 +407,8 @@ internal static class ConfigPhase
                     var trimmed = s?.Trim() ?? string.Empty;
                     if (string.IsNullOrEmpty(trimmed))
                     {
-                        // Empty only OK if fallback was non-empty (re-confirming an existing
-                        // config); fresh bootstrap must force input so we never issue a cert with no SANs.
+                        // Empty only OK when the fallback is non-empty; fresh bootstrap
+                        // must force input so we never issue a cert with no SANs.
                         return fallback.Count == 0
                             ? ValidationResult.Error("[red]at least one host required (no default to fall back on)[/]")
                             : ValidationResult.Success();
@@ -488,10 +436,8 @@ internal static class ConfigPhase
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     }
 
-    /// <summary>
-    /// CORS allow-list prompt. Twin of <see cref="PromptHosts"/>; validates each entry as an
-    /// absolute http(s) URI to match the non-interactive <see cref="Validate"/> rule.
-    /// </summary>
+    /// <summary>CORS allow-list prompt; each entry must be an absolute http(s) URI (matches
+    /// <see cref="Validate"/>).</summary>
     private static List<string> PromptCorsAllowedOrigins(IAnsiConsole console, List<string> fallback)
     {
         var fallbackText = string.Join(",", fallback);
@@ -522,11 +468,8 @@ internal static class ConfigPhase
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     }
 
-    /// <summary>
-    /// Prompt for <see cref="UpdateSection.Services"/>. Blank = every service; non-empty is
-    /// validated against <see cref="ValidUpdateServices"/> so typos surface here, not later
-    /// when <c>docker compose pull</c> reports "no such service".
-    /// </summary>
+    /// <summary>Blank = every service; non-empty is validated against
+    /// <see cref="ValidUpdateServices"/> so typos don't surface later as "no such service".</summary>
     private static string[] PromptUpdateServices(IAnsiConsole console, string[] fallback)
     {
         var fallbackText = string.Join(",", fallback);
@@ -554,7 +497,7 @@ internal static class ConfigPhase
         return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToArray();
     }
 
-    /// <summary>Menu-row summary: <c>off</c>, or <c>N/4 configured (…)</c> listing set platforms.</summary>
+    /// <summary>Menu-row summary: <c>off</c> or <c>N/4 configured (...)</c>.</summary>
     private static string ShowFirebaseState(FirebaseSection section)
     {
         var platforms = new List<string>(4);
@@ -567,18 +510,14 @@ internal static class ConfigPhase
             : $"{platforms.Count}/4 configured ({string.Join(", ", platforms)})";
     }
 
-    // Shared constants — the SelectionPrompt below and the test helpers reference them by
-    // exact string; drift would break the interactive test seam without a compile-time signal.
+    // Referenced by exact string in tests — drift breaks the interactive seam silently.
     private const string FirebaseChoiceAutoDetect = "Auto-detect from folder";
     private const string FirebaseChoicePerFile = "Configure per-file";
     private const string FirebaseChoiceClear = "Clear all";
     private const string FirebaseChoiceCancel = "Cancel";
 
-    /// <summary>
-    /// Firebase wizard: auto-detect (via <see cref="FirebaseFolderScanner"/>) / per-file
-    /// (four TextPrompts) / clear (zeroes the paths) / cancel (no-op). Mutates
-    /// <paramref name="section"/> in place so the menu redraws with the new summary.
-    /// </summary>
+    /// <summary>Auto-detect / per-file / clear / cancel wizard. Mutates
+    /// <paramref name="section"/> in place so the menu redraws with the new summary.</summary>
     private static void PromptFirebase(IAnsiConsole console, FirebaseSection section)
     {
         var choice = console.Prompt(
@@ -612,10 +551,8 @@ internal static class ConfigPhase
         }
     }
 
-    /// <summary>
-    /// Folder-input branch: scans the directory, writes resolved paths, prints a
-    /// found/missing summary. Blank input aborts silently (same as Cancel).
-    /// </summary>
+    /// <summary>Folder branch: scans, writes resolved paths, prints a found/missing summary.
+    /// Blank aborts silently.</summary>
     private static void PromptFirebaseFolder(IAnsiConsole console, FirebaseSection section)
     {
         var folder = console.Prompt(
@@ -639,10 +576,8 @@ internal static class ConfigPhase
         RenderFirebaseScanSummary(console, result);
     }
 
-    /// <summary>
-    /// Per-file prompt. Blank leaves the platform unwired; non-blank must resolve to an
-    /// existing file so a typo doesn't silently disable push for that platform.
-    /// </summary>
+    /// <summary>Blank leaves the platform unwired; non-blank must resolve to an existing
+    /// file so a typo doesn't silently disable push.</summary>
     private static string PromptFirebasePath(IAnsiConsole console, string label, string fallback) =>
         console.Prompt(
             new TextPrompt<string>($"{label} (blank to skip):")
@@ -656,7 +591,7 @@ internal static class ConfigPhase
                         : ValidationResult.Error($"[red]'{s}' does not exist[/]");
                 }));
 
-    /// <summary>Two-column table showing which platforms the auto-detect scan resolved.</summary>
+    /// <summary>Two-column table showing which platforms auto-detect resolved.</summary>
     private static void RenderFirebaseScanSummary(IAnsiConsole console, FirebaseFolderScanResult result)
     {
         var table = new Table()
@@ -689,11 +624,8 @@ internal static class ConfigPhase
         }
     }
 
-    /// <summary>
-    /// Shows the derived default for a single-value ApiRuntime field when it's empty; the
-    /// operator's stored value wins when non-empty. Selector picks the field so one helper
-    /// serves both CallbackBaseUrl and JwtAuthority.
-    /// </summary>
+    /// <summary>Renders derived default when the field is empty; operator value wins otherwise.
+    /// One helper for CallbackBaseUrl + JwtAuthority via the selector.</summary>
     private static string DerivedShow(BootstrapConfig c, Func<ApiRuntimeSection, string> selector)
     {
         var snapshot = CloneForDerivation(c);
@@ -709,10 +641,7 @@ internal static class ConfigPhase
         return snapshot.ApiRuntime.CorsAllowedOrigins;
     }
 
-    /// <summary>
-    /// Throwaway snapshot with only the fields <see cref="ResolveDerivedDefaults"/> reads and
-    /// writes. Used by the Show callbacks so derivation doesn't mutate the live config.
-    /// </summary>
+    /// <summary>Throwaway snapshot for Show callbacks so derivation doesn't mutate live config.</summary>
     private static BootstrapConfig CloneForDerivation(BootstrapConfig c)
     {
         return new BootstrapConfig
@@ -732,82 +661,43 @@ internal static class ConfigPhase
         };
     }
 
-    /// <summary>
-    /// OAuth-secret display rule: never echo the raw value. Guards against secrets leaking
-    /// back onto the menu after an edit (supplements the per-field <c>Secret('*')</c> mask).
-    /// </summary>
+    /// <summary>Never echoes the raw secret — supplements the field-level <c>Secret('*')</c> mask.</summary>
     private static string Mask(string secret) =>
         string.IsNullOrEmpty(secret) ? "<empty>" : "<set>";
 
-    /// <summary>
-    /// Display rule for blank-legal plain-text rows. Renders the value verbatim when set,
-    /// <c>&lt;empty&gt;</c> otherwise, so operators can tell an unset row from a missing one.
-    /// </summary>
+    /// <summary>Renders empty as <c>&lt;empty&gt;</c> so operators can tell unset from missing.</summary>
     private static string ShowOrEmpty(string value) =>
         string.IsNullOrEmpty(value) ? "<empty>" : value;
 
-    /// <summary>
-    /// Wire spellings of every <see cref="ScyllaKeyspace"/> enum value; kept as a string array
-    /// so Spectre.Console's <c>AddChoices</c> and older unit tests can iterate without a
-    /// bespoke enum-projection at the call site. Must stay aligned with the region list in
-    /// <c>InterfoldAppHost.Configure</c> and <see cref="PublishPhase.BuildEnvReplacements"/>;
-    /// derived directly from the enum so future additions surface in one place.
-    /// </summary>
+    /// <summary>Wire spellings of every <see cref="ScyllaKeyspace"/>. Must stay aligned with
+    /// <c>InterfoldAppHost.Configure</c>'s region list and <see cref="PublishPhase.BuildEnvReplacements"/>.</summary>
     internal static readonly string[] ValidScyllaKeyspaces = Enum
         .GetValues<ScyllaKeyspace>()
         .Select(k => k.ToWire())
         .ToArray();
 
-    /// <summary>
-    /// Wire spellings of every <see cref="NodeGroup"/> enum value; consumed by the interactive
-    /// prompt and by the unit tests that smoke-check every valid value at once.
-    /// </summary>
     internal static readonly string[] ValidNodeGroups = Enum
         .GetValues<NodeGroup>()
         .Select(g => g.ToWire())
         .ToArray();
 
-    /// <summary>
-    /// Wire spellings of every <see cref="DatabaseMode"/> enum value; used by the interactive
-    /// prompt's <c>AddChoices</c> list.
-    /// </summary>
     internal static readonly string[] ValidDatabaseModes = Enum
         .GetValues<DatabaseMode>()
         .Select(m => m.ToWire())
         .ToArray();
 
-    /// <summary>
-    /// Compose service names <see cref="UpdateSection.Services"/> may reference. Must stay
-    /// aligned with the <c>builder.AddContainer(...)</c> names in <c>InterfoldAppHost.Configure</c>;
-    /// the seven regional entries mirror <see cref="ValidScyllaKeyspaces"/>.
-    /// </summary>
+    /// <summary>Must match <c>builder.AddContainer(...)</c> names in
+    /// <c>InterfoldAppHost.Configure</c>; the regional entries mirror <see cref="ValidScyllaKeyspaces"/>.</summary>
     internal static readonly string[] ValidUpdateServices = ComposeServices.AllValidUpdateServices;
 
-    /// <summary>The default port for the <c>http</c> URI scheme (RFC 7230 §2.7.1).</summary>
     private const int DefaultHttpPort = 80;
-
-    /// <summary>The default port for the <c>https</c> URI scheme (RFC 7230 §2.7.2).</summary>
     private const int DefaultHttpsPort = 443;
 
-    /// <summary>
-    /// Fills empty <see cref="ApiRuntimeSection"/> fields from
-    /// <see cref="DeploymentSection"/>+<see cref="PortsSection"/>. Non-empty values always win;
-    /// idempotent; mutates in place.
-    /// <list type="bullet">
-    ///   <item>
-    ///     <c>CallbackBaseUrl</c>/<c>JwtAuthority</c> → <c>https://{primary host}[:{ApiHttps}]</c>.
-    ///     Scheme is always https because the API always terminates TLS (see
-    ///     <c>InterfoldAppHost.ConfigureApiSelfHostEnv</c>); port suffix omitted at 443.
-    ///   </item>
-    ///   <item>
-    ///     <c>CorsAllowedOrigins</c> → one entry per non-CIDR host of the form
-    ///     <c>{webScheme}://{host}[:{webPort}]</c> — the client-facing web tier's mapping
-    ///     (scheme + port suffix omitted at 80/443 defaults).
-    ///   </item>
-    /// </list>
-    /// IPv6 literals bracket-wrapped by <see cref="HostParser.ToUrlHost"/>; CIDR entries skipped.
-    /// Called by <see cref="Validate"/> so JSON-load configs derive the same way as prompted ones.
-    /// </summary>
+    /// <summary>Fills empty <see cref="ApiRuntimeSection"/> fields from
+    /// <see cref="DeploymentSection"/> + <see cref="PortsSection"/>. Non-empty values win;
+    /// idempotent; mutates in place. Callback/JWT-authority always https (the API's Kestrel
+    /// terminates TLS unconditionally). CORS uses the web tier's scheme + port. Called
+    /// from <see cref="Validate"/> so JSON-load configs derive identically to prompted ones.</summary>
     internal static void ResolveDerivedDefaults(BootstrapConfig config)
     {
         if (config.Deployment.Hosts.Count == 0)
@@ -815,7 +705,7 @@ internal static class ConfigPhase
             return;
         }
 
-        // Skip parse failures silently — this runs on every menu redraw (mid-edit is common).
+        // Silent on parse failure — this runs on every menu redraw (mid-edit is common);
         // Validate is the hard-fail path.
         var parsed = new List<HostEntry>(config.Deployment.Hosts.Count);
         foreach (var raw in config.Deployment.Hosts)
@@ -833,11 +723,11 @@ internal static class ConfigPhase
         var primary = HostParser.PickPrimary(parsed);
         if (primary is null)
         {
-            // No leaf-eligible entry (all CIDR, or empty after filtering) — Validate rejects later.
+            // All CIDR / empty after filtering — Validate rejects later.
             return;
         }
 
-        // API URL always https; port suffix omitted at 443 so proxy-fronted stacks get clean URLs.
+        // Port suffix omitted at 443 so proxy-fronted stacks get clean URLs.
         var apiPortSuffix = config.Ports.ApiHttps == DefaultHttpsPort
             ? string.Empty
             : $":{config.Ports.ApiHttps}";
@@ -855,8 +745,7 @@ internal static class ConfigPhase
 
         if (config.ApiRuntime.CorsAllowedOrigins.Count == 0)
         {
-            // CORS = client origins (wasm SPA + deep-link callers) → follow the web tier's
-            // scheme + port mapping. Suffix omitted at 80/443 defaults.
+            // CORS follows the web tier's scheme + port; suffix omitted at 80/443.
             var webHttps = config.Deployment.WebHttps;
             var webScheme = webHttps ? "https" : "http";
             var webPort = webHttps ? config.Ports.WebHttps : config.Ports.WebHttp;
@@ -870,10 +759,8 @@ internal static class ConfigPhase
         }
     }
 
-    /// <summary>
-    /// Validates a loaded or freshly-prompted config; throws on the first broken invariant
-    /// with an operator-readable message. Internal so tests can drive failures directly.
-    /// </summary>
+    /// <summary>Throws on the first broken invariant with an operator-readable message.
+    /// Internal for direct test-driven failure paths.</summary>
     internal static void Validate(BootstrapConfig config)
     {
         if (config.Deployment.Hosts.Count == 0)
@@ -916,8 +803,8 @@ internal static class ConfigPhase
         ValidatePort(config.Ports.Postgres, nameof(config.Ports.Postgres));
         ValidatePort(config.Ports.Scylla, nameof(config.Ports.Scylla));
 
-        // Docker compose can only bind each host port once; catch collisions here rather
-        // than surfacing as "port already allocated" deep inside the launch phase.
+        // Compose binds each host port once; catch collisions here, not as
+        // "port already allocated" mid-launch.
         var portFields = new (string Name, int Port)[]
         {
             (nameof(config.Ports.ApiHttp), config.Ports.ApiHttp),
@@ -939,12 +826,8 @@ internal static class ConfigPhase
             seen[port] = name;
         }
 
-        // config.databaseMode is now a strongly-typed enum; unknown wire values are rejected at
-        // JSON deserialization time by JsonStringEnumConverter (with the DatabaseMode member-name
-        // attributes), so an invalid string never survives long enough to reach this validator.
-
-        // Flows into the API connection string AND `CREATE DATABASE "<name>"`. Postgres-safe
-        // identifier keeps both call sites quoting-free within the 63-byte NAMEDATALEN budget.
+        // Postgres-safe identifier: quoting-free at both bind sites (connection string +
+        // CREATE DATABASE) within the 63-byte NAMEDATALEN budget.
         if (string.IsNullOrWhiteSpace(config.PostgresDatabase))
         {
             throw new InvalidOperationException(
@@ -957,9 +840,8 @@ internal static class ConfigPhase
                 "Allowed: 1..63 chars matching [A-Za-z_][A-Za-z0-9_]*.");
         }
 
-        // Flows into Cassandra's cassandra.yaml rewrite AND Scylla's `--cluster-name` argv.
-        // Pattern is the intersection of what both accept without quoting gymnastics;
-        // 1..64 chars matches Cassandra's documented limit.
+        // Intersection of what Cassandra's cassandra.yaml rewrite and Scylla's argv accept
+        // without quoting gymnastics; 1..64 matches Cassandra's documented limit.
         if (string.IsNullOrWhiteSpace(config.ClusterName))
         {
             throw new InvalidOperationException(
@@ -973,12 +855,7 @@ internal static class ConfigPhase
                 "Allowed: 1..64 chars matching [A-Za-z0-9 ._-].");
         }
 
-        // config.scyllaKeyspace is now a strongly-typed enum; unknown wire values are rejected at
-        // JSON deserialization time by JsonStringEnumConverter (with the ScyllaKeyspace
-        // member-name attributes).
-
-        // Derive first so the per-field validators below see the post-derivation values —
-        // JSON-load callers get the same end result as the interactive form.
+        // Derive first so JSON-load callers see the same post-derivation values as the form.
         ResolveDerivedDefaults(config);
 
         ValidateAbsoluteHttpUri(config.ApiRuntime.CallbackBaseUrl, "config.apiRuntime.callbackBaseUrl");
@@ -990,8 +867,8 @@ internal static class ConfigPhase
                 "config.apiRuntime.jwtAudience must be a non-empty token-audience identifier (default: 'octocon').");
         }
 
-        // CORS entries: WithOrigins() does exact string matching, so anything that doesn't
-        // round-trip through Uri.TryCreate(http/https) can never match — reject at bootstrap.
+        // WithOrigins() does exact string matching, so anything that doesn't round-trip
+        // through Uri.TryCreate(http/https) can never match — reject upfront.
         if (config.ApiRuntime.CorsAllowedOrigins.Count == 0)
         {
             throw new InvalidOperationException(
@@ -1004,25 +881,18 @@ internal static class ConfigPhase
             ValidateAbsoluteHttpUri(origin, "config.apiRuntime.corsAllowedOrigins entry");
         }
 
-        // config.cluster.nodeGroup is now a strongly-typed enum; unknown wire values are rejected
-        // at JSON deserialization time by JsonStringEnumConverter (with the NodeGroup member-name
-        // attributes).
-
-        // Both optional; AvatarStorageRoot lives inside the API container so we don't try
-        // to verify the path exists on the bootstrapper host.
+        // AvatarStorageRoot lives inside the API container — no host-side existence check.
         ValidateOptionalAbsoluteHttpUri(config.Storage.AvatarPublicBase, "config.storage.avatarPublicBase");
         ValidateOptionalAbsolutePath(
             config.Storage.AvatarStorageRoot,
             "config.storage.avatarStorageRoot",
             "must be an absolute path inside the API container (e.g. '/var/lib/interfold/avatars').");
 
-        // OTLP endpoint optional; http:// is legal (SDK accepts gRPC-over-HTTP/2).
+        // http:// is legal for OTLP (SDK accepts gRPC-over-HTTP/2).
         ValidateOptionalAbsoluteHttpUri(config.Observability.OtlpEndpoint, "config.observability.otlpEndpoint");
 
-        // Socket + persistence numeric bounds are pulled from the shared
-        // ConfigurationBounds table (Interfold.Contracts.Configuration.Validation) so the
-        // bootstrapper's operator-prompt validation and the API's [Range] attributes on
-        // the matching options classes stay lockstep — a tweak in one place lands in both.
+        // Numeric bounds come from ConfigurationBounds so the bootstrapper prompts and the
+        // API's [Range] attributes on the matching options stay lockstep.
         if (config.Socket.BatchBytesThreshold is { } socketThreshold)
         {
             ValidateIntRange(socketThreshold,
@@ -1043,7 +913,8 @@ internal static class ConfigPhase
         ValidateIntRange(config.Persistence.DbRetryMaxDelayMs,
             ConfigurationBounds.DbRetryMaxDelayMsMin,
             ConfigurationBounds.DbRetryMaxDelayMsMax,
-            "config.persistence.dbRetryMaxDelayMs");
+                "config.persistence.dbRetryMaxDelayMs");
+        // Cross-check catches the easy inverted-values mistake.
         if (config.Persistence.DbRetryMaxDelayMs < config.Persistence.DbRetryInitialDelayMs)
         {
             throw new InvalidOperationException(
@@ -1055,8 +926,7 @@ internal static class ConfigPhase
             ConfigurationBounds.HydrationMaxConcurrencyMax,
             "config.persistence.hydrationMaxConcurrency");
 
-        // Schedule check is intentionally permissive — the real validation is
-        // `systemd-analyze calendar` at install time; here we just reject obvious typos.
+        // Real schedule grammar validation is `systemd-analyze calendar` at install time.
         ValidateIntRange(config.Backup.RetainCount, 1, 1000, "config.backup.retainCount");
         if (string.IsNullOrWhiteSpace(config.Backup.Schedule))
         {

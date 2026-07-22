@@ -3,14 +3,8 @@ using Interfold.Infrastructure.Coordination;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
-/// <summary>
-/// Decorator over the real <see cref="InProcessImportJobQueue"/> that captures every
-/// enqueued <see cref="ImportJobItem"/> so tests can assert on what was enqueued
-/// without re-implementing the channel semantics. Shared by
-/// <c>ImportSpCommandHandlerDispatchTests</c> and
-/// <c>ImportPkCommandHandlerDispatchTests</c>; previously duplicated byte-for-byte in
-/// each file.
-/// </summary>
+// Decorator over InProcessImportJobQueue that captures every enqueued item so tests
+// can assert on it without re-implementing the channel semantics.
 internal sealed class CapturingQueue : IImportJobQueue, IAsyncDisposable
 {
     private readonly InProcessImportJobQueue _inner;

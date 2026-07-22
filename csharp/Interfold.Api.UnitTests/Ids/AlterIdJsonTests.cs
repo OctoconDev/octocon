@@ -3,23 +3,17 @@ using Interfold.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 
-/// <summary>
-/// Pins the JSON contract for <see cref="AlterId"/> now that the underlying value is a
-/// <see cref="short"/>: the wire remains a JSON number, round-trips in the smallint range
-/// are byte-identical to the pre-narrowing shape, and out-of-<c>short</c>-range numbers
-/// surface as a <see cref="JsonException"/> at the byte boundary (ASP.NET Core maps that
-/// to a 400 before the controller runs). This closes the previous gap where a payload
-/// like <c>{"id": 40000}</c> deserialised into an <see cref="AlterId"/> and only got
-/// caught downstream by <see cref="Interfold.Contracts.Validation.ValidAlterIdAttribute"/>.
-/// </summary>
+// AlterId JSON contract with a short-backed value: bare JSON number, byte-identical
+// round-trips in smallint range, out-of-range surfaces as JsonException at the byte
+// boundary (400 before the controller runs, not just at ValidAlterIdAttribute).
 public sealed class AlterIdJsonTests
 {
     [Test]
     [Arguments((short)1)]
     [Arguments((short)1000)]
     [Arguments(short.MaxValue)]
-    [Arguments((short)0)]           // zero survives the type boundary; ValidAlterIdAttribute rejects it later.
-    [Arguments((short)-1)]          // negatives round-trip too; only the range validator objects.
+    [Arguments((short)0)]
+    [Arguments((short)-1)]
     [Arguments(short.MinValue)]
     public async Task Json_InRangeSmallint_RoundTrips(short value)
     {
@@ -35,18 +29,12 @@ public sealed class AlterIdJsonTests
         }
     }
 
-    /// <summary>
-    /// Any number outside <see cref="short"/> range must be rejected by
-    /// <c>Utf8JsonReader.GetInt16</c>. That's the boundary at which the strict range
-    /// invariant now lives — no downstream handler needs a
-    /// <c>&gt; 32_767</c> guard for the "escaped the type system" case.
-    /// </summary>
     [Test]
-    [Arguments("32768")]              // one past short.MaxValue
-    [Arguments("-32769")]             // one past short.MinValue
-    [Arguments("2147483647")]         // int.MaxValue
-    [Arguments("-2147483648")]        // int.MinValue
-    [Arguments("9999999999999")]      // > int, still finite
+    [Arguments("32768")]
+    [Arguments("-32769")]
+    [Arguments("2147483647")]
+    [Arguments("-2147483648")]
+    [Arguments("9999999999999")]
     public async Task Json_OutOfShortRange_ThrowsJsonException(string numberLiteral)
     {
         await Assert.That(() => JsonSerializer.Deserialize<AlterId>(numberLiteral))
@@ -55,17 +43,15 @@ public sealed class AlterIdJsonTests
     }
 
     [Test]
-    [Arguments("\"5\"")]     // string, not a number
-    [Arguments("null")]      // AlterId is not nullable
-    [Arguments("true")]      // bool
-    [Arguments("[1]")]       // array
+    [Arguments("\"5\"")]
+    [Arguments("null")]
+    [Arguments("true")]
+    [Arguments("[1]")]
     public async Task Json_NonNumeric_ThrowsJsonException(string malformedJson)
     {
         await Assert.That(() => JsonSerializer.Deserialize<AlterId>(malformedJson))
             .ThrowsExactly<JsonException>();
     }
-
-    // ---------------- IParsable (route binding) -----------------------------
 
     [Test]
     public async Task IParsable_InRange_ReturnsAlterId()

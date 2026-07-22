@@ -7,22 +7,13 @@ namespace Interfold.Api.Services;
 
 public interface IAvatarStorage
 {
-    /// <summary>
-    /// Persist a system-level avatar and return the public URL as an <see cref="AvatarUrl"/>.
-    /// </summary>
+    /// <summary>Persists a system avatar; returns the public URL.</summary>
     Task<AvatarUrl> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Persist an alter-level avatar and return the public URL as an <see cref="AvatarUrl"/>.
-    /// </summary>
+    /// <summary>Persists an alter avatar; returns the public URL.</summary>
     Task<AvatarUrl> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Delete the file backing <paramref name="avatarUrl"/> when it is a local URL owned by
-    /// this storage. Accepts <see cref="AvatarUrl"/>? so callers stop unwrapping
-    /// <c>currentAvatarUrl?.Value</c> at the boundary — the wrapper preserves nullability
-    /// through <see cref="AvatarUrl.FromNullable"/>.
-    /// </summary>
+    /// <summary>Deletes the backing file when <paramref name="avatarUrl"/> is local to this storage.</summary>
     Task<bool> DeleteByUrlAsync(AvatarUrl? avatarUrl, CancellationToken cancellationToken = default);
 }
 
@@ -34,7 +25,7 @@ public sealed class LocalAvatarStorage : IAvatarStorage
     private readonly string _webRootFallback;
     private readonly string _publicBaseFallback;
 
-    // Read CurrentValue per-access so appsettings.json changes take effect without restart.
+    // Per-access CurrentValue so config reloads apply without restart.
     private string StorageRoot => _storageOptions.CurrentValue.AvatarStorageRoot ?? _webRootFallback;
     private string PublicBase  => _storageOptions.CurrentValue.AvatarPublicBase  ?? _publicBaseFallback;
 
@@ -59,8 +50,6 @@ public sealed class LocalAvatarStorage : IAvatarStorage
 
     public Task<bool> DeleteByUrlAsync(AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
     {
-        // AvatarUrl exposes .Value at the driver / filesystem boundary; the wrapper is a
-        // no-op at runtime but pins the primitive-obsession contract at compile time.
         if (avatarUrl is not { } url || string.IsNullOrWhiteSpace(url.Value))
             return Task.FromResult(false);
 
@@ -86,7 +75,6 @@ public sealed class LocalAvatarStorage : IAvatarStorage
         var relativePath = urlPath[basePath.Length..].TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
         var fullFilePath = Path.GetFullPath(Path.Combine(storageRoot, relativePath));
 
-        // Refuse to delete anything outside avatar storage root.
         if (!fullFilePath.StartsWith(storageRootWithSep, StringComparison.OrdinalIgnoreCase))
             return Task.FromResult(false);
 
@@ -98,11 +86,7 @@ public sealed class LocalAvatarStorage : IAvatarStorage
         return Task.FromResult(true);
     }
 
-    // targetId legitimately polymorphs between "self" (system avatar) and alterId.ToString()
-    // (alter avatar), so it stays a string segment — no wrapper covers both shapes. systemId
-    // is typed at the boundary so callers no longer pre-unwrap .Value only for this method
-    // to re-normalize immediately. Return type is AvatarUrl so the wrap happens in exactly
-    // one place instead of once per call site.
+    // targetId is "self" for system avatars, alterId.ToString() for alter avatars — no wrapper covers both.
     private async Task<AvatarUrl> SaveAsync(SystemId systemId, string targetId, Stream stream, CancellationToken cancellationToken)
     {
         var rawSystemId = ScopedSystemId.StripRegionPrefix(systemId);
@@ -131,12 +115,8 @@ public sealed class LocalAvatarStorage : IAvatarStorage
         return new($"{basePath}/{safeSystemId}/{safeTargetId}/{fileName}");
     }
 
-    /// <summary>
-    /// Normalises <see cref="StorageConfiguration.AvatarPublicBase"/> to the URL-path prefix
-    /// used for filesystem layout and delete matching. Absolute http(s) values keep their
-    /// full URL for stamping into <c>avatar_url</c> but expose <see cref="Uri.AbsolutePath"/>
-    /// here so path comparisons line up with request paths.
-    /// </summary>
+    /// <summary>Normalises to a URL-path prefix. Absolute http(s) values expose their
+    /// <see cref="Uri.AbsolutePath"/> so filesystem comparisons match request paths.</summary>
     private static string GetPublicBasePath(string publicBase)
     {
         if (Uri.TryCreate(publicBase, UriKind.Absolute, out var absolute)
