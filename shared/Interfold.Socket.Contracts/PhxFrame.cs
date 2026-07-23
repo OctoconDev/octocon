@@ -1,9 +1,9 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 /// <summary>
 /// A Phoenix-protocol WebSocket frame (object format).

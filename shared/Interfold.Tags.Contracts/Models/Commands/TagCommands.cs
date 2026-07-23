@@ -1,8 +1,8 @@
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Contracts.Models.Commands;
+namespace Interfold.Shared.Contracts.Models.Commands;
 
 /// <summary>
 /// Public-API callers send <c>InsertedAtUtc: default(DateTime)</c>. The handler stamps the

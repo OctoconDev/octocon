@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Operations;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Operations;
 
 namespace Interfold.Domain.Polls;
 

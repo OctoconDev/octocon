@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;

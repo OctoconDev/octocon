@@ -1,5 +1,5 @@
 using Interfold.Infrastructure.InMemory.Repository;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Coordination;
 

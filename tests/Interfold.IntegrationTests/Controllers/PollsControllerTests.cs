@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text.Json;
-using Interfold.Contracts;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Controllers;

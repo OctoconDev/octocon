@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Api.Socket;

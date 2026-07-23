@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <!-- PollSocketPayload / PollDeletedSocketPayload implement ISocketPayload. -->
     <ProjectReference Include="..\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
   </ItemGroup>

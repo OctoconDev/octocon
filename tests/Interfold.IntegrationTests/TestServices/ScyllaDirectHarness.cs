@@ -1,5 +1,5 @@
 using Cassandra;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Scylla;
 using Microsoft.Extensions.DependencyInjection;
 

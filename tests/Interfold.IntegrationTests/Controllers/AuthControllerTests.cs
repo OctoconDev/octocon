@@ -1,10 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;

@@ -1,6 +1,6 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 public static class SocketJson
 {    public static JsonSerializerOptions Options { get; } = new()

@@ -1,11 +1,11 @@
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
-// Socket aggregate join payloads. Namespace preserved as Interfold.Contracts for
-// wire-compat; physical file moved out of shared/Interfold.Contracts/SocketPayloadContracts.cs
+// Socket aggregate join payloads. Namespace preserved as Interfold.Shared.Contracts for
+// wire-compat; physical file moved out of shared/Interfold.Shared.Contracts/SocketPayloadContracts.cs
 // during the Phase-3 Alters slice to break the spine-batch-DTO cycle with
 // Interfold.Alters.Contracts (each binds IReadOnlyList<AlterReadModel>). These migrate
 // into the Socket module (Phase 3 #10); the same relocation is what lets AlterReadModel,

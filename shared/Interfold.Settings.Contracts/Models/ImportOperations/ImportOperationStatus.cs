@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Contracts.Models.ImportOperations;
+namespace Interfold.Shared.Contracts.Models.ImportOperations;
 
 /// <summary>
 /// Lifecycle of an asynchronous third-party import (SP or PK). Persisted in the

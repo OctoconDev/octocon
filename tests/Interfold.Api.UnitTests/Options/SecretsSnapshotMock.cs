@@ -1,5 +1,5 @@
 using Interfold.Api.Services.Secrets;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Options;
 using TUnit.Mocks;
 

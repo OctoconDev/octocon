@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models.Read;
+namespace Interfold.Shared.Contracts.Models.Read;
 
 /// <summary>
 /// Response body for <c>GET /settings/link_token</c>. The token JSON-serializes as the raw

@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Coordination;

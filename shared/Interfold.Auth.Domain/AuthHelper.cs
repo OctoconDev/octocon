@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure;
 

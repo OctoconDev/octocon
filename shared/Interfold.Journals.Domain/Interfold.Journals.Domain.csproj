@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
-    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
   </ItemGroup>
 </Project>

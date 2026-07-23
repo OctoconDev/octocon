@@ -30,7 +30,7 @@
          AddInterfoldCluster). Systems (#7) has the same exception for a different reason
          (repository-interface access after slice #8 relocations); Ops is the second and,
          per current planning, last facade to invoke this exception. TrustOptions +
-         NodeGroup live on Interfold.Contracts, reachable transitively via Interfold.Domain
+         NodeGroup live on Interfold.Shared.Contracts, reachable transitively via Interfold.Domain
          and Interfold.Api.Shared, so no other feature refs are needed. -->
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
   </ItemGroup>

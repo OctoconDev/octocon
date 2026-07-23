@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using Interfold.Api.Services.OAuth;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.Options;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Api.Auth;
 
 namespace Interfold.Api.Services;

@@ -1,6 +1,6 @@
 using System;
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.Infrastructure.DependencyInjection;

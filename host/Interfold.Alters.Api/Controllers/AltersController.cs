@@ -3,17 +3,17 @@ using System.Text;
 using Interfold.Api.Helpers;
 using Interfold.Api.Models;
 using Interfold.Api.Services;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Models.Read;
-using Interfold.Contracts.Operations;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Operations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Alters;
 using Interfold.Api.Controllers.Base;
-using Interfold.Contracts;
-using Interfold.Contracts.Validation;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Validation;
 
 namespace Interfold.Api.Controllers;
 

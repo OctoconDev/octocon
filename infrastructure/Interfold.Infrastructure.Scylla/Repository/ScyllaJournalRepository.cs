@@ -1,8 +1,8 @@
 using Cassandra;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Contracts.Enums;
+namespace Interfold.Shared.Contracts.Enums;
 
 /// <summary>
 /// The supported external OAuth identity providers. Route segments and socket/cluster event

@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json.Serialization;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 // Status is HTTP semantics; JsonNumberEnumConverter pins the historical bare-number wire
 // form (SocketJson has no enum policy, but explicit is safer than relying on the default).

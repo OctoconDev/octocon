@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Api.Services.Secrets;

@@ -1,4 +1,4 @@
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;

@@ -3,10 +3,10 @@ extern alias AppHost;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
@@ -157,7 +157,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         // Single session-wide Postgres migration pass; per-test factories strip the hosted service.
         var persistenceConfig = new PersistenceConfiguration
         {
-            Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
+            Mode = Interfold.Shared.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = PostgresConnectionString,
             IsSingleScyllaInstance = true,
             ScyllaKeyspace = ScyllaKeyspace.Nam,

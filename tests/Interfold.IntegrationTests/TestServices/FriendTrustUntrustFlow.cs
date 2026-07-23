@@ -1,5 +1,5 @@
 using System.Net.WebSockets;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using Interfold.IntegrationTests.Endpoints;
 
 namespace Interfold.IntegrationTests.TestServices;

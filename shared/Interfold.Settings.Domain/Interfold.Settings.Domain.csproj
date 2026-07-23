@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
     <!-- Six peer feature.Domain refs — DeleteAccountCommandHandler injects every peer repo

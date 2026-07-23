@@ -1,16 +1,16 @@
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Secrets;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.Infrastructure.Coordination;
 

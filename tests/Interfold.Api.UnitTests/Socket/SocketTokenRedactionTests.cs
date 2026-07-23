@@ -1,4 +1,4 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Socket;
 

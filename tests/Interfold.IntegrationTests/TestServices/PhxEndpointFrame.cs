@@ -1,4 +1,4 @@
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.IntegrationTests.TestServices;
 

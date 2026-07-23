@@ -1,7 +1,7 @@
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models.Commands;
+namespace Interfold.Shared.Contracts.Models.Commands;
 
 public sealed record UploadAvatarCommand(AvatarUrl AvatarUrl, AvatarSource Source);
 

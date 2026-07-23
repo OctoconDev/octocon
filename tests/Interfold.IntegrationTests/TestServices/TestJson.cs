@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Interfold.Api.Models;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.IntegrationTests.TestServices;
 

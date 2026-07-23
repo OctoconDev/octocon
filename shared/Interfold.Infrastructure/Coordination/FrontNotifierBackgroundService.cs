@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
-using Interfold.Contracts.Events;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Events;
+using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Interfold.Domain.Abstractions;

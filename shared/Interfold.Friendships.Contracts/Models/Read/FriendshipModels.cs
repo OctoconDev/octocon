@@ -1,8 +1,8 @@
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Contracts.Models.Read;
+namespace Interfold.Shared.Contracts.Models.Read;
 
 // DiscordId here is the friend's real linked Discord id from the users table (exposed to
 // friends over the wire); the raw-string converter keeps the body shape unchanged.
@@ -90,9 +90,9 @@ public static class FriendRequestMutationOutcomeExtensions
     {
         return outcome switch
         {
-            FriendRequestMutationOutcome.AlreadyFriends => Interfold.Contracts.Operations.EntityRefs.FriendRequestAlreadyFriends,
-            FriendRequestMutationOutcome.NotRequested => Interfold.Contracts.Operations.EntityRefs.FriendRequestNotRequested,
-            FriendRequestMutationOutcome.NoUser => Interfold.Contracts.Operations.EntityRefs.FriendRequestNoUser,
+            FriendRequestMutationOutcome.AlreadyFriends => Interfold.Shared.Contracts.Operations.EntityRefs.FriendRequestAlreadyFriends,
+            FriendRequestMutationOutcome.NotRequested => Interfold.Shared.Contracts.Operations.EntityRefs.FriendRequestNotRequested,
+            FriendRequestMutationOutcome.NoUser => Interfold.Shared.Contracts.Operations.EntityRefs.FriendRequestNoUser,
             _ => null
         };
     }

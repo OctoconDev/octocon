@@ -1,6 +1,6 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;

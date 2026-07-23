@@ -1,12 +1,12 @@
-﻿using Interfold.Contracts;
-using Interfold.Contracts.Events;
-using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Operations;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Events;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Operations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Domain.Settings;
 

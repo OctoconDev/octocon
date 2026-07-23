@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
 using Cassandra;
 using System.Security.Cryptography;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;

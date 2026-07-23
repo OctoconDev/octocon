@@ -1,12 +1,12 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Abstractions;
-using Interfold.Contracts.Models;
+using Interfold.Shared.Contracts.Models;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
 

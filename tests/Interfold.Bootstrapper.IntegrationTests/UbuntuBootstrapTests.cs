@@ -3,7 +3,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;

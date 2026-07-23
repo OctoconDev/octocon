@@ -1,5 +1,5 @@
 using Interfold.Api.Models;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using Microsoft.AspNetCore.Diagnostics;
 
 namespace Interfold.Api.Services;

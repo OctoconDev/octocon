@@ -1,6 +1,6 @@
-using Interfold.Contracts.Events;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts.Events;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;

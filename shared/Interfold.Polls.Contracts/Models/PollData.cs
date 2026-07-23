@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models;
+namespace Interfold.Shared.Contracts.Models;
 
 // Server-side producer/mutator models for the poll `data` blob interior. Wire is
 // two closed schemas keyed by poll type:

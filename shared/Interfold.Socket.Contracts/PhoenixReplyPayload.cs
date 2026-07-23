@@ -1,5 +1,5 @@
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 public sealed record PhoenixReplyPayload<TResponse>(PhoenixReplyStatus Status, TResponse Response) : ISocketPayload;

@@ -16,14 +16,14 @@
 
   <PropertyGroup>
     <!-- INTERFOLD_DBBOOT_LINKED makes the linked SecretsStoreKeys.cs internal here,
-         avoiding CS0433 with Interfold.Contracts' public copy when a consumer references both. -->
+         avoiding CS0433 with Interfold.Shared.Contracts' public copy when a consumer references both. -->
     <DefineConstants>$(DefineConstants);INTERFOLD_DBBOOT_LINKED</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Linked (not project-referenced) to keep this project dependency-free
          while sharing one source of truth for internal.secrets row keys. -->
-    <Compile Include="..\..\shared\Interfold.Contracts\Secrets\SecretsStoreKeys.cs"
+    <Compile Include="..\..\shared\Interfold.Shared.Contracts\Secrets\SecretsStoreKeys.cs"
              Link="SecretsStoreKeys.cs" />
   </ItemGroup>
 

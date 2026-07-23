@@ -1,4 +1,4 @@
-using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.InMemory.Repository;
 

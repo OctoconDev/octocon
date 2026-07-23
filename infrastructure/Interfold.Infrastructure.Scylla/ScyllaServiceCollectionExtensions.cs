@@ -1,5 +1,5 @@
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;

@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 using Spectre.Console;
 using Spectre.Console.Testing;
 using TUnit.Core;

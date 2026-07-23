@@ -3,7 +3,7 @@ using System.Text.Json;
 using Interfold.Api.Models;
 using Interfold.Api.ModelBinding;
 using Interfold.Api.Services;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using JsonOptions = Microsoft.AspNetCore.Mvc.JsonOptions;

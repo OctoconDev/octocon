@@ -1,5 +1,5 @@
 using System.Globalization;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Secrets;
 
 namespace Interfold.DatabaseBootstrap;
 

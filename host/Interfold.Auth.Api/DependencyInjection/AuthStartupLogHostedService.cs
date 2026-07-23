@@ -1,4 +1,4 @@
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Auth.Api.DependencyInjection;

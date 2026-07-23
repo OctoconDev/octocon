@@ -1,11 +1,11 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Http;
 using Interfold.Api.SimplyPlural;
-using Interfold.Contracts;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Domain.Abstractions;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;

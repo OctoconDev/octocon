@@ -1,6 +1,6 @@
 using System.Net;
 using Interfold.Bootstrapper.Cli;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Util;
 

@@ -1,5 +1,5 @@
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;

@@ -4,10 +4,10 @@ using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Cassandra;
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
@@ -114,7 +114,7 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
         // Migrations use SharedDbFixture's internal.secrets creds but the multi-DC endpoint.
         var persistenceConfig = new PersistenceConfiguration
         {
-            Mode = Interfold.Contracts.PersistenceMode.ScyllaPostgres,
+            Mode = Interfold.Shared.Contracts.PersistenceMode.ScyllaPostgres,
             PostgresConnectionString = SharedDb.PostgresConnectionString,
             IsSingleScyllaInstance = false,
             ScyllaKeyspace = ScyllaKeyspace.Nam,

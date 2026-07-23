@@ -1,5 +1,5 @@
 using System.Net.WebSockets;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

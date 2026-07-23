@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.Api.Socket;
 

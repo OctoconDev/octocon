@@ -4,7 +4,7 @@ using Interfold.Api.Services.ImportJobs;
 using Interfold.Domain;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.Api.SimplyPlural;

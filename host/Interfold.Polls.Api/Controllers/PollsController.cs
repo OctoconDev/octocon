@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Api.Models;
-using Interfold.Contracts;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Operations;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Operations;
 using Interfold.Domain.Polls;
-using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Api.Controllers.Base;
 

@@ -2,8 +2,8 @@ using System.Security.Claims;
 using Interfold.Api.Controllers.Base;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Controllers;
-using Interfold.Contracts;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.Middleware;
 

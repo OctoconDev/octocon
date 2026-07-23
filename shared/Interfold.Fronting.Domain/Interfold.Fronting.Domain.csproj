@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
-    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
     <!-- Feature.Domain -> feature.Contracts arrow: SetPrimaryFrontCommandHandler publishes
          SettingsProfileUpdatedEvent, which moved into Interfold.Settings.Contracts.Events

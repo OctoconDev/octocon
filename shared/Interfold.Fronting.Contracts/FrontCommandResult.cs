@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 public sealed record FrontCommandResult(SystemId SystemId, AlterId? AlterId, FrontId? FrontId, bool Replay) : ICommandResult<FrontCommandResult>
 {

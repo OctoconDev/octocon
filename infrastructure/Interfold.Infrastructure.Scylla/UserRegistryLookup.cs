@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Infrastructure.Scylla;
 
@@ -24,7 +24,7 @@ internal enum UserRegistryLookupKind
 
 /// <summary>Pre-resolution handle to a <c>user_registry</c> row, parsed from a raw
 /// client-supplied string. Scylla-only — friend-request routing uses the tighter
-/// <see cref="Interfold.Contracts.Ids.FriendLookup"/>.
+/// <see cref="Interfold.Shared.Contracts.Ids.FriendLookup"/>.
 ///
 /// <para><b>Strict rejection of unknown non-region prefixes.</b> Inputs like
 /// <c>"xxx:abcdefg"</c> return <see langword="false"/> from <see cref="TryParse"/>.
@@ -75,7 +75,7 @@ internal readonly record struct UserRegistryLookup
         var afterColon = input[(separator + 1)..];
 
         // Region prefixes win — they are the canonical scoped-id shape.
-        if (EnumWire<Contracts.Enums.ScyllaKeyspace>.TryParse(prefix, out _))
+        if (EnumWire<Interfold.Shared.Contracts.Enums.ScyllaKeyspace>.TryParse(prefix, out _))
         {
             handle = new UserRegistryLookup(UserRegistryLookupKind.Region, afterColon, input);
             return true;

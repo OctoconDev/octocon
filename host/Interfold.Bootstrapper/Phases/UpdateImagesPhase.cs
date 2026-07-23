@@ -3,7 +3,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 

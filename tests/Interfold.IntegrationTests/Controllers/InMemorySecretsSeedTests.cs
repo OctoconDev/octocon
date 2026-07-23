@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Controllers;

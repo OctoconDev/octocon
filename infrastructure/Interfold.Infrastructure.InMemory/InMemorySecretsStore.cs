@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Secrets;
 
 namespace Interfold.Infrastructure.InMemory;
 

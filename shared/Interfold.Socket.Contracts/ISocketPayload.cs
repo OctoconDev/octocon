@@ -1,4 +1,4 @@
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 /// <summary>Marker interface for socket event payloads.</summary>
 public interface ISocketPayload { }

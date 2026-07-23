@@ -1,5 +1,5 @@
 using Cassandra;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 

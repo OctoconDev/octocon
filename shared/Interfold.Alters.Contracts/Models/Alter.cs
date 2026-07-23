@@ -1,8 +1,8 @@
 using System.Text.Json.Serialization;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models;
+namespace Interfold.Shared.Contracts.Models;
 
 public class BareAlter : IAvatarBearing {
     public static BareAlter CreatePlaceholder(AlterId id) => new(id, $"Alter {id}", null, null, null, null, null, Array.Empty<AlterPublicFieldReadModel>());

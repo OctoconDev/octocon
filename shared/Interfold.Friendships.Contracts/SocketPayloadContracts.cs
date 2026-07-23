@@ -1,7 +1,7 @@
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 public sealed record FriendRequestSocketPayload(FriendshipRequestModel Request, FriendProfileReadModel System) : ISocketPayload;
 

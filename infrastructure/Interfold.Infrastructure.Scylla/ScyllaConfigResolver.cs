@@ -1,6 +1,6 @@
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla;

@@ -2,9 +2,9 @@ using Aspire.Hosting;
 using Interfold.AppHostGraph;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.Configuration;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 

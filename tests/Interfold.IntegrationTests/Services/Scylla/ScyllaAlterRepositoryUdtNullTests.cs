@@ -1,7 +1,7 @@
 using Cassandra;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Scylla;
 using Interfold.Infrastructure.Scylla.Repository;

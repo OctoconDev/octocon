@@ -1,6 +1,6 @@
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;

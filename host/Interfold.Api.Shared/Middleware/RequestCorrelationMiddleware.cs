@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Primitives;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.Api.Middleware;
 

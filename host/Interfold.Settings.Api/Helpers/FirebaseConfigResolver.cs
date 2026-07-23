@@ -3,10 +3,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Interfold.Api.Models;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
 using Microsoft.AspNetCore.Http;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.Api.Helpers;
 

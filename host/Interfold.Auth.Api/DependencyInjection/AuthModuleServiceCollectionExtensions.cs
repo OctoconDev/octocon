@@ -1,8 +1,8 @@
 using Interfold.Api.Auth;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Secrets;
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
 using Interfold.Domain.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;

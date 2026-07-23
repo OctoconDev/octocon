@@ -1,7 +1,7 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -246,7 +246,7 @@ internal static class RestorePhase
             TimeSpan.FromMinutes(10),
             logger,
             ct,
-            runAsRole: Interfold.Contracts.Configuration.PostgresRoles.Init);
+            runAsRole: Interfold.Shared.Contracts.Configuration.PostgresRoles.Init);
     }
 
 }

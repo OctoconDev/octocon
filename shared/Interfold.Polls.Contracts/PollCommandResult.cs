@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 public sealed record PollCommandResult(SystemId SystemId, PollId PollId, bool Replay) : ICommandResult<PollCommandResult>
 {

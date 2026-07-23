@@ -10,10 +10,10 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Interfold.Api.Helpers;
 using Interfold.Api.Models;
-using Interfold.Contracts;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 

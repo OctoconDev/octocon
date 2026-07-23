@@ -1,7 +1,7 @@
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models.Read;
+namespace Interfold.Shared.Contracts.Models.Read;
 
 public sealed record SettingsUsernameRequest(
     Username Username

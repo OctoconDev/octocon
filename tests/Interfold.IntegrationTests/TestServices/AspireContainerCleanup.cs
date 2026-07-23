@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.IntegrationTests.TestServices;
 

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Contracts.Ids;
+namespace Interfold.Shared.Contracts.Ids;
 
 /// <summary>
 /// Device push-notification registration token (FCM/APNs). Carried on

@@ -1,6 +1,6 @@
 using System.Net;
 using Interfold.Api.Models;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Controllers;

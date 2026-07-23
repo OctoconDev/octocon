@@ -1,5 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;

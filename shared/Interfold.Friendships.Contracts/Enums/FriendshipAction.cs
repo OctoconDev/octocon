@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Contracts.Enums;
+namespace Interfold.Shared.Contracts.Enums;
 
 /// <summary>
 /// Outcome verb carried on <c>FriendshipCommandResult.Action</c>. Serialized into persisted

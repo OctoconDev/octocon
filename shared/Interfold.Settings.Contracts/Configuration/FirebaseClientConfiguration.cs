@@ -1,4 +1,4 @@
-namespace Interfold.Contracts.Configuration;
+namespace Interfold.Shared.Contracts.Configuration;
 
 /// <summary>Per-platform Firebase client-init payloads served by
 /// <c>GET /api/settings/firebase-config?platform=…</c>. Public values — safe over an

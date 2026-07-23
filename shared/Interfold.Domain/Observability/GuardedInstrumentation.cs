@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Domain.Observability;

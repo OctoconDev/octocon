@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models.Commands;
+namespace Interfold.Shared.Contracts.Models.Commands;
 
 public sealed record StartFrontCommand(AlterId AlterId, string? Comment);
 

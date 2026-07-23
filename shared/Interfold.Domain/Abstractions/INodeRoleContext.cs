@@ -1,4 +1,4 @@
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Domain.Abstractions;
 

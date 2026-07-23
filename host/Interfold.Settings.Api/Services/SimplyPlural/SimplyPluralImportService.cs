@@ -2,18 +2,18 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text;
 using Interfold.Api.Services.SimplyPlural;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Domain;
 using Interfold.Domain.Abstractions;
 using Interfold.Domain.Abstractions.ImportJobs;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
-using Interfold.Contracts;
-using Interfold.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Models.ImportOperations;
 
 namespace Interfold.Api.Services;
 

@@ -3,13 +3,13 @@ using Interfold.Api.Controllers.Base;
 using Interfold.Api.Filters;
 using Interfold.Api.Helpers;
 using Interfold.Api.Models;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 using Microsoft.AspNetCore.Mvc;
-using Interfold.Contracts;
-using Interfold.Contracts.Validation;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Validation;
 
 namespace Interfold.Api.Controllers;
 

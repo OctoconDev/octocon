@@ -1,7 +1,7 @@
-using Interfold.Contracts;
-using Interfold.Contracts.Events;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Events;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;

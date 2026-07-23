@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text.Json;
-using Interfold.Contracts;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Events;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Events;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;

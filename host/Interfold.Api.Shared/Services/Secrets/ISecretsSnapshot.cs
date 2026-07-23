@@ -1,4 +1,4 @@
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Secrets;
 
 namespace Interfold.Api.Services.Secrets;
 

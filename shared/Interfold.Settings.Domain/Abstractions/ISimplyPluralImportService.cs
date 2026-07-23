@@ -1,4 +1,4 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Domain.Abstractions.ImportJobs;
 
 namespace Interfold.Domain.Abstractions;

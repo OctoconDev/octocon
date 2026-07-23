@@ -1,5 +1,5 @@
 using Cassandra;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;

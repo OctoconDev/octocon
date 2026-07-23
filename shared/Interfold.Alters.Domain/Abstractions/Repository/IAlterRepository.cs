@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
-using Interfold.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Models.Commands;
 
 namespace Interfold.Domain.Abstractions.Repository;
 

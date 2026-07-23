@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Events;
+namespace Interfold.Shared.Contracts.Events;
 
 public sealed record FriendshipAddedEvent(ScopedSystemId TargetSystemId, SystemId SystemId) : ITargetedClusterEvent;
 

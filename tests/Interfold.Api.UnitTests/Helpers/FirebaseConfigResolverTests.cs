@@ -1,9 +1,9 @@
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using System.Net;
 using System.Text.Json;
 using Interfold.Api.Helpers;
 using Interfold.Api.Models;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.AspNetCore.Http;
 
 namespace Interfold.Api.UnitTests.Helpers;

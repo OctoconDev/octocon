@@ -1,6 +1,6 @@
 using System.Net.Sockets;
 using Cassandra;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Interfold.DatabaseBootstrap;
 using Npgsql;
 

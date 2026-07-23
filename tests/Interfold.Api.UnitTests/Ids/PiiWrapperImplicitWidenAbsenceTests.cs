@@ -1,9 +1,9 @@
 using System.Reflection;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 
-// Pins that no PII-redacting wrapper (Category B) in Interfold.Contracts.Ids ships an
+// Pins that no PII-redacting wrapper (Category B) in Interfold.Shared.Contracts.Ids ships an
 // `implicit operator string`. Adding one silently defeats SecretRedaction under any
 // Foo(string) overload; interim guardrail until a Roslyn analyzer catches it at PR time.
 public sealed class PiiWrapperImplicitWidenAbsenceTests

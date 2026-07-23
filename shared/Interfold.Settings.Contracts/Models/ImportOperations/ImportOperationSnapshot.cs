@@ -1,7 +1,7 @@
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models.ImportOperations;
+namespace Interfold.Shared.Contracts.Models.ImportOperations;
 
 /// <summary>Read-side snapshot of a row in <c>import_operations</c>. Carries every column
 /// so callers can decide (publish completion, mark failed, retry) without a repository

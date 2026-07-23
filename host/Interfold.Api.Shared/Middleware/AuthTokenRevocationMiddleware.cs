@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Interfold.Api.Models;
-using Interfold.Contracts;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Middleware;

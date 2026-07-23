@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.Socket;
 

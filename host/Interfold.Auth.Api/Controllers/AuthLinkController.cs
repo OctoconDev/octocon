@@ -2,18 +2,18 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Operations;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Operations;
 using Interfold.Api.Services;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Api.Controllers.Base;
 using Interfold.Api.Models;
-using Interfold.Contracts;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Api.Auth;
 using Interfold.Domain.Auth;
-using Interfold.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Models.Commands;
 
 namespace Interfold.Api.Controllers;
 

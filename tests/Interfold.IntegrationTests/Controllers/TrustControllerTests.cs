@@ -2,14 +2,14 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using Interfold.IntegrationTests.TestServices;
 
 namespace Interfold.IntegrationTests.Controllers;
 
 /// <summary>
 /// HTTP-level coverage of <c>TrustController</c> (<c>/.well-known/interfold-root-ca.*</c>).
-/// Each test constructs a fresh factory so the env-bound <see cref="Interfold.Contracts.Configuration.TrustOptions"/>
+/// Each test constructs a fresh factory so the env-bound <see cref="Interfold.Shared.Contracts.Configuration.TrustOptions"/>
 /// snapshot — read once at startup via <see cref="Microsoft.Extensions.Options.IOptions{T}"/> —
 /// captures the per-test path the case under test wants to exercise. In-memory persistence is
 /// used because the trust routes don't touch any persistence surface and the inmemory factory

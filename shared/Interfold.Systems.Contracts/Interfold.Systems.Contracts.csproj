@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <!-- Facade Contracts. PublicSystemBatchReadModel binds FriendshipReadModel +
          IReadOnlyList<TagPublicReadModel> + IReadOnlyList<BareAlter>, so this project
          reaches four peer feature Contracts. First non-Alters feature Contracts to

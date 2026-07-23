@@ -29,7 +29,7 @@
                       IsAspireProjectResource="false"
                       Private="true" />
     <ProjectReference Include="..\..\host\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <!-- Settings.Contracts hosts FirebaseAndroid/Ios/WebClientConfig (used by FirebasePhase);
          travels with the Settings-slice extraction of FirebaseClientConfiguration. -->
     <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />

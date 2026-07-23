@@ -1,7 +1,7 @@
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
 public sealed record AlterSocketPayload(AlterReadModel Alter) : ISocketPayload;
 

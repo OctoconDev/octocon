@@ -1,6 +1,6 @@
 using Cassandra;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

@@ -1,8 +1,8 @@
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
-using Interfold.Contracts.Enums;
+using Interfold.Shared.Contracts.Enums;
 using TUnit.Core;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.UnitTests;
 

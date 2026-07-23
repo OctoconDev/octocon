@@ -1,7 +1,7 @@
-﻿using Cassandra;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Enums;
-using Interfold.Contracts.Ids;
+using Cassandra;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Scylla;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;

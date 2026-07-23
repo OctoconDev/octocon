@@ -53,7 +53,7 @@
     <PackageReference Include="Swashbuckle.AspNetCore" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\shared\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
   </ItemGroup>
 </Project>

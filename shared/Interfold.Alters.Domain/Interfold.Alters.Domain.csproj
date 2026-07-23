@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
-    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <!-- ISettingsFieldRepository (bound by AlterFieldProjection.ResolveVisibleDefinitionsAsync +
          ResolveGuardedFields) is reached via Interfold.Domain — kept there as an in-slice
          deviation from the Phase-3 Settings slice #8 plan because relocating it to

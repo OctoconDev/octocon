@@ -1,5 +1,5 @@
 using System.Collections.Frozen;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.Api.Services;
 

@@ -1,6 +1,6 @@
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Contracts.Models.Commands;
+namespace Interfold.Shared.Contracts.Models.Commands;
 
 // Persisted + idempotency-hashed payload; Username's raw-string converter keeps stored
 // hashes valid.

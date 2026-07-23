@@ -1,7 +1,7 @@
 using System;
 using Cassandra;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Read;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 

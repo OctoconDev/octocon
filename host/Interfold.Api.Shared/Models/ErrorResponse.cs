@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json.Serialization;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.Api.Models;
 

@@ -1,4 +1,4 @@
-namespace Interfold.Contracts.Configuration;
+namespace Interfold.Shared.Contracts.Configuration;
 
 /// <summary>FCM v1 service-account credential — PRIVATE, never surfaced through HTTP.
 /// Populated by <c>FcmSecretsPostConfigure</c> from

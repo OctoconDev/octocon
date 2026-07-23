@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 

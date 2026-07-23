@@ -1,11 +1,11 @@
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Contracts;
+namespace Interfold.Shared.Contracts;
 
-// Extracted from Interfold.Contracts/SocketPayloadContracts.cs during Phase-3 Tags migration.
+// Extracted from Interfold.Shared.Contracts/SocketPayloadContracts.cs during Phase-3 Tags migration.
 // The cross-feature aggregate join payloads (SocketJoinInitPayload, SocketJoinBatchedPayload)
-// still reference IReadOnlyList<TagReadModel> and stay in Interfold.Contracts — Interfold.Contracts
+// still reference IReadOnlyList<TagReadModel> and stay in Interfold.Shared.Contracts — Interfold.Shared.Contracts
 // grew a spine back-ref to Interfold.Tags.Contracts to keep them compiling. Both dissolve when
 // the Socket feature (Phase 3 #10) takes the aggregate join payloads.
 

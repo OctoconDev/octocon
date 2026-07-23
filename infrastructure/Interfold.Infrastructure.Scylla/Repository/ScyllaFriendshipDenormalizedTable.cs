@@ -1,5 +1,5 @@
 using Cassandra;
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 

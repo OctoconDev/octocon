@@ -1,4 +1,4 @@
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 using TUnit.Core.Interfaces;
 
 namespace Interfold.IntegrationTests.TestServices;

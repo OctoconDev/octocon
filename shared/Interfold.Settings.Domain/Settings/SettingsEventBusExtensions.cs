@@ -1,5 +1,5 @@
-using Interfold.Contracts.Events;
-using Interfold.Contracts.Ids;
+using Interfold.Shared.Contracts.Events;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Domain.Abstractions;
 
 namespace Interfold.Domain.Settings;

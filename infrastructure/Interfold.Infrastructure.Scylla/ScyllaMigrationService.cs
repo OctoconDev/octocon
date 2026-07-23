@@ -4,8 +4,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Cassandra;
-using Interfold.Contracts.Configuration;
-using Interfold.Contracts.Secrets;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,8 +29,8 @@ public sealed partial class ScyllaMigrationService(
 {
     // Derived from ScyllaKeyspace so the regional list can't drift from IRegionContext.
     private static readonly string[] RegionalKeyspaces =
-        Enum.GetValues<Contracts.Enums.ScyllaKeyspace>()
-            .Select(Contracts.Enums.EnumWire<Contracts.Enums.ScyllaKeyspace>.ToWire)
+        Enum.GetValues<Interfold.Shared.Contracts.Enums.ScyllaKeyspace>()
+            .Select(Interfold.Shared.Contracts.Enums.EnumWire<Interfold.Shared.Contracts.Enums.ScyllaKeyspace>.ToWire)
             .ToArray();
 
     private static readonly string[] SingletonKeyspaces = ["global", "nam_nt", "dummy"];

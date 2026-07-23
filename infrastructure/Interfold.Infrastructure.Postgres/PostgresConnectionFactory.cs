@@ -1,4 +1,4 @@
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 using Npgsql;

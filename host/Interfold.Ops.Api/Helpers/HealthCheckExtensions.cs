@@ -1,4 +1,4 @@
-using Interfold.Contracts.Configuration;
+using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Interfold.Api.Helpers;

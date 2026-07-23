@@ -1,14 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Api.ModelBinding;
 using Interfold.Api.Models;
-using Interfold.Contracts.Ids;
-using Interfold.Contracts.Models.Commands;
-using Interfold.Contracts.Models.Read;
-using Interfold.Contracts.Operations;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Operations;
 using Interfold.Domain.Abstractions.Repository;
 using Interfold.Domain.Fronting;
 using Interfold.Api.Controllers.Base;
-using Interfold.Contracts;
+using Interfold.Shared.Contracts;
 
 namespace Interfold.Api.Controllers;
 

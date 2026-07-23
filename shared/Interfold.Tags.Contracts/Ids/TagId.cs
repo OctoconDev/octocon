@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
-namespace Interfold.Contracts.Ids;
+namespace Interfold.Shared.Contracts.Ids;
 
 /// <summary>Strongly-typed wrapper around a tag id (Guid, wire form is 32-char lowercase hex).</summary>
 [JsonConverter(typeof(TagIdJsonConverter))]
