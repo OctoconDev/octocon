@@ -10,7 +10,7 @@
          still binds three internals (WithDedicatedPoolIdentity + LoaderApplicationName +
          LoaderMaxPoolSize). Same test-project-sees-composition-host pattern that
          Interfold.IntegrationTests already uses via WebApplicationFactory<Program>. -->
-    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
+    <InternalsVisibleTo Include="Interfold.Shared.UnitTests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\apis\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />

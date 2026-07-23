@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Cross-feature unit tests + shared test-support plumbing consumed by every per-feature
+       Interfold.<Feature>.UnitTests project. Reaches internals of Interfold.Shared.Api and
+       Interfold.Api.Host via matching InternalsVisibleTo grants in each of those csprojs. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Interfold.Api.UnitTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="TUnit.Mocks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\hosts\Interfold.Api.Host\Interfold.Api.Host.csproj" />
+    <ProjectReference Include="..\..\..\apis\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />
+    <ProjectReference Include="..\..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <ProjectReference Include="..\..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
+  </ItemGroup>
+</Project>

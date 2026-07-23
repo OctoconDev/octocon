@@ -29,7 +29,7 @@
          AddSocketModule. Same InternalsVisibleTo set as every other .Api module. -->
     <InternalsVisibleTo Include="Interfold.Api.Host" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
-    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
+    <InternalsVisibleTo Include="Interfold.Socket.UnitTests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />

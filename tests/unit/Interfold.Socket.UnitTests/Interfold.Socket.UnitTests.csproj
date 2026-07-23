@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Interfold.Api.UnitTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="TUnit.Mocks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\apis\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
+    <ProjectReference Include="..\..\..\shared\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <ProjectReference Include="..\..\..\infrastructure\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.UnitTests\Interfold.Shared.UnitTests.csproj" />
+  </ItemGroup>
+</Project>

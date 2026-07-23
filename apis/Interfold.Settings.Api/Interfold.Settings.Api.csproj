@@ -23,7 +23,7 @@
     <Using Include="System.Net.Http.Json" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
+    <InternalsVisibleTo Include="Interfold.Settings.UnitTests" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
   </ItemGroup>
   <ItemGroup>

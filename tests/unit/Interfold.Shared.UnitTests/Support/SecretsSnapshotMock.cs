@@ -8,7 +8,7 @@ namespace Interfold.Api.UnitTests.Options;
 // Shared ISecretsSnapshot mock builder for the PostConfigure test files under this
 // folder. Loose-mode default of null on unconfigured Get(...) preserves the
 // "missing row returns null" contract every PostConfigure test relies on.
-internal static class SecretsSnapshotMock
+public static class SecretsSnapshotMock
 {
     // IsPopulated preset to true mirrors the "loader has run" invariant every
     // PostConfigure test assumes.

@@ -45,7 +45,9 @@
          Socket slice #10. -->
     <InternalsVisibleTo Include="Interfold.Socket.Api" />
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
-    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
+    <InternalsVisibleTo Include="Interfold.Shared.UnitTests" />
+    <!-- FirebaseConfigResolverTests.Settings binds ErrorResponse.StatusCode (internal) -->
+    <InternalsVisibleTo Include="Interfold.Settings.UnitTests" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="OneOf" />
