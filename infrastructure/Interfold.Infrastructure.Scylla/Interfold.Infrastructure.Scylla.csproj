@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+      <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+      <!-- Permanent back-ref: ScyllaAlterRepository + AlterRowMappers + ScyllaTagRepository call
+           AlterFieldProjection.ResolveVisibleDefinitionsAsync / ResolveGuardedFields, which lives
+           in Interfold.Alters.Domain. The projection helper stays with the feature so InMemory +
+           Scylla repos share visibility rules and can't drift. -->
+      <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
+      <!-- Phase-3 Settings slice #8: the seven peer feature repository interfaces (IAlterRepository
+           reachable via the earlier back-ref above; ITagRepository / IPollRepository /
+           IJournalRepository / IFrontingRepository / IFriendshipRepository / IAccountRepository +
+           ISettingsFieldRepository + IEncryptionStateRepository + IImportOperationRepository +
+           INotificationTokenRepository via the six feature.Domain projects below) relocated out
+           of Interfold.Domain into their feature.Domain homes, so ScyllaXxxRepository adapters
+           need explicit refs to reach the interfaces they implement. Settings.Domain groups
+           the five settings-owned interfaces. -->
+      <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Include="Migrations\*.cql" />
+    </ItemGroup>
+
+</Project>

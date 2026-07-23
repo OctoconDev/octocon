@@ -3,7 +3,7 @@
 # Cross-RID build for the `interfold-bootstrap` self-contained ELF. SDK stage
 # is pinned to $BUILDPLATFORM so per-arch publishes cross-compile natively
 # (no QEMU). PublishProfile XMLs under
-# csharp/Interfold.Bootstrapper/Properties/PublishProfiles/ own the
+# host/Interfold.Bootstrapper/Properties/PublishProfiles/ own the
 # SelfContained / Trim / single-file settings — this file is just the wrapper.
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
@@ -17,12 +17,12 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
         arm)   RID=linux-arm ;; \
         *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac && \
-    dotnet publish csharp/Interfold.Bootstrapper \
+    dotnet publish host/Interfold.Bootstrapper \
         --configuration Release \
         --runtime "$RID" \
         /p:PublishProfile="$RID" && \
     mkdir -p /out && \
-    cp "csharp/Interfold.Bootstrapper/bin/Release/net10.0/$RID/publish/interfold-bootstrap" /out/
+    cp "host/Interfold.Bootstrapper/bin/Release/net10.0/$RID/publish/interfold-bootstrap" /out/
 
 # `scratch` so `--output=type=local` extracts only the binary, no rootfs noise.
 FROM scratch AS out

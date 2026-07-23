@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- ISettingsFieldRepository (bound by AlterFieldProjection.ResolveVisibleDefinitionsAsync +
+         ResolveGuardedFields) is reached via Interfold.Domain — kept there as an in-slice
+         deviation from the Phase-3 Settings slice #8 plan because relocating it to
+         Interfold.Settings.Domain would form an Alters.Domain <-> Settings.Domain cycle
+         (Settings.Domain refs Alters.Domain for IAlterRepository via DeleteAccountCommandHandler
+         / WipeAltersCommandHandler). ISettingsFieldRepository binds only spine types, so
+         keeping it on Interfold.Domain reintroduces zero back-refs. -->
+    <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
+  </ItemGroup>
+</Project>

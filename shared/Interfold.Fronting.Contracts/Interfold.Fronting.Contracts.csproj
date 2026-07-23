@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- FrontSocketPayload / FrontsSocketPayload / FrontIdSocketPayload / SocketBatchedFrontsPayload
+         implement ISocketPayload. -->
+    <ProjectReference Include="..\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
+    <!-- First cross-feature Contracts->Contracts reference in the codebase (paired with the
+         Tags.Contracts->Alters.Contracts ref added in the same Post-Alters cleanup slice).
+         FrontActiveReadModel.Alter binds BareAlter, which post-cleanup lives in
+         Interfold.Alters.Contracts. Alters.Contracts is the "leaf" feature Contracts that peers
+         can depend on. -->
+    <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
+  </ItemGroup>
+</Project>

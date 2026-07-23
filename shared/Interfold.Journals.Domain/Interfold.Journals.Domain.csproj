@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
+  </ItemGroup>
+</Project>

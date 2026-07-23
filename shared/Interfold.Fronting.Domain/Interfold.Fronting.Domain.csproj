@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
+    <!-- Feature.Domain -> feature.Contracts arrow: SetPrimaryFrontCommandHandler publishes
+         SettingsProfileUpdatedEvent, which moved into Interfold.Settings.Contracts.Events
+         during Phase-3 Settings slice #8. Same cross-slice-publisher pattern as
+         Interfold.Auth.Domain's Settings*AccountLinkedEvent publications. -->
+    <ProjectReference Include="..\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
+  </ItemGroup>
+</Project>

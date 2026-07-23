@@ -25,7 +25,6 @@ erl_crash.dump
 # Docker volumes
 /pgdata
 /msg_pgdata
-/csharp/dev/scylla/data
 
 # Ignore package tarball (built via "mix hex.build").
 octocon-*.tar
@@ -37,11 +36,11 @@ basic.conf
 /config/dev.exs
 
 # C# / .NET
-csharp/**/bin/
-csharp/**/obj/
-csharp/**/*.user
-csharp/**/*.suo
-csharp/**/*.vs/
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+**/*.vs/
 .vs/
 *.ncrunch*
 TestResults/
@@ -49,13 +48,11 @@ TestResults/
 *.nuget.props
 *.nuget.targets
 
-csharp/Interfold.Api/wwwroot/avatars/**
-csharp/Interfold.Api/http-messages/**
 scripts/certs/**
 scripts/keys/**
 
 # Launch settings (contains OAuth secrets, credentials)
-csharp/**/Properties/launchSettings.json
+**/Properties/launchSettings.json
 artifacts/lifecycle-probe.ndjson
 
 # Internal docs (roadmap, active/archive workstreams) — not for public git yet.

@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Socket.Api is a
+       plain Microsoft.NET.Sdk library (no Kestrel), but every moved file (WebSocketHandler,
+       WebSocketInitialization, per-feature *SocketEventHandlers, LoopbackHttpClient, ...)
+       was written assuming the Web-SDK implicits are present. Same shape as
+       Interfold.Api.Shared / Interfold.Auth.Api / the seven other feature .Api projects. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Tests reach into internals (Socket/*Tests + Helpers/LoopbackHttpClientTests +
+         WireByteFreezeTests); Interfold.Api.Host resolves internals of MapSocketModule /
+         AddSocketModule. Same InternalsVisibleTo set as every other .Api module. -->
+    <InternalsVisibleTo Include="Interfold.Api.Host" />
+    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <!-- Socket transport binds ISocketPayload / PhxFrame / SocketJson / *SocketEventNames /
+         SocketSelfReadModel from the socket leaf. -->
+    <ProjectReference Include="..\..\shared\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
+    <!-- Socket transport + handlers bind Interfold.Domain.Abstractions[.Repository] +
+         SocketConfiguration (spine-pinned by design; see slice-10 deviation record). -->
+    <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
+    <!-- WebSocketHandler.cs calls Interfold.Api.Auth.JwtEs256Validator.ValidateSignature.
+         Keeps the ES256 validator co-located with the rest of the Auth feature rather than
+         forcing it into Interfold.Api.Shared just to satisfy the socket handler. -->
+    <ProjectReference Include="..\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <!-- Seven-feature Contracts + Domain refs. Each feature contributes:
+           .Contracts - the *SocketPayload records the per-feature handler pushes.
+           .Domain    - the I*Repository the handler / SocketEventPumpRunner resolves from DI. -->
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+  </ItemGroup>
+</Project>

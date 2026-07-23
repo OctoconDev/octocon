@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+      <!-- Permanent back-ref: InMemoryAlterRepository calls AlterFieldProjection.ResolveGuardedFields
+           at 4 sites during read-model projection; the helper lives in Interfold.Alters.Domain so
+           the InMemory + Scylla repos share the same visibility rules. -->
+      <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
+      <!-- Phase-3 Settings slice #8: mirrors the Scylla adapter — feature repo interfaces
+           relocated out of Interfold.Domain into feature.Domain projects. InMemory adapter
+           needs explicit refs to reach the interfaces it implements. Settings.Domain groups
+           the five settings-owned interfaces. -->
+      <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
+      <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    </ItemGroup>
+
+</Project>

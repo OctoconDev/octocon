@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- FriendRequestSocketPayload / FriendIdSocketPayload implement ISocketPayload. -->
+    <ProjectReference Include="..\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
+  </ItemGroup>
+</Project>

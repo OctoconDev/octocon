@@ -1,0 +1,88 @@
+<Project>
+  <!--
+    MSBuild project SDKs (`<Project Sdk="X">`) are NOT NuGet packages and
+    are pinned in the repo-root `global.json` msbuild-sdks block, not here.
+
+    Prerelease pins need `X.*-*`, not `X.*` — NuGet's floating patterns filter
+    out prereleases by default; the trailing `-*` opts them back in.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <!-- Required for the `X.*` / `X.*-*` floating pins below to restore under CPM. -->
+    <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Aspire — Aspire.Hosting.* packages MUST stay in lockstep with the
+         Aspire.AppHost.Sdk version pinned in global.json's msbuild-sdks
+         block. global.json requires exact versions (no floating), so this
+         pin is deliberately exact too: bumping the SDK in global.json then
+         forces the reader to bump this line together, and vice-versa —
+         drift becomes a compile-time surprise rather than a runtime one. -->
+    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.4.6" />
+
+    <!-- ASP.NET Core -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.*" />
+    <!-- Preview-only; `-*` needed to include prereleases. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.*-*" />
+
+    <!-- Data / persistence drivers -->
+    <PackageVersion Include="CassandraCSharpDriver" Version="3.*" />
+    <PackageVersion Include="Npgsql" Version="8.*" />
+
+    <!-- Firebase -->
+    <PackageVersion Include="FirebaseAdmin" Version="3.*" />
+
+    <!-- Microsoft.Extensions.* — the whole family floats together on major 10. -->
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.*" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.*" />
+
+    <!-- OpenTelemetry — still on 1.x major line. -->
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.*" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.*" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.*" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.*" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.*" />
+
+    <!-- Resilience -->
+    <PackageVersion Include="Polly.Core" Version="8.*" />
+
+    <!-- Serialization / typing -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.*" />
+    <PackageVersion Include="OneOf" Version="3.*" />
+    <PackageVersion Include="OneOf.SourceGenerator" Version="3.*" />
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.*" />
+
+    <!-- Cryptography -->
+    <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.*" />
+
+    <!-- CLI / interactive surface — Spectre.Console is 0.x; per semver a
+         0.x minor bump may break API. The floating `0.*` pattern accepts
+         that risk; tighten to `0.55.*` if a Spectre release ever bites. -->
+    <PackageVersion Include="Spectre.Console" Version="0.*" />
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.*" />
+    <!-- Preview-only until System.CommandLine 3.0 stabilises. -->
+    <PackageVersion Include="System.CommandLine" Version="3.*-*" />
+
+    <!-- Test tooling. TUnit / TUnit.Aspire / TUnit.Mocks pinned to patch-only
+         floating (`1.50.*`) because TUnit.Aspire has broken API within its 1.x
+         line (AspireFixture<T>.Options + AspireFixtureOptions.Create signatures
+         changed between 1.50 and 1.61). Bump the base to 1.NN.* once the fixture
+         code in Interfold.IntegrationTests/TestServices is refactored to the
+         newer TUnit.Aspire surface. All three float together so the trio stays
+         binary-compatible with each other. -->
+    <PackageVersion Include="Testcontainers" Version="4.*" />
+    <PackageVersion Include="TUnit" Version="1.50.*" />
+    <PackageVersion Include="TUnit.Aspire" Version="1.50.*" />
+    <PackageVersion Include="TUnit.Mocks" Version="1.50.*" />
+  </ItemGroup>
+</Project>

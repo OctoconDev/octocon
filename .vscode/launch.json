@@ -5,10 +5,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "C#: Interfold.Api Debug",
+            "name": "C#: Interfold.Api.Host Debug",
             "type": "dotnet",
             "request": "launch",
-            "projectPath": "${workspaceFolder}/csharp/Interfold.Api/Interfold.Api.csproj"
+            "projectPath": "${workspaceFolder}/host/Interfold.Api.Host/Interfold.Api.Host.csproj"
         }
 
     ]

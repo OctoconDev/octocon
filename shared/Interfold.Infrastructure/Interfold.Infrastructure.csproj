@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.Infrastructure.Scylla" />
+    <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
+    <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
+    <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
+    <!-- Interfold.Infrastructure -> Interfold.Fronting.Contracts back-ref:
+         FrontNotifierBackgroundService (shared/Interfold.Infrastructure/Coordination/) subscribes
+         to FrontingStateChangedEvent, which moved into Interfold.Fronting.Contracts.Events during
+         Phase-3 Fronting migration. Dissolves when FrontNotifier migrates into
+         Interfold.Fronting.Api. -->
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <!-- Phase-3 Settings slice #8: FirebaseFCMService injects FcmConfiguration (moved to
+         Interfold.Settings.Contracts), IAccountRepository + INotificationTokenRepository
+         (moved to Interfold.Settings.Domain), and IAlterRepository (moved to
+         Interfold.Alters.Domain). InProcessImportJobQueue implements IImportJobQueue (moved
+         to Interfold.Settings.Domain). Settings.Contracts reachable transitively through
+         Settings.Domain, but kept explicit so a shift in either doesn't cascade compile
+         errors here. -->
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CassandraCSharpDriver" />
+    <PackageReference Include="FirebaseAdmin" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Polly.Core" />
+  </ItemGroup>
+</Project>

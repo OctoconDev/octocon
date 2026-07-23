@@ -1,0 +1,83 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stays on Microsoft.NET.Sdk (not Aspire.AppHost.Sdk) so `dotnet publish` emits
+    an ELF binary instead of Aspire's compose/manifest artifacts; the AppHost is
+    consumed as a plain library via InterfoldAppHost.Configure.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Interfold.Bootstrapper</RootNamespace>
+    <AssemblyName>interfold-bootstrap</AssemblyName>
+    <UserSecretsId>c0a8f3d2-1e8c-4d7a-9b9e-2f5d8c4e3a91</UserSecretsId>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- LibraryImportAttribute (geteuid P/Invoke in PrerequisitesPhase) requires unsafe blocks. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Bootstrapper never calls the AppHost's own Main, so the NETSDK1150 self-contained-mismatch guard doesn't apply. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Aspire.AppHost.Sdk omits reference assemblies between AppHost projects by default; force inclusion so
+         InterfoldAppHost.Configure is callable from here. -->
+    <ProjectReference Include="..\..\host\Interfold.AppHost\Interfold.AppHost.csproj"
+                      ReferenceOutputAssembly="true"
+                      IsAspireProjectResource="false"
+                      Private="true" />
+    <ProjectReference Include="..\..\host\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- Settings.Contracts hosts FirebaseAndroid/Ios/WebClientConfig (used by FirebasePhase);
+         travels with the Settings-slice extraction of FirebaseClientConfiguration. -->
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Docker" />
+    <PackageReference Include="System.CommandLine" />
+    <!-- Interactive prompt surface only (ConfigPhase.PromptForConfig); CLI parsing stays on System.CommandLine. -->
+    <PackageReference Include="Spectre.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Interfold.Bootstrapper.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- LogicalName `support/<path>` is the contract EmbeddedSupportFiles.EnsureExtracted reads;
+         keep new entries under that prefix so first-run extraction picks them up automatically. -->
+    <EmbeddedResource Include="..\..\db\scylla\cassandra-rackdc.*.properties"
+                      LogicalName="support/db/scylla/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\scripts\docker\ensure-host-aio.sh"
+                      LogicalName="support/scripts/docker/ensure-host-aio.sh" />
+    <EmbeddedResource Include="..\..\web\nginx\default.conf.template"
+                      LogicalName="support/web/nginx/default.conf.template" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Aspire's compose publisher emits `image: "${CASSANDRA_IMAGE}"` (not an inline build:), so the
+         bootstrapper ships the Dockerfile itself and docker-builds it in CassandraImagePhase. -->
+    <EmbeddedResource Include="..\..\db\cassandra\Dockerfile"
+                      LogicalName="support/db/cassandra/Dockerfile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- `systemd/` prefix (not `support/`) intentionally skips EmbeddedSupportFiles.EnsureExtracted:
+         these templates contain {{TOKEN}} placeholders that SystemdInstallPhase substitutes before write. -->
+    <EmbeddedResource Include="Phases\SystemdTemplates\interfold.service"
+                      LogicalName="systemd/interfold.service" />
+    <EmbeddedResource Include="Phases\SystemdTemplates\interfold-backup.service"
+                      LogicalName="systemd/interfold-backup.service" />
+    <EmbeddedResource Include="Phases\SystemdTemplates\interfold-backup.timer"
+                      LogicalName="systemd/interfold-backup.timer" />
+    <EmbeddedResource Include="Phases\SystemdTemplates\interfold-update.service"
+                      LogicalName="systemd/interfold-update.service" />
+    <!-- Drop-in for interfold-backup.service.d/; SystemdInstallPhase only writes it when config.update.enabled=true. -->
+    <EmbeddedResource Include="Phases\SystemdTemplates\interfold-backup-onsuccess.conf"
+                      LogicalName="systemd/interfold-backup-onsuccess.conf" />
+  </ItemGroup>
+
+</Project>

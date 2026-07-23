@@ -1,0 +1,27 @@
+# Test fixture - NOT shipped. Negative-path harness: a glibc-compatible base whose os-release
+# claims to be a distro family the bootstrapper does not support.
+#
+# We deliberately use debian-slim (glibc) so the self-contained bootstrapper binary - linked
+# against glibc - can actually exec. The earlier Alpine variant fails before any C# code runs
+# because Alpine ships musl libc and there's no glibc dynamic linker, which would only test
+# "wrong libc", not the bootstrapper's distro-family rejection.
+#
+# To trigger the rejection we overwrite /etc/os-release with an ID the bootstrapper's
+# DistroInfo resolver does not recognise (see host/Interfold.Bootstrapper/Util/DistroInfo.cs).
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Replace os-release so DistroInfo.Resolve() returns DistroFamily.Unknown.
+RUN printf 'ID=interfold-test-unsupported\nID_LIKE=void\nPRETTY_NAME="Interfold Test - Unsupported Distro"\n' \
+        > /etc/os-release
+
+# Keep the layout identical to the other DinD fixtures so test code can copy in / out using the
+# same paths. There's no dockerd here - the bootstrapper should refuse before it ever tries to
+# reach the daemon.
+WORKDIR /opt
+
+# Sleep forever; tests drive everything through `docker exec`.
+CMD ["sleep", "infinity"]

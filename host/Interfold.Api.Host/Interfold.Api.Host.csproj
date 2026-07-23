@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <!-- SecretsPreBuildLoaderPoolingTests (Phase-4-retirement — moved here from Interfold.Api)
+         still binds three internals (WithDedicatedPoolIdentity + LoaderApplicationName +
+         LoaderMaxPoolSize). Same test-project-sees-composition-host pattern that
+         Interfold.IntegrationTests already uses via WebApplicationFactory<Program>. -->
+    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\host\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Friendships.Api\Interfold.Friendships.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Fronting.Api\Interfold.Fronting.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Journals.Api\Interfold.Journals.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Ops.Api\Interfold.Ops.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.ServiceDefaults\Interfold.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Scylla\Interfold.Infrastructure.Scylla.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Placeholder so Docker volume-init sees a pre-created /app/data/avatars with app:app perms;
+         see InterfoldAppHost.ConfigureApiSelfHostEnv. Web SDK only auto-publishes wwwroot/. -->
+    <None Include="data\avatars\.gitkeep" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

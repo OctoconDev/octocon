@@ -63,8 +63,8 @@ above still applies.
   `<remarks>`. No refactor archaeology.
 - **Wire-contract DTOs.** `record` / `class` declarations serialised as
   `[FromBody]` requests or as `Response<T>` bodies (types under
-  `csharp/Interfold.Api/Models/**` and the actually-serialised types in
-  `csharp/Interfold.Contracts/Models/**` — `AlterReadModel`,
+  `host/Interfold.Api/Models/**` and the actually-serialised types in
+  `shared/Interfold.Contracts/Models/**` — `AlterReadModel`,
   `FriendshipReadModel`, request records, `SocketPayloadContracts`,
   `PhxFrame`, etc.). XML `<summary>` on the type and per-property
   `<summary>` documenting wire semantics is welcome. No story-telling
@@ -78,7 +78,7 @@ strict style above.
 
 ### Trim over-long XML doc (strict style — not an endpoint / DTO)
 
-**Before** — `csharp/Interfold.Api/Controllers/Base/InterfoldControllerBase.cs`, `PrincipalId`:
+**Before** — `host/Interfold.Api/Controllers/Base/InterfoldControllerBase.cs`, `PrincipalId`:
 
 ```csharp
 /// <summary>
@@ -101,7 +101,7 @@ protected ScopedSystemId PrincipalId
 
 ### Delete plan / refactor-archaeology comments
 
-**Before** — `csharp/Interfold.Api/Controllers/AltersController.cs`:
+**Before** — `host/Interfold.Api/Controllers/AltersController.cs`:
 
 ```csharp
 // PATCH does not currently expose AvatarUrl as a mutable field — avatar updates go
@@ -120,7 +120,7 @@ archaeology.
 
 ### Keep a dense why-comment on a wire DTO
 
-**Keep** — `csharp/Interfold.Contracts/Models/Alter.cs`, the block above the
+**Keep** — `shared/Interfold.Contracts/Models/Alter.cs`, the block above the
 `[JsonConstructor]` overload:
 
 ```csharp
@@ -141,7 +141,7 @@ apologising.
 
 ## Enforcement
 
-- Applies to every `.cs` file under `csharp/`.
+- Applies to every `.cs` file in the repo.
 - New `//TODO` / `//FIXME` / `//HACK` in a diff is a review block. Move the
   intent to `docs/ROADMAP.md` first.
 - New `// Arrange / // Act / // Assert` in a test diff is a review block.

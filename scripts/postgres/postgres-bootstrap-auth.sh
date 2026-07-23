@@ -51,7 +51,7 @@ if [ "$APP_PASSWORD" = "postgres" ]; then
   echo "[pg-auth-bootstrap]"
   echo "[pg-auth-bootstrap] To fix, set a secure password in user-secrets:"
   echo "[pg-auth-bootstrap]   dotnet user-secrets set 'Parameters:postgres-password' '<your-password>'"
-  echo "[pg-auth-bootstrap]   (run from csharp/Interfold.AppHost)"
+  echo "[pg-auth-bootstrap]   (run from host/Interfold.AppHost)"
   echo "[pg-auth-bootstrap] ========================================"
   exit 1
 fi

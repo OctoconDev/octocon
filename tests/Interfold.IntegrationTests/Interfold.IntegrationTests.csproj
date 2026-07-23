@@ -1,0 +1,58 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Rationale for the runsettings file (TUnit external-span cap) lives in tests.runsettings. -->
+    <RunSettingsFilePath>$(MSBuildProjectDirectory)\tests.runsettings</RunSettingsFilePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="TUnit.Aspire" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <!-- Explicit even though transitively available via Interfold.Infrastructure:
+         DbInitHelper drives Postgres + Scylla directly, so the drivers must be
+         visible at the test-project level. -->
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="CassandraCSharpDriver" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\host\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Api.Host\Interfold.Api.Host.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Auth.Domain\Interfold.Auth.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Friendships.Api\Interfold.Friendships.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Fronting.Api\Interfold.Fronting.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Journals.Api\Interfold.Journals.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Ops.Api\Interfold.Ops.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.AppHost\Interfold.AppHost.csproj">
+      <Aliases>AppHost</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="..\..\host\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Fixtures\*.trace.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

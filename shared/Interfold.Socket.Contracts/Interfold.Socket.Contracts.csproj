@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Leaf project by design: only refs the spine so every feature .Contracts can back-ref
+         Interfold.Socket.Contracts without forming a cycle. If a socket-payload record needs
+         a feature-Contracts type (e.g. SocketAggregateJoinPayloads binding AlterReadModel /
+         TagReadModel / FrontActiveReadModel), that file stays in Interfold.Socket.Api instead
+         — see host/Interfold.Socket.Api/Models/SocketAggregateJoinPayloads.cs. -->
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+  </ItemGroup>
+</Project>

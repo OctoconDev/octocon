@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Api.Shared is a
+       plain Microsoft.NET.Sdk library (no Kestrel), but every moved file was written
+       assuming the Web-SDK implicits are present. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Interfold.Api.Host" />
+    <InternalsVisibleTo Include="Interfold.Auth.Api" />
+    <!-- Interfold.Fronting.Api is the first feature-module Api project to consume
+         Interfold.Api.Shared internals — FrontingController's Month/Between endpoints
+         bind [UnixSecondsBinding(...)] on their query parameters. -->
+    <InternalsVisibleTo Include="Interfold.Fronting.Api" />
+    <!-- Interfold.Friendships.Api: FriendshipAvatarQualifier (host/Interfold.Friendships.Api/Helpers/)
+         calls internal AvatarUrlQualifier.QualifyAvatar overloads. Migrated during Phase-3
+         Friendships as the feature-owned replacement for the QualifyFriendship / QualifyFriendRequest
+         helpers that used to live here. -->
+    <InternalsVisibleTo Include="Interfold.Friendships.Api" />
+    <!-- Interfold.Systems.Api: PublicSystemsController.Batch inlines the friendship-avatar
+         qualification (the former InterfoldControllerBase.QualifyFriendship helper) and calls
+         AvatarUrlQualifier.QualifyAvatar directly on friendship.Friend + each fronting alter.
+         Migrated during Phase-3 Systems facade slice. -->
+    <InternalsVisibleTo Include="Interfold.Systems.Api" />
+    <!-- Interfold.Socket.Api: WebSocketInitialization + AlterSocketEventHandlers +
+         FriendshipSocketEventHandlers call the internal AvatarUrlQualifier.QualifyAvatar
+         overloads (the socket batched-init + push payloads emit Alter / FriendshipReadModel
+         / SocketSelfReadModel with origin-qualified avatars). Migrated during Phase-3
+         Socket slice #10. -->
+    <InternalsVisibleTo Include="Interfold.Socket.Api" />
+    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.Api.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="OneOf" />
+    <PackageReference Include="OneOf.SourceGenerator" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\shared\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
+  </ItemGroup>
+</Project>

@@ -36,26 +36,26 @@ the defaults aim for "loud failure in production, useful behaviour in dev".
 
 Reference:
 
-- `[PersistenceConfiguration](../csharp/Interfold.Contracts/Configuration/PersistenceConfiguration.cs)`
+- `[PersistenceConfiguration](../shared/Interfold.Contracts/Configuration/PersistenceConfiguration.cs)`
 — DB mode, keyspace, retry/backoff knobs.
-- `[AuthenticationConfiguration](../csharp/Interfold.Contracts/Configuration/AuthenticationConfiguration.cs)`
+- `[AuthenticationConfiguration](../shared/Interfold.Contracts/Configuration/AuthenticationConfiguration.cs)`
 — JWT signing keys, OAuth client IDs, deep-link HMAC secret, encryption pepper, challenge
 scheme metadata.
-- `[ApiConfiguration](../csharp/Interfold.Contracts/Configuration/ApiConfiguration.cs)` —
+- `[ApiConfiguration](../shared/Interfold.Contracts/Configuration/ApiConfiguration.cs)` —
 frontend URLs, deep-link protocol.
-- `[StorageConfiguration](../csharp/Interfold.Contracts/Configuration/StorageConfiguration.cs)`
+- `[StorageConfiguration](../shared/Interfold.Contracts/Configuration/StorageConfiguration.cs)`
 — local avatar storage root + public base URL.
-- `[SocketConfiguration](../csharp/Interfold.Contracts/Configuration/SocketConfiguration.cs)`
+- `[SocketConfiguration](../shared/Interfold.Contracts/Configuration/SocketConfiguration.cs)`
 — WebSocket batch flush threshold.
-- `[ObservabilityConfiguration](../csharp/Interfold.Contracts/Configuration/ObservabilityConfiguration.cs)`
+- `[ObservabilityConfiguration](../shared/Interfold.Contracts/Configuration/ObservabilityConfiguration.cs)`
 — OTLP endpoint.
-- `[ClusterConfiguration](../csharp/Interfold.Contracts/Configuration/ClusterConfiguration.cs)`
+- `[ClusterConfiguration](../shared/Interfold.Contracts/Configuration/ClusterConfiguration.cs)`
 — node group (Primary / Auxiliary / Sidecar).
-- `[TestingConfiguration](../csharp/Interfold.Contracts/Configuration/TestingConfiguration.cs)`
+- `[TestingConfiguration](../shared/Interfold.Contracts/Configuration/TestingConfiguration.cs)`
 — test-only gating switches.
 
 DI binding is centralised in
-`[ConfigurationServiceCollectionExtensions.AddInterfoldOptions](../csharp/Interfold.Infrastructure/DependencyInjection/ConfigurationServiceCollectionExtensions.cs)`.
+`[ConfigurationServiceCollectionExtensions.AddInterfoldOptions](../shared/Interfold.Infrastructure/DependencyInjection/ConfigurationServiceCollectionExtensions.cs)`.
 Each `Apply`* method is the single source of truth for that section's env → options mapping.
 
 ## Layer 2 — `interfold.bootstrap.json`
@@ -64,7 +64,7 @@ This file is the operator-facing input to the bootstrapper. It is *not* read by 
 directly — its values flow through the bootstrapper into either `secrets.json` (auto-generated
 output) or the `internal.secrets` table (seeded by `DatabaseInitPhase`).
 
-Shape lives on `[BootstrapConfig](../csharp/Interfold.Bootstrapper/Configuration/BootstrapConfig.cs)`:
+Shape lives on `[BootstrapConfig](../host/Interfold.Bootstrapper/Configuration/BootstrapConfig.cs)`:
 
 ```jsonc
 {
@@ -443,7 +443,7 @@ short operator-facing list.
 `interfold-bootstrap install-service` materialises four systemd units to
 `/etc/systemd/system/` (overridable via `--systemd-unit-dir`, used by integration tests).
 All four are rendered from templates embedded in the bootstrapper binary; see
-`csharp/Interfold.Bootstrapper/Phases/SystemdTemplates/` for the source.
+`host/Interfold.Bootstrapper/Phases/SystemdTemplates/` for the source.
 
 | Unit                       | Type                       | What it does |
 | -------------------------- | -------------------------- | ------------ |
@@ -668,7 +668,7 @@ and a critical Name Constraints extension on the root cap the blast radius of bo
 
 ### Endpoints (`/.well-known/interfold-root-ca.*`)
 
-`[TrustController](../csharp/Interfold.Api/Controllers/TrustController.cs)` serves a
+`[TrustController](../host/Interfold.Ops.Api/Controllers/TrustController.cs)` serves a
 hard-coded allowlist of three routes off the IANA `.well-known` prefix:
 
 | Route                              | Content-Type                                                                              | Body                                                |
@@ -801,7 +801,7 @@ sensitive that the API needs at runtime. It is:
 - seeded once on first bootstrap and re-seeded whenever the bootstrapper runs (writes are
 idempotent — empty values are skipped to avoid clobbering operator-set rows).
 
-Row inventory (see `[SeedKeys.cs](../csharp/Interfold.DatabaseBootstrap/SeedKeys.cs)`):
+Row inventory (see `[SeedKeys.cs](../host/Interfold.DatabaseBootstrap/SeedKeys.cs)`):
 
 
 | Key                           | Origin                                      | Consumer                                                                                                                                 | Empty-skip? |
@@ -949,7 +949,7 @@ wrote the row). For Scylla the `scope` column is the regional keyspace name for 
 region templates (`001_create_interfold_keyspaces.cql`,
 `002_create_interfold_schema.templated.cql`) and `grants:<keyspace>` for the GRANT loop
 (version = `grants_v1`, bump that constant in
-`[ScyllaMigrationService.cs](../csharp/Interfold.Infrastructure.Scylla/ScyllaMigrationService.cs)`
+`[ScyllaMigrationService.cs](../infrastructure/Interfold.Infrastructure.Scylla/ScyllaMigrationService.cs)`
 when the grant set changes).
 
 ### Bootstrap order
@@ -1029,18 +1029,18 @@ followed by an API restart. The bootstrapper will catch up on the next run.
 
 
 Tests centralise the test-only material in
-`[TestDbCredentials](../csharp/Interfold.IntegrationTests/TestServices/TestDbCredentials.cs)`
+`[TestDbCredentials](../tests/Interfold.IntegrationTests/TestServices/TestDbCredentials.cs)`
 — a single source of lazy-generated in-process keypairs and deterministic passwords. The
 real DB fixtures seed those values into `internal.secrets` via `PostgresSeedOptions`; the
 in-memory `WebApplicationFactory` instead drives the production env-var seed path by
 pushing the same PEMs + pepper into the factory's configuration provider (see the
 constructor of
-`[InterfoldWebApplicationFactory](../csharp/Interfold.IntegrationTests/TestServices/InterfoldWebApplicationFactory.cs)`).
+`[InterfoldWebApplicationFactory](../tests/Interfold.IntegrationTests/TestServices/InterfoldWebApplicationFactory.cs)`).
 External runners (e.g. the Kotlin Testcontainers harness) set them as
 `OCTOCON_INMEMORY_SECRETS_SEED__*` env vars on the container; the .NET
 `EnvironmentVariablesConfigurationProvider` rewrites the `__` separator to the config-key
 delimiter `:` on load, so the in-memory `ISecretsStore` registration in
-`[InMemoryServiceCollectionExtensions](../csharp/Interfold.Infrastructure.InMemory/InMemoryServiceCollectionExtensions.cs)`
+`[InMemoryServiceCollectionExtensions](../infrastructure/Interfold.Infrastructure.InMemory/InMemoryServiceCollectionExtensions.cs)`
 looks them up via `IConfiguration` under the `:`-form key
 (`OCTOCON_INMEMORY_SECRETS_SEED:ENCRYPTION_PEPPER`, …) and seeds the store. The
 in-process test fixture writes the same `:`-form keys into its

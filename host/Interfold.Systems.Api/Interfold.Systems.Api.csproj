@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Systems.Api is a plain
+       Microsoft.NET.Sdk library (no Kestrel), but the moved PublicSystemsController assumes the
+       Web-SDK implicits are present. Same shape as Interfold.Alters.Api / Interfold.Friendships.Api /
+       Interfold.Fronting.Api / Interfold.Journals.Api / Interfold.Polls.Api / Interfold.Tags.Api. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Systems.Contracts\Interfold.Systems.Contracts.csproj" />
+    <!-- Facade module reaches five feature.Domain projects for the repository interfaces
+         PublicSystemsController + SystemMustExistAttribute consume (IAccountRepository via
+         Settings.Domain, IAlterRepository via Alters.Domain, ITagRepository via Tags.Domain,
+         IFrontingRepository via Fronting.Domain, IFriendshipRepository via Friendships.Domain).
+         Interfold.Domain ref dropped in Phase-3 Settings slice #8 — the five interfaces
+         relocated out of the spine Domain project. Ops (#9) will follow this same shape. -->
+    <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
+    <!-- Feature Contracts the controller binds directly: BareAlter (Alters), TagId +
+         TagPublicReadModel (Tags), FrontActiveReadModel (Fronting), FriendshipReadModel
+         (Friendships). All reachable transitively via Systems.Contracts + the feature.Domain
+         refs above — but explicit refs keep the compile-error surface local to the consuming
+         project when a feature Contracts shifts. -->
+    <ProjectReference Include="..\..\shared\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
+  </ItemGroup>
+</Project>

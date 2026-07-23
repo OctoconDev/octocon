@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Framework-only shared seed orchestration for Interfold.Bootstrapper and
+    Interfold.IntegrationTests. Zero PackageReferences on purpose — pulling
+    Npgsql / CassandraCSharpDriver in here would blow the trimmed-binary size
+    guardrail asserted by Interfold.Bootstrapper.UnitTests.BinarySizeGuardrailTests.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Interfold.DatabaseBootstrap</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- INTERFOLD_DBBOOT_LINKED makes the linked SecretsStoreKeys.cs internal here,
+         avoiding CS0433 with Interfold.Contracts' public copy when a consumer references both. -->
+    <DefineConstants>$(DefineConstants);INTERFOLD_DBBOOT_LINKED</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Linked (not project-referenced) to keep this project dependency-free
+         while sharing one source of truth for internal.secrets row keys. -->
+    <Compile Include="..\..\shared\Interfold.Contracts\Secrets\SecretsStoreKeys.cs"
+             Link="SecretsStoreKeys.cs" />
+  </ItemGroup>
+
+</Project>

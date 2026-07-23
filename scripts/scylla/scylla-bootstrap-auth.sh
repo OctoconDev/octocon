@@ -36,7 +36,7 @@ if [ "$SCYLLA_PASSWORD" = "$DEFAULT_PASSWORD" ]; then
   echo "[auth-bootstrap]"
   echo "[auth-bootstrap] To fix, set a secure password in user-secrets:"
   echo "[auth-bootstrap]   dotnet user-secrets set 'Parameters:scylla-password' '<your-password>'"
-  echo "[auth-bootstrap]   (run from csharp/Interfold.AppHost)"
+  echo "[auth-bootstrap]   (run from host/Interfold.AppHost)"
   echo "[auth-bootstrap] ========================================"
   exit 1
 fi

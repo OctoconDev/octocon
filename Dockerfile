@@ -16,7 +16,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
         arm)   RID=linux-arm ;; \
         *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac && \
-    dotnet publish csharp/Interfold.Api/Interfold.Api.csproj \
+    dotnet publish host/Interfold.Api.Host/Interfold.Api.Host.csproj \
         --configuration Release \
         --runtime "$RID" \
         --self-contained false \
@@ -27,4 +27,4 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /publish/ .
 
-ENTRYPOINT ["dotnet", "Interfold.Api.dll"]
+ENTRYPOINT ["dotnet", "Interfold.Api.Host.dll"]

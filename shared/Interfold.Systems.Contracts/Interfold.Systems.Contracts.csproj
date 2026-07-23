@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interfold.Contracts\Interfold.Contracts.csproj" />
+    <!-- Facade Contracts. PublicSystemBatchReadModel binds FriendshipReadModel +
+         IReadOnlyList<TagPublicReadModel> + IReadOnlyList<BareAlter>, so this project
+         reaches four peer feature Contracts. First non-Alters feature Contracts to
+         depend on more than one peer — the facade shape justifies the wider fan-in.
+         Alters.Contracts remains the sole "leaf" (nothing here points at Systems). -->
+    <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <ProjectReference Include="..\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
+  </ItemGroup>
+</Project>
