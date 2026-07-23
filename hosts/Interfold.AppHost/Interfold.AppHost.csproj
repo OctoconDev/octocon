@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\host\Interfold.Api.Host\Interfold.Api.Host.csproj" />
+    <ProjectReference Include="..\..\hosts\Interfold.Api.Host\Interfold.Api.Host.csproj" />
     <!-- Direct (non-resource) reference so the resource graph can share the env-key /
          service-name / region constants with Contracts instead of duplicating literals.
          IsAspireProjectResource=false keeps Aspire from treating it as a deployable. -->

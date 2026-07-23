@@ -12,7 +12,7 @@
            Interfold.Api.Services.Http / Interfold.Api.SimplyPlural now resolve entirely
            via the Interfold.Settings.Api reference (the namespaces were preserved when
            the SimplyPlural + HTTP-logging code moved during Phase-3 slice #8). -->
-      <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
+      <ProjectReference Include="..\..\apis\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
       <!-- Program.cs calls InMemoryServiceCollectionExtensions.Register() before
            AddInterfoldPersistence(PersistenceMode.InMemory, ...). Previously reached
            transitively via the (now-retired) Interfold.Api reference; needs an explicit

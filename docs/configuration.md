@@ -64,7 +64,7 @@ This file is the operator-facing input to the bootstrapper. It is *not* read by 
 directly — its values flow through the bootstrapper into either `secrets.json` (auto-generated
 output) or the `internal.secrets` table (seeded by `DatabaseInitPhase`).
 
-Shape lives on `[BootstrapConfig](../host/Interfold.Bootstrapper/Configuration/BootstrapConfig.cs)`:
+Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/BootstrapConfig.cs)`:
 
 ```jsonc
 {
@@ -443,7 +443,7 @@ short operator-facing list.
 `interfold-bootstrap install-service` materialises four systemd units to
 `/etc/systemd/system/` (overridable via `--systemd-unit-dir`, used by integration tests).
 All four are rendered from templates embedded in the bootstrapper binary; see
-`host/Interfold.Bootstrapper/Phases/SystemdTemplates/` for the source.
+`tools/Interfold.Bootstrapper/Phases/SystemdTemplates/` for the source.
 
 | Unit                       | Type                       | What it does |
 | -------------------------- | -------------------------- | ------------ |
@@ -668,7 +668,7 @@ and a critical Name Constraints extension on the root cap the blast radius of bo
 
 ### Endpoints (`/.well-known/interfold-root-ca.*`)
 
-`[TrustController](../host/Interfold.Ops.Api/Controllers/TrustController.cs)` serves a
+`[TrustController](../apis/Interfold.Ops.Api/Controllers/TrustController.cs)` serves a
 hard-coded allowlist of three routes off the IANA `.well-known` prefix:
 
 | Route                              | Content-Type                                                                              | Body                                                |
@@ -801,7 +801,7 @@ sensitive that the API needs at runtime. It is:
 - seeded once on first bootstrap and re-seeded whenever the bootstrapper runs (writes are
 idempotent — empty values are skipped to avoid clobbering operator-set rows).
 
-Row inventory (see `[SeedKeys.cs](../host/Interfold.DatabaseBootstrap/SeedKeys.cs)`):
+Row inventory (see `[SeedKeys.cs](../shared/Interfold.DatabaseBootstrap/SeedKeys.cs)`):
 
 
 | Key                           | Origin                                      | Consumer                                                                                                                                 | Empty-skip? |

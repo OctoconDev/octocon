@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\host\Interfold.Bootstrapper\Interfold.Bootstrapper.csproj" />
+    <ProjectReference Include="..\..\tools\Interfold.Bootstrapper\Interfold.Bootstrapper.csproj" />
   </ItemGroup>
 
   <ItemGroup>

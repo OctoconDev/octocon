@@ -23,7 +23,7 @@
   <ItemGroup>
     <!-- Linked (not project-referenced) to keep this project dependency-free
          while sharing one source of truth for internal.secrets row keys. -->
-    <Compile Include="..\..\shared\Interfold.Shared.Contracts\Secrets\SecretsStoreKeys.cs"
+    <Compile Include="..\Interfold.Shared.Contracts\Secrets\SecretsStoreKeys.cs"
              Link="SecretsStoreKeys.cs" />
   </ItemGroup>
 

@@ -1,7 +1,7 @@
 {
   // Copy this file to launchSettings.json and customise. See docs/configuration.md for the
   // full reference. Anything marked <set-via-user-secrets> should be moved out of source
-  // control via `dotnet user-secrets set "<key>" "<value>" --project host/Interfold.Api.Host`.
+  // control via `dotnet user-secrets set "<key>" "<value>" --project hosts/Interfold.Api.Host`.
   "profiles": {
     "Octocon.Api": {
       "commandName": "Project",

@@ -9,6 +9,7 @@
     <Project Path="shared/Interfold.Alters.Domain/Interfold.Alters.Domain.csproj" />
     <Project Path="shared/Interfold.Auth.Contracts/Interfold.Auth.Contracts.csproj" />
     <Project Path="shared/Interfold.Auth.Domain/Interfold.Auth.Domain.csproj" />
+    <Project Path="shared/Interfold.DatabaseBootstrap/Interfold.DatabaseBootstrap.csproj" />
     <Project Path="shared/Interfold.Shared.Contracts/Interfold.Shared.Contracts.csproj" />
     <Project Path="shared/Interfold.Shared.Domain/Interfold.Shared.Domain.csproj" />
     <Project Path="shared/Interfold.Friendships.Contracts/Interfold.Friendships.Contracts.csproj" />
@@ -32,26 +33,27 @@
     <Project Path="infrastructure/Interfold.Infrastructure.Postgres/Interfold.Infrastructure.Postgres.csproj" />
     <Project Path="infrastructure/Interfold.Infrastructure.Scylla/Interfold.Infrastructure.Scylla.csproj" />
   </Folder>
-  <Folder Name="/host/">
-    <Project Path="host/Interfold.Alters.Api/Interfold.Alters.Api.csproj" />
-    <Project Path="host/Interfold.Api.Host/Interfold.Api.Host.csproj" />
-    <Project Path="host/Interfold.Shared.Api/Interfold.Shared.Api.csproj" />
-    <Project Path="host/Interfold.AppHost/Interfold.AppHost.csproj" />
-    <Project Path="host/Interfold.Auth.Api/Interfold.Auth.Api.csproj" />
-    <Project Path="host/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />
-    <Project Path="host/Interfold.DatabaseBootstrap/Interfold.DatabaseBootstrap.csproj" />
-    <Project Path="host/Interfold.Friendships.Api/Interfold.Friendships.Api.csproj" />
-    <Project Path="host/Interfold.Fronting.Api/Interfold.Fronting.Api.csproj" />
-    <Project Path="host/Interfold.Journals.Api/Interfold.Journals.Api.csproj" />
-    <Project Path="host/Interfold.Ops.Api/Interfold.Ops.Api.csproj" />
-    <Project Path="host/Interfold.Polls.Api/Interfold.Polls.Api.csproj" />
-    <Project Path="host/Interfold.ServiceDefaults/Interfold.ServiceDefaults.csproj" />
-    <Project Path="host/Interfold.Settings.Api/Interfold.Settings.Api.csproj" />
-    <Project Path="host/Interfold.Socket.Api/Interfold.Socket.Api.csproj" />
-    <Project Path="host/Interfold.Systems.Api/Interfold.Systems.Api.csproj" />
-    <Project Path="host/Interfold.Tags.Api/Interfold.Tags.Api.csproj" />
+  <Folder Name="/apis/">
+    <Project Path="apis/Interfold.Alters.Api/Interfold.Alters.Api.csproj" />
+    <Project Path="apis/Interfold.Auth.Api/Interfold.Auth.Api.csproj" />
+    <Project Path="apis/Interfold.Friendships.Api/Interfold.Friendships.Api.csproj" />
+    <Project Path="apis/Interfold.Fronting.Api/Interfold.Fronting.Api.csproj" />
+    <Project Path="apis/Interfold.Journals.Api/Interfold.Journals.Api.csproj" />
+    <Project Path="apis/Interfold.Ops.Api/Interfold.Ops.Api.csproj" />
+    <Project Path="apis/Interfold.Polls.Api/Interfold.Polls.Api.csproj" />
+    <Project Path="apis/Interfold.Settings.Api/Interfold.Settings.Api.csproj" />
+    <Project Path="apis/Interfold.Shared.Api/Interfold.Shared.Api.csproj" />
+    <Project Path="apis/Interfold.Socket.Api/Interfold.Socket.Api.csproj" />
+    <Project Path="apis/Interfold.Systems.Api/Interfold.Systems.Api.csproj" />
+    <Project Path="apis/Interfold.Tags.Api/Interfold.Tags.Api.csproj" />
+  </Folder>
+  <Folder Name="/hosts/">
+    <Project Path="hosts/Interfold.Api.Host/Interfold.Api.Host.csproj" />
+    <Project Path="hosts/Interfold.AppHost/Interfold.AppHost.csproj" />
+    <Project Path="hosts/Interfold.ServiceDefaults/Interfold.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />
     <Project Path="tools/Interfold.SPDump/Interfold.SPDump.csproj" />
   </Folder>
   <Folder Name="/tests/">

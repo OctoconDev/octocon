@@ -24,11 +24,11 @@
   <ItemGroup>
     <!-- Aspire.AppHost.Sdk omits reference assemblies between AppHost projects by default; force inclusion so
          InterfoldAppHost.Configure is callable from here. -->
-    <ProjectReference Include="..\..\host\Interfold.AppHost\Interfold.AppHost.csproj"
+    <ProjectReference Include="..\..\hosts\Interfold.AppHost\Interfold.AppHost.csproj"
                       ReferenceOutputAssembly="true"
                       IsAspireProjectResource="false"
                       Private="true" />
-    <ProjectReference Include="..\..\host\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <!-- Settings.Contracts hosts FirebaseAndroid/Ios/WebClientConfig (used by FirebasePhase);
          travels with the Settings-slice extraction of FirebaseClientConfiguration. -->

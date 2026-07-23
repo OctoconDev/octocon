@@ -222,7 +222,7 @@ public static class InterfoldAppHost
                         "SCYLLA_PASSWORD must be set to a non-default value. " +
                         "The well-known default 'cassandra' is not allowed.\n" +
                         "Fix: dotnet user-secrets set \"Parameters:scylla-password\" \"<your-secure-password>\" " +
-                        "--project host/Interfold.AppHost");
+                        "--project hosts/Interfold.AppHost");
                 }
 
                 var scyllaUserValue = builder.Configuration[AppHostParameterKeys.ScyllaUser];
@@ -232,7 +232,7 @@ public static class InterfoldAppHost
                         "SCYLLA_USER must be set to a non-default value. " +
                         "The well-known default 'cassandra' is not allowed.\n" +
                         "Fix: dotnet user-secrets set \"Parameters:scylla-user\" \"<your-username>\" " +
-                        "--project host/Interfold.AppHost");
+                        "--project hosts/Interfold.AppHost");
                 }
             }
 
@@ -245,7 +245,7 @@ public static class InterfoldAppHost
                         "POSTGRES_PASSWORD must be set to a non-default value. " +
                         "The well-known default 'postgres' is not allowed.\n" +
                         "Fix: dotnet user-secrets set \"Parameters:postgres-password\" \"<your-secure-password>\" " +
-                        "--project host/Interfold.AppHost");
+                        "--project hosts/Interfold.AppHost");
                 }
 
                 var postgresUserValue = builder.Configuration[AppHostParameterKeys.PostgresUser];
@@ -255,7 +255,7 @@ public static class InterfoldAppHost
                         "POSTGRES_USER must be set to a non-default value. " +
                         "The well-known default 'postgres' is not allowed.\n" +
                         "Fix: dotnet user-secrets set \"Parameters:postgres-user\" \"<your-username>\" " +
-                        "--project host/Interfold.AppHost");
+                        "--project hosts/Interfold.AppHost");
                 }
             }
         }

@@ -72,7 +72,7 @@ internal static class AvatarUrlQualifier
         => bearing is null ? null : QualifyAvatar(bearing.AvatarUrl, bearing.AvatarSource, origin);
 
     // QualifyFriendship + QualifyFriendRequest overloads moved to
-    // host/Interfold.Friendships.Api/Helpers/FriendshipAvatarQualifier.cs during the Phase-3
+    // apis/Interfold.Friendships.Api/Helpers/FriendshipAvatarQualifier.cs during the Phase-3
     // Friendships slice — this shared file no longer binds the friendship read-model cluster
     // (which now lives in Interfold.Friendships.Contracts). The per-avatar QualifyAvatar
     // primitives above stay here.

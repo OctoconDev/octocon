@@ -24,25 +24,25 @@
          into Interfold.Api.Host; SecretsPreBuildLoaderPoolingTests reaches internal members
          via the matching InternalsVisibleTo grant in Interfold.Api.Host.csproj. Same
          test-project-sees-composition-host pattern that Interfold.IntegrationTests uses. -->
-    <ProjectReference Include="..\..\host\Interfold.Api.Host\Interfold.Api.Host.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\hosts\Interfold.Api.Host\Interfold.Api.Host.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Auth.Contracts\Interfold.Auth.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Polls.Contracts\Interfold.Polls.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
     <!-- Socket transport + handlers moved out of Interfold.Api in slice #10; the unit tests
          still exercise WebSocketHandler / SocketJoinRateLimiter / WebSocketInitialization
          via the Socket/*Tests classes, plus Helpers/LoopbackHttpClientTests and
          WireByteFreezeTests, all of which now bind against Interfold.Socket.Api. -->
-    <ProjectReference Include="..\..\host\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Auth.Domain\Interfold.Auth.Domain.csproj" />
   </ItemGroup>

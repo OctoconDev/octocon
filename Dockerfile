@@ -16,7 +16,7 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
         arm)   RID=linux-arm ;; \
         *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac && \
-    dotnet publish host/Interfold.Api.Host/Interfold.Api.Host.csproj \
+    dotnet publish hosts/Interfold.Api.Host/Interfold.Api.Host.csproj \
         --configuration Release \
         --runtime "$RID" \
         --self-contained false \

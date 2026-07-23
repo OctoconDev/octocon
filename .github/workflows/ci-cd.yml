@@ -92,7 +92,7 @@ jobs:
             tar -czf "interfold-bootstrap-$rid.tar.gz" \
               -C "bootstrap-out/$buildx_dir" interfold-bootstrap
           done
-          dest=host/Interfold.Bootstrapper/bin/Release/net10.0/linux-x64/publish
+          dest=tools/Interfold.Bootstrapper/bin/Release/net10.0/linux-x64/publish
           mkdir -p "$dest"
           cp bootstrap-out/linux_amd64/interfold-bootstrap "$dest/interfold-bootstrap"
           chmod +x "$dest/interfold-bootstrap"

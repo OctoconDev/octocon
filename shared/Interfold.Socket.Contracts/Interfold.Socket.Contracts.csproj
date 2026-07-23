@@ -9,7 +9,7 @@
          Interfold.Socket.Contracts without forming a cycle. If a socket-payload record needs
          a feature-Contracts type (e.g. SocketAggregateJoinPayloads binding AlterReadModel /
          TagReadModel / FrontActiveReadModel), that file stays in Interfold.Socket.Api instead
-         — see host/Interfold.Socket.Api/Models/SocketAggregateJoinPayloads.cs. -->
+         — see apis/Interfold.Socket.Api/Models/SocketAggregateJoinPayloads.cs. -->
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
   </ItemGroup>
 </Project>

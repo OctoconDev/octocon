@@ -32,7 +32,7 @@ internal static class BootstrapperBuild
 
         await RunDotnetAsync(
             "publish",
-            "host/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj",
+            "tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj",
             "/p:PublishProfile=linux-x64",
             "-o", outDir).ConfigureAwait(false);
 
@@ -55,7 +55,7 @@ internal static class BootstrapperBuild
         {
             await RunDotnetAsync(
                 "publish",
-                "host/Interfold.Api.Host/Interfold.Api.Host.csproj",
+                "hosts/Interfold.Api.Host/Interfold.Api.Host.csproj",
                 "-c", "Release",
                 "/t:PublishContainer",
                 "/p:ContainerImageName=interfold-api",

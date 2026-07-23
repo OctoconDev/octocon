@@ -16,7 +16,7 @@
   <ItemGroup>
     <!-- Csproj-on-disk only (fixture shells out to `dotnet publish`); no compile-link so the test
          binary stays free of the Aspire reflection footprint. -->
-    <ProjectReference Include="..\..\host\Interfold.Bootstrapper\Interfold.Bootstrapper.csproj"
+    <ProjectReference Include="..\..\tools\Interfold.Bootstrapper\Interfold.Bootstrapper.csproj"
                       ReferenceOutputAssembly="false"
                       Private="false"
                       ExcludeAssets="all" />

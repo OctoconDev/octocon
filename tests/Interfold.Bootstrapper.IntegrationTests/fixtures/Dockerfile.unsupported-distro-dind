@@ -7,7 +7,7 @@
 # "wrong libc", not the bootstrapper's distro-family rejection.
 #
 # To trigger the rejection we overwrite /etc/os-release with an ID the bootstrapper's
-# DistroInfo resolver does not recognise (see host/Interfold.Bootstrapper/Util/DistroInfo.cs).
+# DistroInfo resolver does not recognise (see tools/Interfold.Bootstrapper/Util/DistroInfo.cs).
 FROM debian:bookworm-slim
 
 RUN apt-get update \

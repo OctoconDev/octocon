@@ -97,7 +97,7 @@ internal static partial class PrerequisitesPhase
         logger.PhaseFail(BootstrapPhase.Prereqs.ToWireName(), PhaseFailureReasons.NonLinuxHost);
         throw new InvalidOperationException(
             "The bootstrapper is Linux-only. For local development use `aspire run` from " +
-            "host/Interfold.AppHost instead.");
+            "hosts/Interfold.AppHost instead.");
     }
 
     private static void EnsureRoot(PhaseLogger logger)

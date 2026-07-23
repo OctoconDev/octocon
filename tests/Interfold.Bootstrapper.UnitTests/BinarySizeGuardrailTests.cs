@@ -5,7 +5,7 @@ namespace Interfold.Bootstrapper.UnitTests;
 
 /// <summary>
 /// Guardrail against accidental binary-size regressions. The bootstrapper is published as a
-/// self-contained single-file ELF under <c>host/Interfold.Bootstrapper/bin/Release/net10.0/linux-x64/publish</c>;
+/// self-contained single-file ELF under <c>tools/Interfold.Bootstrapper/bin/Release/net10.0/linux-x64/publish</c>;
 /// trimming + <c>PublishReadyToRun=false</c> currently keep it well under 75 MiB. If a future
 /// change accidentally pulls in a heavy dependency the size will balloon and this test fails
 /// before the regression ships.
@@ -34,7 +34,7 @@ public sealed class BinarySizeGuardrailTests
         {
             var message =
                 $"Published linux-x64 binary not found at expected path '{path ?? "<repo root not located>"}'. " +
-                "Run `dotnet publish host/Interfold.Bootstrapper -c Release -r linux-x64 " +
+                "Run `dotnet publish tools/Interfold.Bootstrapper -c Release -r linux-x64 " +
                 "/p:PublishProfile=linux-x64` (or build via Dockerfile.bootstrapper) to generate it.";
 
             if (TestSupport.IsRunningInCi)
@@ -57,7 +57,7 @@ public sealed class BinarySizeGuardrailTests
 
     /// <summary>
     /// Walks up to the repo root (identified by Interfold.slnx) and returns the published
-    /// binary path under host/Interfold.Bootstrapper/bin/... as specified by the linux-x64
+    /// binary path under tools/Interfold.Bootstrapper/bin/... as specified by the linux-x64
     /// publish profile. The file name is <c>interfold-bootstrap</c> per the assembly name.
     /// </summary>
     private static string? LocatePublishedBinary()
@@ -67,7 +67,7 @@ public sealed class BinarySizeGuardrailTests
 
         return Path.Combine(
             repoRoot,
-            "host",
+            "tools",
             "Interfold.Bootstrapper",
             "bin",
             "Release",

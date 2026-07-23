@@ -22,32 +22,32 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\host\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Api.Host\Interfold.Api.Host.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\hosts\Interfold.Api.Host\Interfold.Api.Host.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Auth.Domain\Interfold.Auth.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Friendships.Api\Interfold.Friendships.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Friendships.Api\Interfold.Friendships.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Fronting.Api\Interfold.Fronting.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Fronting.Api\Interfold.Fronting.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Journals.Api\Interfold.Journals.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Journals.Api\Interfold.Journals.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Ops.Api\Interfold.Ops.Api.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Ops.Api\Interfold.Ops.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Polls.Api\Interfold.Polls.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Polls.Domain\Interfold.Polls.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Settings.Api\Interfold.Settings.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Socket.Api\Interfold.Socket.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
+    <ProjectReference Include="..\..\apis\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.AppHost\Interfold.AppHost.csproj">
+    <ProjectReference Include="..\..\hosts\Interfold.AppHost\Interfold.AppHost.csproj">
       <Aliases>AppHost</Aliases>
     </ProjectReference>
-    <ProjectReference Include="..\..\host\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
   </ItemGroup>
 
   <ItemGroup>

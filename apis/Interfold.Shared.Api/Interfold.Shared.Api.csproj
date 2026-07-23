@@ -28,7 +28,7 @@
          Interfold.Shared.Api internals — FrontingController's Month/Between endpoints
          bind [UnixSecondsBinding(...)] on their query parameters. -->
     <InternalsVisibleTo Include="Interfold.Fronting.Api" />
-    <!-- Interfold.Friendships.Api: FriendshipAvatarQualifier (host/Interfold.Friendships.Api/Helpers/)
+    <!-- Interfold.Friendships.Api: FriendshipAvatarQualifier (apis/Interfold.Friendships.Api/Helpers/)
          calls internal AvatarUrlQualifier.QualifyAvatar overloads. Migrated during Phase-3
          Friendships as the feature-owned replacement for the QualifyFriendship / QualifyFriendRequest
          helpers that used to live here. -->

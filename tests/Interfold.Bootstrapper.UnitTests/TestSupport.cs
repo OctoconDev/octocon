@@ -46,7 +46,7 @@ internal static class TestSupport
     /// <summary>
     /// Walks up from the test assembly's location to the repo root (identified by
     /// Interfold.slnx) and returns the bootstrapper artifact under
-    /// <c>host/Interfold.Bootstrapper/bin/{Debug|Release}/net10.0/</c>. We try both because
+    /// <c>tools/Interfold.Bootstrapper/bin/{Debug|Release}/net10.0/</c>. We try both because
     /// contributors may have only built one configuration locally and CI builds Release.
     /// </summary>
     public static string? LocateBootstrapperAssembly()
@@ -56,8 +56,8 @@ internal static class TestSupport
 
         string[] candidates =
         [
-            Path.Combine(repoRoot, "host", "Interfold.Bootstrapper", "bin", "Debug", "net10.0", "interfold-bootstrap.dll"),
-            Path.Combine(repoRoot, "host", "Interfold.Bootstrapper", "bin", "Release", "net10.0", "interfold-bootstrap.dll"),
+            Path.Combine(repoRoot, "tools", "Interfold.Bootstrapper", "bin", "Debug", "net10.0", "interfold-bootstrap.dll"),
+            Path.Combine(repoRoot, "tools", "Interfold.Bootstrapper", "bin", "Release", "net10.0", "interfold-bootstrap.dll"),
         ];
         return candidates.FirstOrDefault(File.Exists);
     }

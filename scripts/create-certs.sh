@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # DEPRECATED: Self-hosted Interfold deployments should use the Interfold.Bootstrapper binary
-# (host/Interfold.Bootstrapper) instead. The bootstrapper's CertificatePhase generates the
+# (tools/Interfold.Bootstrapper) instead. The bootstrapper's CertificatePhase generates the
 # root CA and leaf cert in pure C# via System.Security.Cryptography and installs them into the
 # system trust store. This script is retained for one release for compatibility with existing
 # automation; it will be removed.

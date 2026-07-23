@@ -16,7 +16,7 @@ internal static class PublishPhase
 {
     // Anchors relative bind-mount paths from InterfoldAppHost.Configure. The graph uses
     // "../../scripts/..." that resolves against CWD; setting CWD to {appDir}/_aspire_anchor/inner
-    // makes those match the dev layout (host/Interfold.AppHost/../../scripts).
+    // makes those match the dev layout (hosts/Interfold.AppHost/../../scripts).
     private static readonly string[] AnchorSegments = ["_aspire_anchor", "inner"];
 
     public static async Task RunAsync(

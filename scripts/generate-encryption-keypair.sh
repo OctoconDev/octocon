@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # DEPRECATED: Self-hosted Interfold deployments should use the Interfold.Bootstrapper binary
-# (host/Interfold.Bootstrapper) instead. The bootstrapper's SecretsPhase generates the RSA-2048
+# (tools/Interfold.Bootstrapper) instead. The bootstrapper's SecretsPhase generates the RSA-2048
 # keypair in pure C# via System.Security.Cryptography and persists it in deploy/secrets/secrets.json
 # with mode 0600 alongside the other generated credentials. This script is retained for one release
 # for compatibility with existing developer automation; it will be removed.

@@ -73,7 +73,7 @@ public abstract class InterfoldControllerBase : ControllerBase
         => AvatarUrlQualifier.QualifyAvatar(bearing, Request.Scheme, Request.Host);
 
     // QualifyFriendship / QualifyFriendRequest protected wrappers moved to
-    // host/Interfold.Friendships.Api/Helpers/FriendshipAvatarQualifier.cs during the Phase-3
+    // apis/Interfold.Friendships.Api/Helpers/FriendshipAvatarQualifier.cs during the Phase-3
     // Friendships slice; the two Interfold.Api call sites (PublicSystemsController,
     // FriendshipSocketEventHandlers) inline the same body against AvatarUrlQualifier.QualifyAvatar
     // so this base class no longer binds the friendship read-model cluster.

@@ -163,7 +163,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 // HttpLoggingHandler + AddSimplyPluralImport + the two IImportJobRunner singletons +
 // ImportJobBackgroundService all moved into AddSettingsModule (Phase-3 Settings slice).
 // SocketJoinRateLimiter + LoopbackHttpClient named client both moved into AddSocketModule
-// (Phase-3 Socket slice #10) — see host/Interfold.Socket.Api/DependencyInjection.
+// (Phase-3 Socket slice #10) — see apis/Interfold.Socket.Api/DependencyInjection.
 
 // Cross-cutting authorization policy applies to every module's controllers, so it stays on
 // the composition host rather than moving into AddAuthModule.
