@@ -11,9 +11,9 @@
     <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
     <ProjectReference Include="..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
     <!-- Interfold.Infrastructure -> Interfold.Fronting.Contracts back-ref:
-         FrontNotifierBackgroundService (shared/Interfold.Infrastructure/Coordination/) subscribes
-         to FrontingStateChangedEvent, which moved into Interfold.Fronting.Contracts.Events during
-         Phase-3 Fronting migration. Dissolves when FrontNotifier migrates into
+         FrontNotifierBackgroundService (infrastructure/Interfold.Infrastructure/Coordination/)
+         subscribes to FrontingStateChangedEvent, which moved into Interfold.Fronting.Contracts.Events
+         during Phase-3 Fronting migration. Dissolves when FrontNotifier migrates into
          Interfold.Fronting.Api. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
     <!-- Phase-3 Settings slice #8: FirebaseFCMService injects FcmConfiguration (moved to
