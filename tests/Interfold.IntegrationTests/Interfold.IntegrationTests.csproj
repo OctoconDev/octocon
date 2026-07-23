@@ -43,7 +43,7 @@
     <ProjectReference Include="..\..\host\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
     <ProjectReference Include="..\..\host\Interfold.AppHost\Interfold.AppHost.csproj">
       <Aliases>AppHost</Aliases>
     </ProjectReference>

@@ -15,7 +15,6 @@
     <Project Path="shared/Interfold.Friendships.Domain/Interfold.Friendships.Domain.csproj" />
     <Project Path="shared/Interfold.Fronting.Contracts/Interfold.Fronting.Contracts.csproj" />
     <Project Path="shared/Interfold.Fronting.Domain/Interfold.Fronting.Domain.csproj" />
-    <Project Path="shared/Interfold.Infrastructure/Interfold.Infrastructure.csproj" />
     <Project Path="shared/Interfold.Journals.Contracts/Interfold.Journals.Contracts.csproj" />
     <Project Path="shared/Interfold.Journals.Domain/Interfold.Journals.Domain.csproj" />
     <Project Path="shared/Interfold.Polls.Contracts/Interfold.Polls.Contracts.csproj" />
@@ -28,6 +27,7 @@
     <Project Path="shared/Interfold.Tags.Domain/Interfold.Tags.Domain.csproj" />
   </Folder>
   <Folder Name="/infrastructure/">
+    <Project Path="infrastructure/Interfold.Infrastructure/Interfold.Infrastructure.csproj" />
     <Project Path="infrastructure/Interfold.Infrastructure.InMemory/Interfold.Infrastructure.InMemory.csproj" />
     <Project Path="infrastructure/Interfold.Infrastructure.Postgres/Interfold.Infrastructure.Postgres.csproj" />
     <Project Path="infrastructure/Interfold.Infrastructure.Scylla/Interfold.Infrastructure.Scylla.csproj" />

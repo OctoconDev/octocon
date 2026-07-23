@@ -7,7 +7,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+      <ProjectReference Include="..\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
       <!-- Permanent back-ref: InMemoryAlterRepository calls AlterFieldProjection.ResolveGuardedFields
            at 4 sites during read-model projection; the helper lives in Interfold.Alters.Domain so
            the InMemory + Scylla repos share the same visibility rules. -->

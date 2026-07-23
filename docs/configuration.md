@@ -55,7 +55,7 @@ frontend URLs, deep-link protocol.
 — test-only gating switches.
 
 DI binding is centralised in
-`[ConfigurationServiceCollectionExtensions.AddInterfoldOptions](../shared/Interfold.Infrastructure/DependencyInjection/ConfigurationServiceCollectionExtensions.cs)`.
+`[ConfigurationServiceCollectionExtensions.AddInterfoldOptions](../infrastructure/Interfold.Infrastructure/DependencyInjection/ConfigurationServiceCollectionExtensions.cs)`.
 Each `Apply`* method is the single source of truth for that section's env → options mapping.
 
 ## Layer 2 — `interfold.bootstrap.json`

@@ -8,7 +8,7 @@
 
     <ItemGroup>
       <InternalsVisibleTo Include="Interfold.IntegrationTests" />
-      <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+      <ProjectReference Include="..\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
       <!-- Permanent back-ref: ScyllaAlterRepository + AlterRowMappers + ScyllaTagRepository call
            AlterFieldProjection.ResolveVisibleDefinitionsAsync / ResolveGuardedFields, which lives
            in Interfold.Alters.Domain. The projection helper stays with the feature so InMemory +

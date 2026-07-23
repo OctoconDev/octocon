@@ -86,7 +86,7 @@ public static class AuthModuleServiceCollectionExtensions
     }
 
     // Public / env-bound fields only; secret fields land via AuthenticationSecretsPostConfigure.
-    // Migrated from shared/Interfold.Infrastructure/DependencyInjection/ConfigurationServiceCollectionExtensions.cs
+    // Migrated from infrastructure/Interfold.Infrastructure/DependencyInjection/ConfigurationServiceCollectionExtensions.cs
     // in Phase 2 so the shared spine has no back-reference into the Auth feature.
     private static void ApplyAuthentication(AuthenticationConfiguration opts, IConfiguration config)
     {

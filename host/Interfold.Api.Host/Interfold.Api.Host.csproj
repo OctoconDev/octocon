@@ -26,7 +26,7 @@
     <ProjectReference Include="..\..\host\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Tags.Api\Interfold.Tags.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.ServiceDefaults\Interfold.ServiceDefaults.csproj" />
-    <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Postgres\Interfold.Infrastructure.Postgres.csproj" />
     <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure.Scylla\Interfold.Infrastructure.Scylla.csproj" />

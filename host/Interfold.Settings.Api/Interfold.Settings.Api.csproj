@@ -41,6 +41,6 @@
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Friendships.Domain\Interfold.Friendships.Domain.csproj" />
     <!-- Infrastructure for InProcessImportJobQueue registration in AddSettingsModule. -->
-    <ProjectReference Include="..\..\shared\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\infrastructure\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
