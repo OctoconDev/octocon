@@ -9,7 +9,7 @@ namespace Interfold.Shared.Contracts.Models.Read;
 // AvatarUrlUploadRequest + AvatarUploadPayload stay on spine (in-slice deviation from the
 // plan): the first is bound by both AltersController and SettingsController, the second
 // is constructed inside InterfoldControllerBase.ResolveMultipartUploadAsync
-// (Interfold.Api.Shared) — moving either would introduce Api.Shared → Settings.Contracts
+// (Interfold.Shared.Api) — moving either would introduce Api.Shared → Settings.Contracts
 // or Alters.Api → Settings.Contracts arrows that the "pinned by cross-feature binding"
 // rule in the plan's section 1b already tells us to avoid.
 public sealed record SettingsFieldReadModel(

@@ -27,7 +27,7 @@
     <InternalsVisibleTo Include="Interfold.IntegrationTests" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
     <!-- Six peer feature.Domain refs — transitively reachable via Settings.Domain, but kept

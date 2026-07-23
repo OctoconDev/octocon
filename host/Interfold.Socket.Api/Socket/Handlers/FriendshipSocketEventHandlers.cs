@@ -20,7 +20,7 @@ public static class FriendshipSocketEventHandlers
         var friendship = await GetFriendshipWithRetryAsync(friendshipRepository, evt.TargetSystemId, evt.SystemId, context.CancellationToken);
         // Inlined from the former AvatarUrlQualifier.QualifyFriendship(origin) overload — the
         // shared spine helper moved out during the Phase-3 Friendships slice so
-        // Interfold.Api.Shared no longer binds the friendship read-model cluster; per-avatar
+        // Interfold.Shared.Api no longer binds the friendship read-model cluster; per-avatar
         // qualification still uses the shared primitive.
         var qualified = friendship is null
             ? new FriendshipReadModel(

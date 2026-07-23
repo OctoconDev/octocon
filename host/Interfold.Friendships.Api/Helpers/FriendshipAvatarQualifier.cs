@@ -4,8 +4,8 @@ using Interfold.Shared.Contracts.Models.Read;
 namespace Interfold.Friendships.Api.Helpers;
 
 // Feature-owned migration of the four QualifyFriendship / QualifyFriendRequest helpers
-// that used to live in Interfold.Api.Shared/Helpers/AvatarUrlQualifier. Moved here as
-// part of the Phase-3 Friendships slice so Interfold.Api.Shared no longer binds the
+// that used to live in Interfold.Shared.Api/Helpers/AvatarUrlQualifier. Moved here as
+// part of the Phase-3 Friendships slice so Interfold.Shared.Api no longer binds the
 // friendship read-model cluster (which now lives in Interfold.Friendships.Contracts).
 // The underlying per-avatar overloads (AvatarUrlQualifier.QualifyAvatar) stay in the
 // shared spine — they're the shared primitive; the friendship-shaped composers are

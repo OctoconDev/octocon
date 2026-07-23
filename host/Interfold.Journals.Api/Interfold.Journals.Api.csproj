@@ -24,6 +24,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Interfold.Journals.Domain\Interfold.Journals.Domain.csproj" />
-    <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />
   </ItemGroup>
 </Project>

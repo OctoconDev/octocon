@@ -127,7 +127,7 @@ public sealed class PublicSystemsController : InterfoldControllerBase
         {
             // Inlined from the former InterfoldControllerBase.QualifyFriendship helper — the
             // shared spine wrapper moved out during the Phase-3 Friendships slice so
-            // Interfold.Api.Shared no longer binds the friendship read-model cluster; per-avatar
+            // Interfold.Shared.Api no longer binds the friendship read-model cluster; per-avatar
             // qualification still uses the shared primitive.
             friendship = friendship with
             {

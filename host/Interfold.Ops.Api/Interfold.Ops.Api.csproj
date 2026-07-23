@@ -23,7 +23,7 @@
     <Using Include="System.Net.Http.Json" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />
     <!-- Facade-shape exception: direct ref to the spine Interfold.Shared.Domain because
          NodeRoleController binds INodeRoleContext, which lives on the spine at
          shared/Interfold.Shared.Domain/Abstractions/INodeRoleContext.cs (registered by
@@ -31,7 +31,7 @@
          (repository-interface access after slice #8 relocations); Ops is the second and,
          per current planning, last facade to invoke this exception. TrustOptions +
          NodeGroup live on Interfold.Shared.Contracts, reachable transitively via Interfold.Shared.Domain
-         and Interfold.Api.Shared, so no other feature refs are needed. -->
+         and Interfold.Shared.Api, so no other feature refs are needed. -->
     <ProjectReference Include="..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
   </ItemGroup>
 </Project>

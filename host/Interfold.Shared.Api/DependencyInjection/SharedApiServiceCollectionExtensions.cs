@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using JsonOptions = Microsoft.AspNetCore.Mvc.JsonOptions;
 
-namespace Interfold.Api.Shared.DependencyInjection;
+namespace Interfold.Shared.Api.DependencyInjection;
 
 /// <summary>Shared-spine DI wiring consumed by <c>Program.cs</c> today and by every
 /// future <c>Interfold.&lt;Feature&gt;.Api</c> module tomorrow. Order-invariant with

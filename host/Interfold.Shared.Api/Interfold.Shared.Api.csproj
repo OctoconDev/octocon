@@ -7,7 +7,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
-  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Api.Shared is a
+  <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Shared.Api is a
        plain Microsoft.NET.Sdk library (no Kestrel), but every moved file was written
        assuming the Web-SDK implicits are present. -->
   <ItemGroup>
@@ -25,7 +25,7 @@
     <InternalsVisibleTo Include="Interfold.Api.Host" />
     <InternalsVisibleTo Include="Interfold.Auth.Api" />
     <!-- Interfold.Fronting.Api is the first feature-module Api project to consume
-         Interfold.Api.Shared internals — FrontingController's Month/Between endpoints
+         Interfold.Shared.Api internals — FrontingController's Month/Between endpoints
          bind [UnixSecondsBinding(...)] on their query parameters. -->
     <InternalsVisibleTo Include="Interfold.Fronting.Api" />
     <!-- Interfold.Friendships.Api: FriendshipAvatarQualifier (host/Interfold.Friendships.Api/Helpers/)

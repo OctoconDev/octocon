@@ -35,7 +35,7 @@
   <Folder Name="/host/">
     <Project Path="host/Interfold.Alters.Api/Interfold.Alters.Api.csproj" />
     <Project Path="host/Interfold.Api.Host/Interfold.Api.Host.csproj" />
-    <Project Path="host/Interfold.Api.Shared/Interfold.Api.Shared.csproj" />
+    <Project Path="host/Interfold.Shared.Api/Interfold.Shared.Api.csproj" />
     <Project Path="host/Interfold.AppHost/Interfold.AppHost.csproj" />
     <Project Path="host/Interfold.Auth.Api/Interfold.Auth.Api.csproj" />
     <Project Path="host/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />

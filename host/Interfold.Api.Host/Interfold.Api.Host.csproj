@@ -14,7 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\host\Interfold.Alters.Api\Interfold.Alters.Api.csproj" />
-    <ProjectReference Include="..\..\host\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\..\host\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Auth.Api\Interfold.Auth.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Friendships.Api\Interfold.Friendships.Api.csproj" />
     <ProjectReference Include="..\..\host\Interfold.Fronting.Api\Interfold.Fronting.Api.csproj" />

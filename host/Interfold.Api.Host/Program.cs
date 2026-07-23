@@ -2,7 +2,7 @@ using Interfold.Api.Helpers;
 using Interfold.Api.Middleware;
 using Interfold.Api.Services;
 using Interfold.Api.Services.Secrets;
-using Interfold.Api.Shared.DependencyInjection;
+using Interfold.Shared.Api.DependencyInjection;
 using Interfold.Api.Swagger;
 using Interfold.Alters.Api.DependencyInjection;
 using Interfold.Auth.Api.DependencyInjection;

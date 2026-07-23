@@ -9,7 +9,7 @@
   </ItemGroup>
   <!-- Mirror the implicit usings Microsoft.NET.Sdk.Web adds. Interfold.Tags.Api is a plain
        Microsoft.NET.Sdk library (no Kestrel), but the moved TagsController assumes the
-       Web-SDK implicits are present. Same shape as Interfold.Auth.Api / Interfold.Api.Shared. -->
+       Web-SDK implicits are present. Same shape as Interfold.Auth.Api / Interfold.Shared.Api. -->
   <ItemGroup>
     <Using Include="Microsoft.AspNetCore.Builder" />
     <Using Include="Microsoft.AspNetCore.Hosting" />
@@ -23,6 +23,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />
-    <ProjectReference Include="..\Interfold.Api.Shared\Interfold.Api.Shared.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />
   </ItemGroup>
 </Project>
