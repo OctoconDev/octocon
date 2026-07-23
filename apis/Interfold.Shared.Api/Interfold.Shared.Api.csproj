@@ -44,7 +44,7 @@
          / SocketSelfReadModel with origin-qualified avatars). Migrated during Phase-3
          Socket slice #10. -->
     <InternalsVisibleTo Include="Interfold.Socket.Api" />
-    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.IntegrationTests.Shared" />
     <InternalsVisibleTo Include="Interfold.Shared.UnitTests" />
     <!-- FirebaseConfigResolverTests.Settings binds ErrorResponse.StatusCode (internal) -->
     <InternalsVisibleTo Include="Interfold.Settings.UnitTests" />

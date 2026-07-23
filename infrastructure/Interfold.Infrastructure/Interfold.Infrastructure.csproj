@@ -5,7 +5,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.IntegrationTests.Shared" />
+    <InternalsVisibleTo Include="Interfold.Infrastructure.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Scylla" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />

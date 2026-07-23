@@ -54,7 +54,7 @@ public static class OctoconEnvKeys
 
     public const string SocketBatchBytesThreshold = "OCTOCON_SOCKET_BATCH_BYTES_THRESHOLD";
 
-    // Interfold.IntegrationTests / TestingConfiguration only.
+    // Interfold.<Feature>.IntegrationTests / TestingConfiguration only.
     public const string RunApiIntegration = "OCTOCON_RUN_API_INTEGRATION";
     public const string RunLiveIntegration = "OCTOCON_RUN_LIVE_INTEGRATION";
     public const string TestScyllaContactPoints = "OCTOCON_TEST_SCYLLA_CONTACT_POINTS";

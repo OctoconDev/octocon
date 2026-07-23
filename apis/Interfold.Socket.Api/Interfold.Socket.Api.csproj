@@ -28,7 +28,7 @@
          WireByteFreezeTests); Interfold.Api.Host resolves internals of MapSocketModule /
          AddSocketModule. Same InternalsVisibleTo set as every other .Api module. -->
     <InternalsVisibleTo Include="Interfold.Api.Host" />
-    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.Socket.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Socket.UnitTests" />
   </ItemGroup>
   <ItemGroup>

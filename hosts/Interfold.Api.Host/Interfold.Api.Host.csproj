@@ -5,11 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.IntegrationTests.Shared" />
     <!-- SecretsPreBuildLoaderPoolingTests (Phase-4-retirement — moved here from Interfold.Api)
          still binds three internals (WithDedicatedPoolIdentity + LoaderApplicationName +
-         LoaderMaxPoolSize). Same test-project-sees-composition-host pattern that
-         Interfold.IntegrationTests already uses via WebApplicationFactory<Program>. -->
+         LoaderMaxPoolSize). Same test-project-sees-composition-host pattern that the
+         Interfold.<Feature>.IntegrationTests suites use via WebApplicationFactory<Program>. -->
     <InternalsVisibleTo Include="Interfold.Shared.UnitTests" />
   </ItemGroup>
   <ItemGroup>

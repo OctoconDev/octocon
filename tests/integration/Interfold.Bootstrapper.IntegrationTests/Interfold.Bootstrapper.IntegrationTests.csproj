@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Interfold.Bootstrapper.IntegrationTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Testcontainers" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Csproj-on-disk only (fixture shells out to `dotnet publish`); no compile-link so the test
+         binary stays free of the Aspire reflection footprint. -->
+    <ProjectReference Include="..\..\..\tools\Interfold.Bootstrapper\Interfold.Bootstrapper.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      ExcludeAssets="all" />
+    <ProjectReference Include="..\..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="fixtures\Dockerfile.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="fixtures\dockerd-entrypoint.sh">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="fixtures\interfold.bootstrap.test*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

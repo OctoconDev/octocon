@@ -22,7 +22,7 @@
     <Using Include="System.Net.Http.Json" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.Auth.IntegrationTests" />
     <InternalsVisibleTo Include="Interfold.Auth.UnitTests" />
   </ItemGroup>
   <ItemGroup>

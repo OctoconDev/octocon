@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pure-C# tests only (~3s). Anything that needs Docker / DinD goes in
+       Interfold.Bootstrapper.IntegrationTests. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Interfold.Bootstrapper.UnitTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <!-- In-memory IAnsiConsole (TestConsole) for ConfigInteractivePromptTests. -->
+    <PackageReference Include="Spectre.Console.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\tools\Interfold.Bootstrapper\Interfold.Bootstrapper.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Source-linked (not project-referenced) so DinD-parallelism math can be unit-tested
+         without pulling Testcontainers into this assembly. -->
+    <Compile Include="..\..\integration\Interfold.Bootstrapper.IntegrationTests\fixtures\DinDParallelLimitCalculator.cs"
+             Link="Fixtures\DinDParallelLimitCalculator.cs" />
+  </ItemGroup>
+</Project>

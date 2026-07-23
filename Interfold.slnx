@@ -56,14 +56,26 @@
     <Project Path="tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj" />
     <Project Path="tools/Interfold.SPDump/Interfold.SPDump.csproj" />
   </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/Interfold.Bootstrapper.IntegrationTests/Interfold.Bootstrapper.IntegrationTests.csproj" />
-    <Project Path="tests/Interfold.Bootstrapper.UnitTests/Interfold.Bootstrapper.UnitTests.csproj" />
-    <Project Path="tests/Interfold.IntegrationTests/Interfold.IntegrationTests.csproj" />
+  <Folder Name="/tests/integration/">
+    <Project Path="tests/integration/Interfold.Alters.IntegrationTests/Interfold.Alters.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Auth.IntegrationTests/Interfold.Auth.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Bootstrapper.IntegrationTests/Interfold.Bootstrapper.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Friendships.IntegrationTests/Interfold.Friendships.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Fronting.IntegrationTests/Interfold.Fronting.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Infrastructure.IntegrationTests/Interfold.Infrastructure.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.IntegrationTests.Shared/Interfold.IntegrationTests.Shared.csproj" />
+    <Project Path="tests/integration/Interfold.Journals.IntegrationTests/Interfold.Journals.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Ops.IntegrationTests/Interfold.Ops.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Polls.IntegrationTests/Interfold.Polls.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Settings.IntegrationTests/Interfold.Settings.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Socket.IntegrationTests/Interfold.Socket.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Systems.IntegrationTests/Interfold.Systems.IntegrationTests.csproj" />
+    <Project Path="tests/integration/Interfold.Tags.IntegrationTests/Interfold.Tags.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tests/unit/">
     <Project Path="tests/unit/Interfold.Alters.UnitTests/Interfold.Alters.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Auth.UnitTests/Interfold.Auth.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.Bootstrapper.UnitTests/Interfold.Bootstrapper.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Friendships.UnitTests/Interfold.Friendships.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Fronting.UnitTests/Interfold.Fronting.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Journals.UnitTests/Interfold.Journals.UnitTests.csproj" />
