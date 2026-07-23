@@ -54,8 +54,8 @@ public sealed class ImportPkCommandHandlerDispatchTests
         var repo = new InMemoryImportOperationRepository();
         var queue = new InProcessImportJobQueue();
         var capture = new CapturingQueue(queue);
-        var sp = new Interfold.Domain.Settings.ImportSpCommandHandler(repo, capture);
-        var pk = new Interfold.Domain.Settings.ImportPkCommandHandler(repo, capture);
+        var sp = new Interfold.Shared.Domain.Settings.ImportSpCommandHandler(repo, capture);
+        var pk = new Interfold.Shared.Domain.Settings.ImportPkCommandHandler(repo, capture);
 
         var spResult = await sp.HandleAsync(
             ImportDispatchScenario.NewSpEnvelope(ImportDispatchScenario.PkSystemId, "idem-sp", "synthetic-sp-token"));

@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 /// <summary>Pushes FCM notifications on fronting state changes (mirrors legacy
 /// <c>Octocon.Global.FrontNotifier</c>).</summary>

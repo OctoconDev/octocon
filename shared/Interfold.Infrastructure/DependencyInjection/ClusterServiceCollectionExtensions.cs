@@ -4,8 +4,8 @@ using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.ImportJobs;
 using Interfold.Infrastructure.Coordination;
 
 namespace Interfold.Infrastructure.DependencyInjection;

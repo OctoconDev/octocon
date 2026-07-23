@@ -36,9 +36,9 @@
     <!-- Socket transport binds ISocketPayload / PhxFrame / SocketJson / *SocketEventNames /
          SocketSelfReadModel from the socket leaf. -->
     <ProjectReference Include="..\..\shared\Interfold.Socket.Contracts\Interfold.Socket.Contracts.csproj" />
-    <!-- Socket transport + handlers bind Interfold.Domain.Abstractions[.Repository] +
+    <!-- Socket transport + handlers bind Interfold.Shared.Domain.Abstractions[.Repository] +
          SocketConfiguration (spine-pinned by design; see slice-10 deviation record). -->
-    <ProjectReference Include="..\..\shared\Interfold.Domain\Interfold.Domain.csproj" />
+    <ProjectReference Include="..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
     <!-- WebSocketHandler.cs calls Interfold.Api.Auth.JwtEs256Validator.ValidateSignature.
          Keeps the ES256 validator co-located with the rest of the Auth feature rather than
          forcing it into Interfold.Api.Shared just to satisfy the socket handler. -->

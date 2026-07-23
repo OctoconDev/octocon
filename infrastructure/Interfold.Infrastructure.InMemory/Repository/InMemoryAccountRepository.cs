@@ -3,8 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;

@@ -4,9 +4,9 @@ using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.ImportJobs;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.InMemory.Repository;
 
@@ -53,12 +53,12 @@ internal static class ImportDispatchScenario
 
     public static ImportDispatchScenario<ImportSpCommand> ForSp()
         => new(
-            (repo, queue) => new Interfold.Domain.Settings.ImportSpCommandHandler(repo, queue),
+            (repo, queue) => new Interfold.Shared.Domain.Settings.ImportSpCommandHandler(repo, queue),
             (key, token) => NewSpEnvelope(SpSystemId, key, token));
 
     public static ImportDispatchScenario<ImportPkCommand> ForPk()
         => new(
-            (repo, queue) => new Interfold.Domain.Settings.ImportPkCommandHandler(repo, queue),
+            (repo, queue) => new Interfold.Shared.Domain.Settings.ImportPkCommandHandler(repo, queue),
             (key, token) => NewPkEnvelope(PkSystemId, key, token));
 
     public static CommandEnvelope<ImportSpCommand> NewSpEnvelope(ScopedSystemId systemId, string idempotencyKey, string token) => new(

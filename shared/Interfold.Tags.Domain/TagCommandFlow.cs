@@ -4,9 +4,9 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 
-namespace Interfold.Domain.Tags;
+namespace Interfold.Shared.Domain.Tags;
 
 internal static class TagCommandFlow
 {

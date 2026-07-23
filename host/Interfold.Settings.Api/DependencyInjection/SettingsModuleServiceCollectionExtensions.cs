@@ -4,10 +4,10 @@ using Interfold.Api.Services.ImportJobs;
 using Interfold.Api.Services.Secrets;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.ImportJobs;
-using Interfold.Domain.Accounts;
-using Interfold.Domain.Settings;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Domain.Accounts;
+using Interfold.Shared.Domain.Settings;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Settings.Api.DependencyInjection;

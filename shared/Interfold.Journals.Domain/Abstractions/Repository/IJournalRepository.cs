@@ -2,7 +2,7 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Domain.Abstractions.Repository;
+namespace Interfold.Shared.Domain.Abstractions.Repository;
 
 public interface IJournalRepository
 {
@@ -31,7 +31,7 @@ public interface IJournalRepository
     Task<bool> DeleteAlterAsync(SystemId systemId, EntryId entryId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Cascade cleanup for <see cref="Interfold.Domain.Alters.DeleteAlterCommandHandler"/>:
+    /// Cascade cleanup for <see cref="Interfold.Shared.Domain.Alters.DeleteAlterCommandHandler"/>:
     /// wipes every per-alter journal entry the alter owned (both view tables in the Scylla
     /// repository) and detaches the alter from any global journals it was attached to.
     /// <para>

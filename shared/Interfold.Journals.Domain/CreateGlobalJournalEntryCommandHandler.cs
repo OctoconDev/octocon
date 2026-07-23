@@ -3,11 +3,11 @@ using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Journals;
+namespace Interfold.Shared.Domain.Journals;
 
 public sealed class CreateGlobalJournalEntryCommandHandler : IdempotentCommandHandler<CreateGlobalJournalEntryCommand, GlobalJournalCommandResult>
 {

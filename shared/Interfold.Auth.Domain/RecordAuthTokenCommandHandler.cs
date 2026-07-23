@@ -1,10 +1,10 @@
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Domain.Auth;
+namespace Interfold.Shared.Domain.Auth;
 
 public sealed record RecordAuthTokenCommandResult(bool Success);
 

@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 using Npgsql;

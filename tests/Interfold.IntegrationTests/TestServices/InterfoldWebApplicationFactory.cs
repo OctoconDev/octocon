@@ -1,6 +1,6 @@
 using Interfold.Api.Services;
 using Interfold.Api.Socket;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.Postgres;

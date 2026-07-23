@@ -10,7 +10,7 @@
     <Project Path="shared/Interfold.Auth.Contracts/Interfold.Auth.Contracts.csproj" />
     <Project Path="shared/Interfold.Auth.Domain/Interfold.Auth.Domain.csproj" />
     <Project Path="shared/Interfold.Shared.Contracts/Interfold.Shared.Contracts.csproj" />
-    <Project Path="shared/Interfold.Domain/Interfold.Domain.csproj" />
+    <Project Path="shared/Interfold.Shared.Domain/Interfold.Shared.Domain.csproj" />
     <Project Path="shared/Interfold.Friendships.Contracts/Interfold.Friendships.Contracts.csproj" />
     <Project Path="shared/Interfold.Friendships.Domain/Interfold.Friendships.Domain.csproj" />
     <Project Path="shared/Interfold.Fronting.Contracts/Interfold.Fronting.Contracts.csproj" />

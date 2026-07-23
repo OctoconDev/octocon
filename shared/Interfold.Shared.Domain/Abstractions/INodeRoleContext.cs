@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 /// <summary>Current-node role, resolved once at startup from FLY_PROCESS_GROUP /
 /// OCTOCON_NODE_GROUP.</summary>

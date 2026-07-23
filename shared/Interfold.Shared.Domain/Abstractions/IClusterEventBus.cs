@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 /// <summary>In-process (eventually cluster-wide) pub/sub for domain events (mirrors
 /// legacy Phoenix.PubSub).</summary>

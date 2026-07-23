@@ -2,10 +2,10 @@ using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Settings;
+namespace Interfold.Shared.Domain.Settings;
 
 /// <summary>Mutate → check → publish → success helper for settings handlers that already
 /// inherit <see cref="IdempotentCommandHandler{TPayload, TResult}"/>. Companion to

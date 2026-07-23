@@ -1,4 +1,4 @@
-namespace Interfold.Domain.Abstractions.ImportJobs;
+namespace Interfold.Shared.Domain.Abstractions.ImportJobs;
 
 /// <summary>In-process FIFO import-job queue. Handlers enqueue after LWT slot claim;
 /// <c>ImportJobBackgroundService</c> consumes. Cross-replica dedupe lives in the

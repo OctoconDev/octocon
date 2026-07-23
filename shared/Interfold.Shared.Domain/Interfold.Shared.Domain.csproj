@@ -13,7 +13,7 @@
          moved into Interfold.Settings.Domain, and the six peer repository interfaces
          (IAlterRepository / ITagRepository / IPollRepository / IJournalRepository /
          IFrontingRepository / IFriendshipRepository) relocated to their feature.Domain
-         projects. Interfold.Domain is now a pure cross-cutting-abstractions module
+         projects. Interfold.Shared.Domain is now a pure cross-cutting-abstractions module
          (IIdempotencyStore, ICommandHandler, IdempotentCommandHandler, IClusterEventBus,
          IRegionContext, INodeRoleContext, IFCMService, ISingletonTaskOwner,
          IAuthTokenRevocationRepository, ISettingsFieldRepository, ISimplyPluralImportService,

@@ -1,10 +1,10 @@
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 public abstract class IdempotentCommandHandler<TPayload, TResult> : ICommandHandler<TPayload, TResult>
     where TResult : class, ICommandResult<TResult>

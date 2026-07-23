@@ -2,7 +2,7 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 
-namespace Interfold.Domain.Polls;
+namespace Interfold.Shared.Domain.Polls;
 
 internal static class PollCommandValidation
 {

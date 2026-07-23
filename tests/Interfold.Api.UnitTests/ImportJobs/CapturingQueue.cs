@@ -1,4 +1,4 @@
-using Interfold.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Domain.Abstractions.ImportJobs;
 using Interfold.Infrastructure.Coordination;
 
 namespace Interfold.Api.UnitTests.ImportJobs;

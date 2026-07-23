@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 /// <summary>Gates named singleton background tasks so only one node (usually the primary)
 /// runs each (mirrors the legacy FrontNotifier / LinkTokenRegistry Horde pattern).</summary>

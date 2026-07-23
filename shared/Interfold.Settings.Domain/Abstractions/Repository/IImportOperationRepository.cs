@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions.Repository;
+namespace Interfold.Shared.Domain.Abstractions.Repository;
 
 /// <summary>Async-import job persistence. Backed by <c>import_operations</c> (append-only
 /// history) + <c>active_import_by_system</c> (per-system LWT mutex). Invariant: at most

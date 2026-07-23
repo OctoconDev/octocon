@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using Interfold.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Domain.Abstractions.ImportJobs;
 
 namespace Interfold.Infrastructure.Coordination;
 

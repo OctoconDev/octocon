@@ -1,9 +1,9 @@
 using Interfold.Api.Services;
 using Interfold.Api.Services.Http;
 using Interfold.Api.Services.ImportJobs;
-using Interfold.Domain;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Domain;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.ImportJobs;
 using Interfold.Shared.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 

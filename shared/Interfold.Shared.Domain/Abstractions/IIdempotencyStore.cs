@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 public interface IIdempotencyStore
 {

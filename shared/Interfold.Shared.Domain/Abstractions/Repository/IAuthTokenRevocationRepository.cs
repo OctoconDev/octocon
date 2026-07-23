@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions.Repository;
+namespace Interfold.Shared.Domain.Abstractions.Repository;
 
 /// <summary>Per-JTI JWT revocation store. Records issued tokens and answers "still valid?"
 /// on every authenticated request (must be sub-ms PK-lookup fast). Also drives logout,

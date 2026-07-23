@@ -1,11 +1,11 @@
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 /// <summary>Narrow existence-check for an alter row, exposed as a spine-level abstraction
 /// so cross-feature handlers (Journals, Tags) can validate an <see cref="AlterId"/> without
-/// back-referencing <c>Interfold.Alters.Domain</c>. The natural <see cref="Interfold.Domain.Abstractions.Repository.ISettingsFieldRepository"/>-shaped
+/// back-referencing <c>Interfold.Alters.Domain</c>. The natural <see cref="Interfold.Shared.Domain.Abstractions.Repository.ISettingsFieldRepository"/>-shaped
 /// approach — inject <c>IAlterRepository</c> directly — would form an Alters.Domain &lt;-&gt;
 /// Journals.Domain cycle (Alters.Domain injects <c>IJournalAlterCascade</c> for delete-cascade,
 /// symmetric direction). Implemented by an adapter over <c>IAlterRepository</c> in

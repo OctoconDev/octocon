@@ -1,5 +1,5 @@
 using Interfold.Shared.Contracts.Models.ImportOperations;
-using Interfold.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Domain.Abstractions.ImportJobs;
 
 namespace Interfold.Api.Services.ImportJobs;
 

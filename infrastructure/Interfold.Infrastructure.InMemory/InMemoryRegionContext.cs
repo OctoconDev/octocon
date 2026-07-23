@@ -1,5 +1,5 @@
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory;

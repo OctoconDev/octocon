@@ -7,6 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Friendships.Contracts\Interfold.Friendships.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
-    <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
   </ItemGroup>
 </Project>

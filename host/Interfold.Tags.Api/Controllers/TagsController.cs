@@ -4,8 +4,8 @@ using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions.Repository;
-using Interfold.Domain.Tags;
+using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Tags;
 using Interfold.Api.Controllers.Base;
 using Interfold.Shared.Contracts;
 

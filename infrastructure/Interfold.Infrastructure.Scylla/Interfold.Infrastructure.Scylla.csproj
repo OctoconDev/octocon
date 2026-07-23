@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -19,7 +19,7 @@
            IJournalRepository / IFrontingRepository / IFriendshipRepository / IAccountRepository +
            ISettingsFieldRepository + IEncryptionStateRepository + IImportOperationRepository +
            INotificationTokenRepository via the six feature.Domain projects below) relocated out
-           of Interfold.Domain into their feature.Domain homes, so ScyllaXxxRepository adapters
+           of Interfold.Shared.Domain into their feature.Domain homes, so ScyllaXxxRepository adapters
            need explicit refs to reach the interfaces they implement. Settings.Domain groups
            the five settings-owned interfaces. -->
       <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />

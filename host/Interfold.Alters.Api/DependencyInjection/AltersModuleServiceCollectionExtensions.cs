@@ -1,5 +1,5 @@
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Alters;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Alters;
 
 namespace Interfold.Alters.Api.DependencyInjection;
 

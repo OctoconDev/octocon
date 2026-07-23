@@ -3,7 +3,7 @@ using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions.Repository;
 
 namespace Interfold.Api.Socket.Handlers;
 

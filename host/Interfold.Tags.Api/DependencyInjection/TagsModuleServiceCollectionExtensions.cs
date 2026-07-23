@@ -1,4 +1,4 @@
-using Interfold.Domain.Tags;
+using Interfold.Shared.Domain.Tags;
 
 namespace Interfold.Tags.Api.DependencyInjection;
 

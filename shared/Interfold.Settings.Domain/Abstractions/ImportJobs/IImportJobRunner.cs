@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Models.ImportOperations;
 
-namespace Interfold.Domain.Abstractions.ImportJobs;
+namespace Interfold.Shared.Domain.Abstractions.ImportJobs;
 
 /// <summary>Per-kind importer used by the background worker. Worker matches
 /// <see cref="Kind"/> to the dequeued <see cref="ImportJobItem.Kind"/>. Implementations

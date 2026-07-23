@@ -5,10 +5,10 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
-using Interfold.Domain.Alters;
-using Interfold.Domain.Observability;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Alters;
+using Interfold.Shared.Domain.Observability;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.InMemory.Repository;

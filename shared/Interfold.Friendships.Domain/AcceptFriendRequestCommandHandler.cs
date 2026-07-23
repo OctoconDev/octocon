@@ -4,12 +4,12 @@ using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Friendships;
+namespace Interfold.Shared.Domain.Friendships;
 
 public sealed class AcceptFriendRequestCommandHandler : IdempotentCommandHandler<AcceptFriendRequestCommand, FriendshipCommandResult>
 {

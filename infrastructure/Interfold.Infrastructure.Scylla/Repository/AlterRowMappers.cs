@@ -5,9 +5,9 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Domain;
-using Interfold.Domain.Alters;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain;
+using Interfold.Shared.Domain.Alters;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Scylla.Fixups;
 
 namespace Interfold.Infrastructure.Scylla.Repository;

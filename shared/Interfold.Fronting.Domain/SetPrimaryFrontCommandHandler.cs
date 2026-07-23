@@ -3,11 +3,11 @@ using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Fronting;
+namespace Interfold.Shared.Domain.Fronting;
 
 public sealed class SetPrimaryFrontCommandHandler : IdempotentCommandHandler<SetPrimaryFrontCommand, FrontCommandResult>
 {
@@ -47,7 +47,7 @@ protected override async Task<CommandExecutionResult<FrontCommandResult>> Execut
 
         await _eventBus.PublishStateChangedAndPrimaryChangedAsync(command.PrincipalId, command.Payload.AlterId, cancellationToken);
         // Inlined: SettingsEventBusExtensions.PublishProfileUpdatedAsync is internal to
-        // Interfold.Domain and this handler lives in Interfold.Fronting.Domain after the
+        // Interfold.Shared.Domain and this handler lives in Interfold.Fronting.Domain after the
         // Phase-3 slice-3 move. The event itself (Interfold.Shared.Contracts.Events) is public.
         await _eventBus.PublishAsync(new SettingsProfileUpdatedEvent(command.PrincipalId, EmitUsernameUpdated: false), cancellationToken);
 

@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.ImportOperations;
 
-namespace Interfold.Domain.Abstractions.ImportJobs;
+namespace Interfold.Shared.Domain.Abstractions.ImportJobs;
 
 /// <summary>A unit of work for the async import worker. Handler → in-process queue →
 /// runner; secrets travel through this record but never persist to

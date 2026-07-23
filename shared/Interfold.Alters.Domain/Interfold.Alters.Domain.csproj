@@ -8,12 +8,12 @@
     <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <!-- ISettingsFieldRepository (bound by AlterFieldProjection.ResolveVisibleDefinitionsAsync +
-         ResolveGuardedFields) is reached via Interfold.Domain — kept there as an in-slice
+         ResolveGuardedFields) is reached via Interfold.Shared.Domain — kept there as an in-slice
          deviation from the Phase-3 Settings slice #8 plan because relocating it to
          Interfold.Settings.Domain would form an Alters.Domain <-> Settings.Domain cycle
          (Settings.Domain refs Alters.Domain for IAlterRepository via DeleteAccountCommandHandler
          / WipeAltersCommandHandler). ISettingsFieldRepository binds only spine types, so
-         keeping it on Interfold.Domain reintroduces zero back-refs. -->
-    <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
+         keeping it on Interfold.Shared.Domain reintroduces zero back-refs. -->
+    <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
   </ItemGroup>
 </Project>

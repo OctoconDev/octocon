@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory;

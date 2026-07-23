@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Scylla;
 

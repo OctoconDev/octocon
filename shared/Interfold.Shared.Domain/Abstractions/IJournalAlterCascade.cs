@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 /// <summary>Cascade hook for alter deletion — removes every alter-journal entry owned by the
 /// alter and detaches the alter from any global-journal rows (without deleting the global

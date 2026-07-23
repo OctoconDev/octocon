@@ -6,14 +6,14 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Api.Services;
 using Interfold.Shared.Contracts.Configuration;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure;
 using Interfold.Api.Controllers.Base;
 using Interfold.Shared.Contracts;
 using Interfold.Api.Models;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Api.Auth;
-using Interfold.Domain.Auth;
+using Interfold.Shared.Domain.Auth;
 using Interfold.Shared.Contracts.Models.Commands;
 
 namespace Interfold.Api.Controllers;

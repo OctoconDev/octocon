@@ -7,7 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Auth.Contracts\Interfold.Auth.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
-    <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
     <!-- Feature.Domain -> feature.Domain arrow introduced by Phase-3 Settings slice #8.
          LinkOAuthIdentityCommandHandler + AuthenticateOAuthCommandHandler inject
          IAccountRepository + IEncryptionStateRepository, both of which moved into

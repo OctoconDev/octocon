@@ -12,7 +12,7 @@ using Interfold.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Api.Auth;
-using Interfold.Domain.Auth;
+using Interfold.Shared.Domain.Auth;
 using Interfold.Shared.Contracts.Models.Commands;
 
 namespace Interfold.Api.Controllers;

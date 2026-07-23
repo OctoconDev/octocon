@@ -2,11 +2,11 @@ using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Operations;
 
-namespace Interfold.Domain.Auth;
+namespace Interfold.Shared.Domain.Auth;
 
 public sealed class AuthenticateOAuthCommandHandler : ICommandHandler<AuthenticateOAuthCommand, SystemId>
 {

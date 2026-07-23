@@ -4,7 +4,7 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Domain.Observability;
+using Interfold.Shared.Domain.Observability;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.Scylla.Repository;

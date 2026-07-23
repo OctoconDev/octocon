@@ -5,8 +5,8 @@ using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions.Repository;
-using Interfold.Domain.Fronting;
+using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Fronting;
 using Interfold.Api.Controllers.Base;
 using Interfold.Shared.Contracts;
 

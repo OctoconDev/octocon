@@ -29,7 +29,7 @@
          PublicSystemsController + SystemMustExistAttribute consume (IAccountRepository via
          Settings.Domain, IAlterRepository via Alters.Domain, ITagRepository via Tags.Domain,
          IFrontingRepository via Fronting.Domain, IFriendshipRepository via Friendships.Domain).
-         Interfold.Domain ref dropped in Phase-3 Settings slice #8 — the five interfaces
+         Interfold.Shared.Domain ref dropped in Phase-3 Settings slice #8 — the five interfaces
          relocated out of the spine Domain project. Ops (#9) will follow this same shape. -->
     <ProjectReference Include="..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
     <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />

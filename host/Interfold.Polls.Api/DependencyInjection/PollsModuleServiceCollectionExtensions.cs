@@ -1,4 +1,4 @@
-using Interfold.Domain.Polls;
+using Interfold.Shared.Domain.Polls;
 
 namespace Interfold.Polls.Api.DependencyInjection;
 

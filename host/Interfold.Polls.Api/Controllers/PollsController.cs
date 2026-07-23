@@ -4,10 +4,10 @@ using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Polls;
+using Interfold.Shared.Domain.Polls;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Api.Controllers.Base;
 
 namespace Interfold.Api.Controllers;

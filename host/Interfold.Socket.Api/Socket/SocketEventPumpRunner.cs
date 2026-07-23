@@ -1,7 +1,7 @@
 using Interfold.Api.Socket.Handlers;
 using Interfold.Shared.Contracts.Events;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Api.Socket;

@@ -1,5 +1,5 @@
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;

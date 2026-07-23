@@ -7,7 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Settings.Contracts\Interfold.Settings.Contracts.csproj" />
-    <ProjectReference Include="..\Interfold.Domain\Interfold.Domain.csproj" />
+    <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
     <!-- Six peer feature.Domain refs — DeleteAccountCommandHandler injects every peer repo
          interface (IAlterRepository, ITagRepository, IPollRepository, IJournalRepository,
          IFrontingRepository, IFriendshipRepository) plus WipeAlters/WipeTags each pin one of
@@ -28,7 +28,7 @@
     <!-- Systems.Contracts for PublicSystemReadModel — IAccountRepository.GetPublicSystemAsync
          projects the narrow public-wire subset (used by Interfold.Systems.Api's
          PublicSystemsController). Previously reachable through the spine's dropped
-         Interfold.Domain -> Systems.Contracts back-ref; travels with IAccountRepository. -->
+         Interfold.Shared.Domain -> Systems.Contracts back-ref; travels with IAccountRepository. -->
     <ProjectReference Include="..\Interfold.Systems.Contracts\Interfold.Systems.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>

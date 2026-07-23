@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Logging;
 
-namespace Interfold.Domain.Observability;
+namespace Interfold.Shared.Domain.Observability;
 
 // Centralised metric-emission + structured-log helpers for the guarded-visibility
 // read paths. Keeps the tag shape identical across every repository (Alter, Tag,

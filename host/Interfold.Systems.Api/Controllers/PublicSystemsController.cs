@@ -6,7 +6,7 @@ using Interfold.Api.Models;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Microsoft.AspNetCore.Mvc;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Validation;

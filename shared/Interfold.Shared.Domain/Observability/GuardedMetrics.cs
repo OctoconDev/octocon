@@ -1,6 +1,6 @@
 using System.Diagnostics.Metrics;
 
-namespace Interfold.Domain.Observability;
+namespace Interfold.Shared.Domain.Observability;
 
 // Mirror of the guarded-family instruments declared in Interfold.Api.Helpers.InterfoldMetrics.
 // Domain and Infrastructure layers can't reach the Api project (would create a

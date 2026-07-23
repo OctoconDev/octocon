@@ -2,11 +2,11 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Domain.Abstractions.Repository;
-using Interfold.Domain.Observability;
+using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Observability;
 using Microsoft.Extensions.Logging;
 
-namespace Interfold.Domain.Alters;
+namespace Interfold.Shared.Domain.Alters;
 
 // Backend-agnostic helpers for guarded alter-field projection. Kept in Interfold.Alters.Domain
 // so InMemory + Scylla repos share the visibility rules and can't drift.

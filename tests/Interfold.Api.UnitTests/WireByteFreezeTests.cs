@@ -6,7 +6,7 @@ using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Domain;
+using Interfold.Shared.Domain;
 using Interfold.Infrastructure;
 using Interfold.Infrastructure.Coordination;
 

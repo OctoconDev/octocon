@@ -3,9 +3,9 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 
-namespace Interfold.Domain.Settings;
+namespace Interfold.Shared.Domain.Settings;
 
 /// <summary>Field-creation helper for handlers returning
 /// <see cref="SettingsFieldCommandResult"/> (carries the created <see cref="FieldId"/>);

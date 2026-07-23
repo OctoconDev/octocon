@@ -1,6 +1,6 @@
 using System.Net.WebSockets;
 using System.IdentityModel.Tokens.Jwt;
-using Interfold.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions;
 using System.Text.Json;
 using System.Text;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -14,7 +14,7 @@ using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Api.Socket;

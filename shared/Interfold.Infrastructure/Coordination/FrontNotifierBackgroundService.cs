@@ -3,8 +3,8 @@ using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 
 namespace Interfold.Infrastructure.Coordination;
 

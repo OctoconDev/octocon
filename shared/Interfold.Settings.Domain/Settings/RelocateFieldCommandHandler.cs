@@ -3,12 +3,12 @@ using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Domain.Abstractions;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Settings;
+namespace Interfold.Shared.Domain.Settings;
 
 public sealed class RelocateFieldCommandHandler : IdempotentCommandHandler<RelocateFieldCommand, SettingsCommandResult>
 {

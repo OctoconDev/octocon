@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -13,7 +13,7 @@
            the InMemory + Scylla repos share the same visibility rules. -->
       <ProjectReference Include="..\..\shared\Interfold.Alters.Domain\Interfold.Alters.Domain.csproj" />
       <!-- Phase-3 Settings slice #8: mirrors the Scylla adapter — feature repo interfaces
-           relocated out of Interfold.Domain into feature.Domain projects. InMemory adapter
+           relocated out of Interfold.Shared.Domain into feature.Domain projects. InMemory adapter
            needs explicit refs to reach the interfaces it implements. Settings.Domain groups
            the five settings-owned interfaces. -->
       <ProjectReference Include="..\..\shared\Interfold.Tags.Domain\Interfold.Tags.Domain.csproj" />

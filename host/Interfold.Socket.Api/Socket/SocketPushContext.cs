@@ -34,7 +34,7 @@ public sealed class SocketPushContext
     public WebSocket Socket { get; }
 
     /// <summary>Scoped composite of the socket's principal, fed to
-    /// <see cref="Interfold.Domain.Abstractions.IClusterEventBus.SubscribeAsync{TEvent}"/>
+    /// <see cref="Interfold.Shared.Domain.Abstractions.IClusterEventBus.SubscribeAsync{TEvent}"/>
     /// so pump subscriptions filter on it. Null for anonymous / unjoined sockets (bus
     /// treats null as "no filter").</summary>
     public ScopedSystemId? JoinedScopedSystemId { get; }

@@ -3,7 +3,7 @@ using System.Text;
 using Konscious.Security.Cryptography;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain;
+namespace Interfold.Shared.Domain;
 
 public class EncryptionKey
 {

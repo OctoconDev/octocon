@@ -1,4 +1,4 @@
-using Interfold.Domain.Friendships;
+using Interfold.Shared.Domain.Friendships;
 
 namespace Interfold.Friendships.Api.DependencyInjection;
 

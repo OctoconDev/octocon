@@ -1,6 +1,6 @@
 using Cassandra;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Domain.Abstractions.Repository;
+using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 

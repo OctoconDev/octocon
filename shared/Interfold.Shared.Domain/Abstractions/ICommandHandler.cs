@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 
-namespace Interfold.Domain.Abstractions;
+namespace Interfold.Shared.Domain.Abstractions;
 
 public interface ICommandHandler<TPayload, TResult>
 {

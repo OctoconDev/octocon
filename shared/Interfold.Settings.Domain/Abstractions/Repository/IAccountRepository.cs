@@ -2,7 +2,7 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Domain.Abstractions.Repository;
+namespace Interfold.Shared.Domain.Abstractions.Repository;
 
 public interface IAccountRepository
 {
