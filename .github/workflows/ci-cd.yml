@@ -77,18 +77,16 @@ jobs:
 
       # tar.gz preserves +x that upload-artifact@v4's internal zip strips - MTP
       # test hosts (`<Project>` next to `<Project>.dll`) are unlaunchable without
-      # it. Same reasoning as the bootstrapper composite's per-RID tarballs.
+      # it. Only test-project bins are shipped: `test-unit` / `test-int` launch
+      # `dotnet <Project>.dll` and the runtime resolves every dependency from
+      # the copy-local'd DLLs and the sibling `.deps.json`, so no `obj/` and no
+      # source-project bins are needed.
       - name: Package build output
         shell: bash
         run: |
           tar -czf dotnet-build.tar.gz \
-            shared/*/bin shared/*/obj \
-            infrastructure/*/bin infrastructure/*/obj \
-            apis/*/bin apis/*/obj \
-            hosts/*/bin hosts/*/obj \
-            tools/*/bin tools/*/obj \
-            tests/integration/*/bin tests/integration/*/obj \
-            tests/unit/*/bin tests/unit/*/obj
+            tests/integration/*/bin \
+            tests/unit/*/bin
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
@@ -98,7 +96,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # test-unit: single job, loops over `tests/unit/*/*.csproj`. Includes
+  # test-unit: single job, loops over every `tests/unit/*/` project. Includes
   # `BinarySizeGuardrailTests`, which reads the staged linux-x64 binary from the
   # build artefact - see `BinarySizeGuardrailTests.LocatePublishedBinary`.
   test-unit:
@@ -114,18 +112,19 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           build-artifact-name: dotnet-build-${{ github.sha }}
 
-      # Per-csproj loop, not `dotnet test <slnx> --filter ~UnitTests`: filter-mismatch
-      # projects exit MTP code 8 (zero tests ran) and fail the aggregate `dotnet test`.
-      # See https://aka.ms/testingplatform/exitcodes.
+      # Directly launch each test project's MTP host DLL instead of going through
+      # `dotnet test <csproj> --no-build --no-restore` - the new .NET 10 `dotnet
+      # test` command regressed test-project discovery on our tarball-extracted
+      # trees between 10.0.301 and 10.0.302 ("No test projects were found."), and
+      # TUnit test hosts are self-contained MTP executables that accept the same
+      # `--coverage` / `--coverage-output-format` flags directly.
       - name: Test (unit)
         run: |
           set -euo pipefail
-          for csproj in tests/unit/*/*.csproj; do
-            echo "::group::$(basename "$(dirname "$csproj")")"
-            dotnet test "$csproj" \
-              --configuration Release \
-              --no-build --no-restore \
-              --verbosity normal \
+          for dir in tests/unit/*/; do
+            name=$(basename "$dir")
+            echo "::group::$name"
+            dotnet "$dir"bin/Release/net10.0/"$name".dll \
               --coverage --coverage-output-format cobertura
             echo "::endgroup::"
           done
@@ -160,20 +159,18 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           build-artifact-name: dotnet-build-${{ github.sha }}
 
-      # `defer` tells TUnit's aggregation reporter to persist its per-suite JSON
-      # sidecar (`{asm}-{os}-{tfm}.tunit-report.json`) alongside the HTML report
-      # but skip writing its markdown block to $GITHUB_STEP_SUMMARY. `test-int-
-      # summary` downloads every leg's sidecar and calls `tunit-report merge` on
-      # them, splicing one native TUnit summary into that job's summary tab
+      # Direct MTP-host launch (same reasoning as `test-unit`). `defer` tells
+      # TUnit's aggregation reporter to persist its per-suite JSON sidecar
+      # (`{asm}-{os}-{tfm}.tunit-report.json`) alongside the HTML report but
+      # skip writing its markdown block to $GITHUB_STEP_SUMMARY. `test-int-
+      # summary` downloads every leg's sidecar and calls `tunit-report merge`
+      # on them, splicing one native TUnit summary into that job's summary tab
       # instead of one block per matrix leg. See TUnit PR #6415.
       - name: Test (integration - ${{ matrix.project }})
         env:
           TUNIT_AGGREGATE_REPORTS: defer
         run: |
-          dotnet test "tests/integration/${{ matrix.project }}" \
-            --configuration Release \
-            --no-build --no-restore \
-            --verbosity normal \
+          dotnet "tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll" \
             --coverage --coverage-output-format cobertura
 
       # Sidecars land in `TestResults/{asm}-{os}-{tfm}.tunit-report.json` next to
