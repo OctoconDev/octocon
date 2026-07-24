@@ -58,6 +58,13 @@ runs:
             echo "Unknown RID '$rid' - update buildx_for in $GITHUB_ACTION_PATH/action.yml"
             exit 1
           fi
+          # Single-platform buildx dumps flat to `bootstrap-out/` (no arch
+          # subdir) - normalize into `<arch>/` so the tar `-C` path below stays
+          # uniform and the guardrail-stage cp finds the file at a fixed path.
+          if [[ ! -f "bootstrap-out/$buildx_dir/interfold-bootstrap" ]] && [[ -f bootstrap-out/interfold-bootstrap ]]; then
+            mkdir -p "bootstrap-out/$buildx_dir"
+            mv bootstrap-out/interfold-bootstrap "bootstrap-out/$buildx_dir/"
+          fi
           chmod +x "bootstrap-out/$buildx_dir/interfold-bootstrap"
           tar -czf "interfold-bootstrap-$rid.tar.gz" \
             -C "bootstrap-out/$buildx_dir" interfold-bootstrap
