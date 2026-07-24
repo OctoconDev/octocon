@@ -160,13 +160,33 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           build-artifact-name: dotnet-build-${{ github.sha }}
 
+      # `defer` tells TUnit's aggregation reporter to persist its per-suite JSON
+      # sidecar (`{asm}-{os}-{tfm}.tunit-report.json`) alongside the HTML report
+      # but skip writing its markdown block to $GITHUB_STEP_SUMMARY. `test-int-
+      # summary` downloads every leg's sidecar and calls `tunit-report merge` on
+      # them, splicing one native TUnit summary into that job's summary tab
+      # instead of one block per matrix leg. See TUnit PR #6415.
       - name: Test (integration - ${{ matrix.project }})
+        env:
+          TUNIT_AGGREGATE_REPORTS: defer
         run: |
           dotnet test "tests/integration/${{ matrix.project }}" \
             --configuration Release \
             --no-build --no-restore \
             --verbosity normal \
             --coverage --coverage-output-format cobertura
+
+      # Sidecars land in `TestResults/{asm}-{os}-{tfm}.tunit-report.json` next to
+      # the HTML report the engine also emits by default; `**/*.tunit-report.json`
+      # picks them up wherever the test host's cwd ended up.
+      - name: Upload TUnit report sidecar (${{ matrix.project }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunit-sidecar-${{ matrix.project }}-${{ github.sha }}
+          path: 'tests/integration/${{ matrix.project }}/**/*.tunit-report.json'
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Upload coverage (integration - ${{ matrix.project }})
         uses: actions/upload-artifact@v4
@@ -175,6 +195,40 @@ jobs:
           path: 'tests/integration/${{ matrix.project }}/**/TestResults/**/*.cobertura.xml'
           retention-days: 1
           if-no-files-found: error
+
+  # test-int-summary: renders one native TUnit aggregated block from every
+  # matrix leg's sidecar. `tunit-report merge --github-summary` splices the
+  # block into $GITHUB_STEP_SUMMARY between HTML-comment markers so foreign
+  # summary content is untouched; separate job so its Summary-tab section
+  # renders top-level, not nested under `coverage`.
+  test-int-summary:
+    runs-on: ubuntu-latest
+    needs: test-int
+    if: always()
+    steps:
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Download TUnit sidecars
+        uses: actions/download-artifact@v4
+        with:
+          path: tunit-sidecars
+          pattern: tunit-sidecar-*
+          merge-multiple: true
+
+      # Version-pinned to the same 1.61 line as the TUnit engine that produced
+      # the sidecars - the tool links the engine's serializer/merger/renderer
+      # sources directly, so drift here would silently miss fields. `--tool-path`
+      # instead of `--global` because setup-dotnet does not add
+      # `$HOME/.dotnet/tools` to `$GITHUB_PATH`, so a global install would leave
+      # the binary un-findable in the next step.
+      - name: Install tunit-report tool
+        run: dotnet tool install --tool-path .tunit-tools TUnit.Reporting.Tool --version '1.61.*'
+
+      - name: Merge and write summary
+        run: ./.tunit-tools/tunit-report merge --directory tunit-sidecars --github-summary
 
   # coverage: three ReportGenerator outputs - unit-only, integration-only,
   # combined - so integration-only coverage (candidates for adding unit tests)
@@ -223,16 +277,13 @@ jobs:
           title: 'All tests'
           sticky-header: coverage-all
 
-      - name: Write coverage to job summary
+      - name: Write coverage summary
         run: |
           {
-            echo '## Coverage - Unit tests'
             cat coveragereport/unit/SummaryGithub.md
             echo
-            echo '## Coverage - Integration tests'
             cat coveragereport/integration/SummaryGithub.md
             echo
-            echo '## Coverage - All tests'
             cat coveragereport/all/SummaryGithub.md
           } >> "$GITHUB_STEP_SUMMARY"
 

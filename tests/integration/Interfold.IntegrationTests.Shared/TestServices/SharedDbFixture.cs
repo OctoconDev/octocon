@@ -162,7 +162,7 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             IsSingleScyllaInstance = true,
             ScyllaKeyspace = ScyllaKeyspace.Nam,
         };
-        var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
+        var connectionFactory = new PostgresConnectionFactory(Microsoft.Extensions.Options.Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);
 
         await PostgresMigrationService.MigrateAsync(
@@ -286,8 +286,8 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         };
         var resolver = new ScyllaConfigResolver(
             secretsStore,
-            Options.Create(overrides),
-            Options.Create(persistenceConfig));
+            Microsoft.Extensions.Options.Options.Create(overrides),
+            Microsoft.Extensions.Options.Options.Create(persistenceConfig));
 
         await ScyllaMigrationService.MigrateAsync(
             persistenceConfig,

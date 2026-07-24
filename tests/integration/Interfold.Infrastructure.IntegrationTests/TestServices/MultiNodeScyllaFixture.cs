@@ -119,7 +119,7 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
             IsSingleScyllaInstance = false,
             ScyllaKeyspace = ScyllaKeyspace.Nam,
         };
-        var connectionFactory = new PostgresConnectionFactory(Options.Create(persistenceConfig));
+        var connectionFactory = new PostgresConnectionFactory(Microsoft.Extensions.Options.Options.Create(persistenceConfig));
         var secretsStore = new PostgresSecretsStore(connectionFactory);
 
         var overrides = new ScyllaOverrideOptions
@@ -129,8 +129,8 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
         };
         var resolver = new ScyllaConfigResolver(
             secretsStore,
-            Options.Create(overrides),
-            Options.Create(persistenceConfig));
+            Microsoft.Extensions.Options.Options.Create(overrides),
+            Microsoft.Extensions.Options.Options.Create(persistenceConfig));
 
         await ScyllaMigrationService.MigrateAsync(
             persistenceConfig,
