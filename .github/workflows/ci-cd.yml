@@ -75,26 +75,26 @@ jobs:
           dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
           artifact-suffix: ${{ github.sha }}
 
-      # Downstream test jobs download this instead of recompiling. `tools/**/bin`
-      # covers the staged linux-x64 binary that
-      # `BinarySizeGuardrailTests.LocatePublishedBinary` walks to.
+      # tar.gz preserves +x that upload-artifact@v4's internal zip strips - MTP
+      # test hosts (`<Project>` next to `<Project>.dll`) are unlaunchable without
+      # it. Same reasoning as the bootstrapper composite's per-RID tarballs.
+      - name: Package build output
+        shell: bash
+        run: |
+          tar -czf dotnet-build.tar.gz \
+            shared/*/bin shared/*/obj \
+            infrastructure/*/bin infrastructure/*/obj \
+            apis/*/bin apis/*/obj \
+            hosts/*/bin hosts/*/obj \
+            tools/*/bin tools/*/obj \
+            tests/integration/*/bin tests/integration/*/obj \
+            tests/unit/*/bin tests/unit/*/obj
+
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: dotnet-build-${{ github.sha }}
-          path: |
-            shared/**/bin
-            shared/**/obj
-            infrastructure/**/bin
-            infrastructure/**/obj
-            apis/**/bin
-            apis/**/obj
-            hosts/**/bin
-            hosts/**/obj
-            tools/**/bin
-            tools/**/obj
-            tests/**/bin
-            tests/**/obj
+          path: dotnet-build.tar.gz
           retention-days: 1
           if-no-files-found: error
 

@@ -28,5 +28,11 @@ runs:
       with:
         name: ${{ inputs.build-artifact-name }}
 
+    # The artefact is a tarball (see `Package build output` in ci-cd.yml) so
+    # MTP test hosts keep their +x bit.
+    - name: Extract build output
+      shell: bash
+      run: tar -xzf dotnet-build.tar.gz
+
     - name: Expose GitHub Actions Runtime
       uses: ./.github/actions/expose-actions-runtime
