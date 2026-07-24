@@ -75,18 +75,17 @@ jobs:
           dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
           artifact-suffix: ${{ github.sha }}
 
-      # tar.gz preserves +x that upload-artifact@v4's internal zip strips - MTP
-      # test hosts (`<Project>` next to `<Project>.dll`) are unlaunchable without
-      # it. Only test-project bins are shipped: `test-unit` / `test-int` launch
-      # `dotnet <Project>.dll` and the runtime resolves every dependency from
-      # the copy-local'd DLLs and the sibling `.deps.json`, so no `obj/` and no
-      # source-project bins are needed.
+      # tar.gz preserves +x that upload-artifact@v4's zip strips. Ships test-
+      # project bins (direct-DLL launch) and `tools/*/bin` because
+      # `Interfold.Bootstrapper.UnitTests` locates the managed DLL and the
+      # multi-RID-composite-staged linux-x64 ELF by absolute path, not projref.
       - name: Package build output
         shell: bash
         run: |
           tar -czf dotnet-build.tar.gz \
             tests/integration/*/bin \
-            tests/unit/*/bin
+            tests/unit/*/bin \
+            tools/*/bin
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
