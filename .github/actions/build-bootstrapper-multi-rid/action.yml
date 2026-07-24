@@ -1,13 +1,17 @@
 name: Build multi-RID bootstrapper artefacts
 description: >
-  Multi-arch bootstrapper publish + tar.gz + per-RID upload. Caller must run
-  `actions/checkout@v4` and `docker/setup-buildx-action@v3` first. Adding a
-  RID also needs updates in `rid_for` below and in both Dockerfiles - see
-  the `BUILD_PLATFORMS` env comment in `.github/workflows/ci-cd.yml`.
+  Multi-arch bootstrapper publish + tar.gz + per-RID upload. `platforms` and
+  `rids` must be consistent (one `buildx_for` map entry per RID). Caller must
+  run `actions/checkout@v4` and `docker/setup-buildx-action@v3` first. Adding
+  a RID also needs updates in the `buildx_for` map below and in both
+  Dockerfiles - see the `BUILD_PLATFORMS` env comment in `.github/workflows/ci-cd.yml`.
 
 inputs:
   platforms:
-    description: 'Buildx platform list; must match the `rid_for` map in the tar.gz step.'
+    description: 'Buildx platform list. Must be consistent with `rids` via the `buildx_for` map.'
+    required: true
+  rids:
+    description: 'Space-separated RID subset of `linux-x64 linux-arm linux-arm64` to package + upload. Must include `linux-x64` (guardrail-stage cp below is unconditional).'
     required: true
   dockerfile:
     description: 'Bootstrapper Dockerfile path, relative to repo root.'
@@ -33,20 +37,27 @@ runs:
         cache-from: type=gha,scope=interfold-dotnet
         cache-to: type=gha,mode=max,scope=interfold-dotnet
 
-    # tar.gz preserves +x (upload-artifact's zip wrapper would strip it). Also
-    # stage linux-x64 at the path BinarySizeGuardrailTests walks up to. The
-    # rid_for map is the only place buildx dir names <-> RIDs are translated.
+    # tar.gz preserves +x (upload-artifact's zip wrapper strips it) and only
+    # packs RIDs the caller asked for. `buildx_for` is the sole RID <-> buildx
+    # dir translation; the linux-x64 guardrail-stage cp is unconditional
+    # because both PR and release paths always include linux-x64 in `rids`.
     - name: Tar.gz binaries + stage linux-x64 for binary-size guardrail
       shell: bash
+      env:
+        RIDS: ${{ inputs.rids }}
       run: |
         set -euo pipefail
-        declare -A rid_for=(
-          [linux_amd64]=linux-x64
-          [linux_arm64]=linux-arm64
-          [linux_arm_v7]=linux-arm
+        declare -A buildx_for=(
+          [linux-x64]=linux_amd64
+          [linux-arm64]=linux_arm64
+          [linux-arm]=linux_arm_v7
         )
-        for buildx_dir in "${!rid_for[@]}"; do
-          rid="${rid_for[$buildx_dir]}"
+        for rid in $RIDS; do
+          buildx_dir="${buildx_for[$rid]:-}"
+          if [[ -z "$buildx_dir" ]]; then
+            echo "Unknown RID '$rid' - update buildx_for in $GITHUB_ACTION_PATH/action.yml"
+            exit 1
+          fi
           chmod +x "bootstrap-out/$buildx_dir/interfold-bootstrap"
           tar -czf "interfold-bootstrap-$rid.tar.gz" \
             -C "bootstrap-out/$buildx_dir" interfold-bootstrap
@@ -57,7 +68,10 @@ runs:
         chmod +x "$dest/interfold-bootstrap"
 
     # One artefact per RID so consumers download only the binary they need.
+    # `if:` uses `format(' {0} ', ...)` word-boundaries so `linux-arm` doesn't
+    # match a `linux-arm64`-only rids input as a substring.
     - name: Upload bootstrapper artifact (linux-x64)
+      if: contains(format(' {0} ', inputs.rids), ' linux-x64 ')
       uses: actions/upload-artifact@v4
       with:
         name: interfold-bootstrap-linux-x64-${{ inputs.artifact-suffix }}
@@ -66,6 +80,7 @@ runs:
         if-no-files-found: error
 
     - name: Upload bootstrapper artifact (linux-arm)
+      if: contains(format(' {0} ', inputs.rids), ' linux-arm ')
       uses: actions/upload-artifact@v4
       with:
         name: interfold-bootstrap-linux-arm-${{ inputs.artifact-suffix }}
@@ -74,6 +89,7 @@ runs:
         if-no-files-found: error
 
     - name: Upload bootstrapper artifact (linux-arm64)
+      if: contains(format(' {0} ', inputs.rids), ' linux-arm64 ')
       uses: actions/upload-artifact@v4
       with:
         name: interfold-bootstrap-linux-arm64-${{ inputs.artifact-suffix }}

@@ -4,14 +4,28 @@ on:
   pull_request:
   push:
     branches: [ main, develop ]
+  # Manual safety-net for validating arm cross-builds from a PR head branch -
+  # dispatch against the branch with `bootstrapper-full-rids` on (default) to
+  # run the full RID matrix a PR run otherwise skips.
+  workflow_dispatch:
+    inputs:
+      bootstrapper-full-rids:
+        description: 'Build all bootstrapper RIDs (linux-x64/arm/arm64). Off = fast PR-shape build (linux-x64 only).'
+        type: boolean
+        default: true
 
 env:
   DOCKERFILE_PATH: Dockerfile
   BOOTSTRAPPER_DOCKERFILE_PATH: Dockerfile.bootstrapper
-  # Adding a platform also needs a matching `rid_for` entry + upload step in
+  # Release-time bootstrapper matrix. `build` downgrades to linux/amd64 alone
+  # on PRs (only RID CI tests need - skips QEMU-emulated arm cross-builds for
+  # artefacts nothing on the PR critical path consumes); workflow_dispatch
+  # inherits the full matrix by default. Adding a platform also needs a
+  # matching `buildx_for` entry + upload step in
   # `.github/actions/build-bootstrapper-multi-rid/action.yml` and a
   # TARGETARCH->RID branch in both `/Dockerfile` and `/Dockerfile.bootstrapper`.
   BUILD_PLATFORMS: linux/amd64,linux/arm64,linux/arm/v7
+  BOOTSTRAPPER_RIDS: linux-x64 linux-arm linux-arm64
   # Runner-side .NET SDK. The bootstrapper Docker build pins its own SDK.
   DOTNET_VERSION: '10.0.x'
 
@@ -37,12 +51,17 @@ jobs:
           echo "matrix=$projects" >> "$GITHUB_OUTPUT"
           echo "Discovered integration test projects: $projects"
 
-  # build: whole-solution compile + multi-arch bootstrapper buildx. Uploads
-  # per-RID `interfold-bootstrap-<rid>` tar.gz artefacts and a `dotnet-build-<sha>`
-  # artefact so downstream test jobs can `dotnet test --no-build`.
+  # build: whole-solution compile + bootstrapper buildx (matrix size gated by
+  # `FULL_BOOTSTRAPPER_BUILD` below). Uploads per-RID `interfold-bootstrap-<rid>`
+  # tar.gz artefacts + a `dotnet-build-<sha>` artefact carrying the test-project
+  # bins for downstream direct-DLL launch.
   build:
     runs-on: ubuntu-latest
     needs: prepare
+    env:
+      # Push always builds the full matrix; workflow_dispatch respects the input
+      # (default on). Everything else (pull_request) is a fast build.
+      FULL_BOOTSTRAPPER_BUILD: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrapper-full-rids) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,7 +90,8 @@ jobs:
       - name: Build & upload multi-RID bootstrapper artefacts
         uses: ./.github/actions/build-bootstrapper-multi-rid
         with:
-          platforms: ${{ env.BUILD_PLATFORMS }}
+          platforms: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BUILD_PLATFORMS || 'linux/amd64' }}
+          rids: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BOOTSTRAPPER_RIDS || 'linux-x64' }}
           dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
           artifact-suffix: ${{ github.sha }}
 
@@ -135,6 +155,19 @@ jobs:
           path: '**/TestResults/**/*.cobertura.xml'
           retention-days: 1
           if-no-files-found: error
+
+      # TUnit's cooperative mode (default on GHA) merges every DLL launched
+      # inside the `Test (unit)` loop into one HTML report under
+      # `$RUNNER_TEMP/tunit-aggregate/<scope>/merged-report.html`. Uploaded here
+      # so the merged report is downloadable alongside the coverage bundle.
+      - name: Upload merged TUnit report (unit)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunit-merged-unit-${{ github.sha }}
+          path: ${{ runner.temp }}/tunit-aggregate/**/merged-report.html
+          retention-days: 7
+          if-no-files-found: warn
 
   # test-int: one matrix leg per project under tests/integration/. In-DinD
   # concurrency inside the Bootstrapper leg auto-sizes off NCPU / MemTotal /
@@ -223,8 +256,24 @@ jobs:
       - name: Install tunit-report tool
         run: dotnet tool install --tool-path .tunit-tools TUnit.Reporting.Tool --version '1.61.*'
 
+      # `--output` overrides the default `<dir>/merged-report.html` so the file
+      # lands outside the sidecar tree and the upload step's `path:` stays a
+      # single glob-free string.
       - name: Merge and write summary
-        run: ./.tunit-tools/tunit-report merge --directory tunit-sidecars --github-summary
+        run: |
+          ./.tunit-tools/tunit-report merge \
+            --directory tunit-sidecars \
+            --output merged-report.html \
+            --github-summary
+
+      - name: Upload merged TUnit report (integration)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunit-merged-int-${{ github.sha }}
+          path: merged-report.html
+          retention-days: 7
+          if-no-files-found: warn
 
   # coverage: three ReportGenerator outputs - unit-only, integration-only,
   # combined - so integration-only coverage (candidates for adding unit tests)
