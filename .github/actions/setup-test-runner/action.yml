@@ -1,0 +1,32 @@
+name: Setup .NET test runner
+description: >
+  Preamble for jobs that run `dotnet test --no-build`. Caller must run
+  `actions/checkout@v4` first so this composite's own path resolves.
+
+inputs:
+  dotnet-version:
+    description: '.NET SDK version, e.g. `10.0.x`.'
+    required: true
+  build-artifact-name:
+    description: 'Name of the `build`-job artefact carrying every bin/obj tree, typically `dotnet-build-<sha>`.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+        cache: true
+        cache-dependency-path: |
+          **/*.csproj
+          global.json
+
+    - name: Download build output
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.build-artifact-name }}
+
+    - name: Expose GitHub Actions Runtime
+      uses: ./.github/actions/expose-actions-runtime
