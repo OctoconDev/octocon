@@ -98,10 +98,9 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # test-unit: single job, whole-solution `--filter "FullyQualifiedName~UnitTests"`.
-  # BinarySizeGuardrailTests runs here; it reads the staged linux-x64 binary
-  # restored from the build artefact - see
-  # `BinarySizeGuardrailTests.LocatePublishedBinary`.
+  # test-unit: single job, loops over `tests/unit/*/*.csproj`. Includes
+  # `BinarySizeGuardrailTests`, which reads the staged linux-x64 binary from the
+  # build artefact - see `BinarySizeGuardrailTests.LocatePublishedBinary`.
   test-unit:
     runs-on: ubuntu-latest
     needs: build
@@ -115,13 +114,21 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           build-artifact-name: dotnet-build-${{ github.sha }}
 
+      # Per-csproj loop, not `dotnet test <slnx> --filter ~UnitTests`: filter-mismatch
+      # projects exit MTP code 8 (zero tests ran) and fail the aggregate `dotnet test`.
+      # See https://aka.ms/testingplatform/exitcodes.
       - name: Test (unit)
         run: |
-          dotnet test Interfold.slnx \
-            --no-build --no-restore \
-            --verbosity normal \
-            --coverage --coverage-output-format cobertura \
-            --filter "FullyQualifiedName~UnitTests"
+          set -euo pipefail
+          for csproj in tests/unit/*/*.csproj; do
+            echo "::group::$(basename "$(dirname "$csproj")")"
+            dotnet test "$csproj" \
+              --configuration Release \
+              --no-build --no-restore \
+              --verbosity normal \
+              --coverage --coverage-output-format cobertura
+            echo "::endgroup::"
+          done
 
       - name: Upload coverage (unit)
         uses: actions/upload-artifact@v4
@@ -156,6 +163,7 @@ jobs:
       - name: Test (integration - ${{ matrix.project }})
         run: |
           dotnet test "tests/integration/${{ matrix.project }}" \
+            --configuration Release \
             --no-build --no-restore \
             --verbosity normal \
             --coverage --coverage-output-format cobertura
