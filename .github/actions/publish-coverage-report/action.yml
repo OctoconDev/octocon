@@ -1,0 +1,37 @@
+name: Publish coverage report
+description: >
+  Renders one ReportGenerator MarkdownSummaryGithub view of a coverage subset
+  and, on pull-request events, posts it as a sticky PR comment.
+
+inputs:
+  reports-glob:
+    description: 'Cobertura glob for ReportGenerator, e.g. `coverage-inputs/coverage-unit-*/**/*.cobertura.xml`.'
+    required: true
+  targetdir:
+    description: 'Output directory; SummaryGithub.md is read from here for the PR comment.'
+    required: true
+  title:
+    description: 'Report title, e.g. `Unit tests`.'
+    required: true
+  sticky-header:
+    description: 'Sticky-comment header (one per report kind, e.g. `coverage-unit`) so reports coexist instead of overwriting.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Coverage report (${{ inputs.title }})
+      uses: danielpalme/ReportGenerator-GitHub-Action@5
+      with:
+        reports: ${{ inputs.reports-glob }}
+        targetdir: ${{ inputs.targetdir }}
+        reporttypes: MarkdownSummaryGithub
+        title: ${{ inputs.title }}
+
+    - name: PR comment (${{ inputs.title }})
+      if: github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        header: ${{ inputs.sticky-header }}
+        recreate: true
+        path: ${{ inputs.targetdir }}/SummaryGithub.md

@@ -7,7 +7,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+      <InternalsVisibleTo Include="Interfold.IntegrationTests.Shared" />
+      <InternalsVisibleTo Include="Interfold.Infrastructure.IntegrationTests" />
       <ProjectReference Include="..\Interfold.Infrastructure\Interfold.Infrastructure.csproj" />
       <!-- Permanent back-ref: ScyllaAlterRepository + AlterRowMappers + ScyllaTagRepository call
            AlterFieldProjection.ResolveVisibleDefinitionsAsync / ResolveGuardedFields, which lives

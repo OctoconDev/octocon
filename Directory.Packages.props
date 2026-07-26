@@ -73,16 +73,14 @@
     <!-- Preview-only until System.CommandLine 3.0 stabilises. -->
     <PackageVersion Include="System.CommandLine" Version="3.*-*" />
 
-    <!-- Test tooling. TUnit / TUnit.Aspire / TUnit.Mocks pinned to patch-only
-         floating (`1.50.*`) because TUnit.Aspire has broken API within its 1.x
-         line (AspireFixture<T>.Options + AspireFixtureOptions.Create signatures
-         changed between 1.50 and 1.61). Bump the base to 1.NN.* once the fixture
-         code in Interfold.IntegrationTests/TestServices is refactored to the
-         newer TUnit.Aspire surface. All three float together so the trio stays
-         binary-compatible with each other. -->
+    <!-- TUnit trio floats together on 1.61.* so ci-cd.yml `test-int-summary`
+         can merge per-leg `*.tunit-report.json` sidecars (TUnit PR #6415).
+         AspireFixture<T> subclasses must fully-qualify
+         `Microsoft.Extensions.Options.Options.Create` — 1.60 added a
+         `protected Options` property that shadows the static class. -->
     <PackageVersion Include="Testcontainers" Version="4.*" />
-    <PackageVersion Include="TUnit" Version="1.50.*" />
-    <PackageVersion Include="TUnit.Aspire" Version="1.50.*" />
-    <PackageVersion Include="TUnit.Mocks" Version="1.50.*" />
+    <PackageVersion Include="TUnit" Version="1.61.*" />
+    <PackageVersion Include="TUnit.Aspire" Version="1.61.*" />
+    <PackageVersion Include="TUnit.Mocks" Version="1.61.*" />
   </ItemGroup>
 </Project>

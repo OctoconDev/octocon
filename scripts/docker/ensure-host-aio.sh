@@ -27,7 +27,7 @@ set -euo pipefail
 
 # --- Per-Scylla-node Seastar AIO budget (from Seastar's own startup message). Keep these in
 #     sync with the constants used by Interfold.Bootstrapper/Phases/PrerequisitesPhase.cs and
-#     tests/Interfold.IntegrationTests/TestServices/HostAioPrerequisite.cs. ---
+#     tests/integration/Interfold.IntegrationTests.Shared/TestServices/HostAioPrerequisite.cs. ---
 PER_NODE_MIN=66563
 PER_NODE_RECOMMENDED=116562
 HEADROOM=50000

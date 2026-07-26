@@ -1029,13 +1029,13 @@ followed by an API restart. The bootstrapper will catch up on the next run.
 
 
 Tests centralise the test-only material in
-`[TestDbCredentials](../tests/Interfold.IntegrationTests/TestServices/TestDbCredentials.cs)`
+`[TestDbCredentials](../tests/integration/Interfold.IntegrationTests.Shared/TestServices/TestDbCredentials.cs)`
 — a single source of lazy-generated in-process keypairs and deterministic passwords. The
 real DB fixtures seed those values into `internal.secrets` via `PostgresSeedOptions`; the
 in-memory `WebApplicationFactory` instead drives the production env-var seed path by
 pushing the same PEMs + pepper into the factory's configuration provider (see the
 constructor of
-`[InterfoldWebApplicationFactory](../tests/Interfold.IntegrationTests/TestServices/InterfoldWebApplicationFactory.cs)`).
+`[InterfoldWebApplicationFactory](../tests/integration/Interfold.IntegrationTests.Shared/TestServices/InterfoldWebApplicationFactory.cs)`).
 External runners (e.g. the Kotlin Testcontainers harness) set them as
 `OCTOCON_INMEMORY_SECRETS_SEED__*` env vars on the container; the .NET
 `EnvironmentVariablesConfigurationProvider` rewrites the `__` separator to the config-key

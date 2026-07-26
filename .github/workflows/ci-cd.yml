@@ -3,146 +3,354 @@ name: CI/CD Pipeline
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
+  # Manual safety-net for validating arm cross-builds from a PR head branch -
+  # dispatch against the branch with `bootstrapper-full-rids` on (default) to
+  # run the full RID matrix a PR run otherwise skips.
+  workflow_dispatch:
+    inputs:
+      bootstrapper-full-rids:
+        description: 'Build all bootstrapper RIDs (linux-x64/arm/arm64). Off = fast PR-shape build (linux-x64 only).'
+        type: boolean
+        default: true
+
+env:
+  DOCKERFILE_PATH: Dockerfile
+  BOOTSTRAPPER_DOCKERFILE_PATH: Dockerfile.bootstrapper
+  # Release-time bootstrapper matrix. `build` downgrades to linux/amd64 alone
+  # on PRs (only RID CI tests need - skips QEMU-emulated arm cross-builds for
+  # artefacts nothing on the PR critical path consumes); workflow_dispatch
+  # inherits the full matrix by default. Adding a platform also needs a
+  # matching `buildx_for` entry + upload step in
+  # `.github/actions/build-bootstrapper-multi-rid/action.yml` and a
+  # TARGETARCH->RID branch in both `/Dockerfile` and `/Dockerfile.bootstrapper`.
+  BUILD_PLATFORMS: linux/amd64,linux/arm64,linux/arm/v7
+  BOOTSTRAPPER_RIDS: linux-x64 linux-arm linux-arm64
+  # Runner-side .NET SDK. The bootstrapper Docker build pins its own SDK.
+  DOTNET_VERSION: '10.0.x'
 
 jobs:
-  build-test-publish:
+  # prepare: emit tests/integration/*/ as a JSON array for test-int's matrix.
+  # `Interfold.IntegrationTests.Shared` is included because it also hosts real
+  # tests (ReplayParityTests).
+  prepare:
     runs-on: ubuntu-latest
-    env:
-      DOCKERFILE_PATH: Dockerfile
-      BOOTSTRAPPER_DOCKERFILE_PATH: Dockerfile.bootstrapper
-      # Single source of truth for buildx target platforms. Adding a platform
-      # here also requires: a rid_for entry in the `Tar.gz` step, a per-RID
-      # `Upload bootstrapper artifact (...)` step (upload-artifact@v4 is one
-      # artifact per invocation), and a TARGETARCH→RID case branch in both
-      # /Dockerfile and /Dockerfile.bootstrapper.
-      BUILD_PLATFORMS: linux/amd64,linux/arm64,linux/arm/v7
-      # Tighter DinD-test concurrency for the bootstrapper integration suite
-      # than the assembly default (see DinDParallelLimit). Five fixtures spin
-      # up their own DinD on first use (each ~1.5 GB layer + ~1.6 GB preloaded
-      # inner images), and every concurrent compose stack inside those DinDs
-      # adds another ~0.7-1 GB of PG/Scylla named-volume churn. The GH-hosted
-      # ubuntu-latest runner only ships with ~14 GB free, so capping concurrent
-      # compose stacks at 2 keeps the peak well under the cliff that produced
-      # the "No space left on device" worker crash on run 28459493553.
-      INTERFOLD_DIND_PARALLEL_LIMIT: '2'
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Required: the Test step runs `dotnet test` on the runner (not in
-      # Docker — keeps coverage XML on the runner FS for ReportGenerator and
-      # avoids DinD for the Testcontainers-based integration suites). Cache is
-      # keyed on csproj + global.json hashes (no packages.lock.json) — every
-      # csproj edit busts it, but still cheaper than a cold restore.
+      - name: Enumerate integration test projects
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          projects=$(ls -d tests/integration/*/ \
+            | sed 's:tests/integration/::;s:/$::' \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$projects" >> "$GITHUB_OUTPUT"
+          echo "Discovered integration test projects: $projects"
+
+  # build: whole-solution compile + bootstrapper buildx (matrix size gated by
+  # `FULL_BOOTSTRAPPER_BUILD` below). Uploads per-RID `interfold-bootstrap-<rid>`
+  # tar.gz artefacts + a `dotnet-build-<sha>` artefact carrying the test-project
+  # bins for downstream direct-DLL launch.
+  build:
+    runs-on: ubuntu-latest
+    needs: prepare
+    env:
+      # Push always builds the full matrix; workflow_dispatch respects the input
+      # (default on). Everything else (pull_request) is a fast build.
+      FULL_BOOTSTRAPPER_BUILD: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrapper-full-rids) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Cache-key = csproj + global.json hashes (no packages.lock.json here);
+      # any csproj edit busts it, still cheaper than a cold restore.
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
           cache: true
           cache-dependency-path: |
             **/*.csproj
             global.json
 
-      # Required (docker-container driver) for multi-arch manifest output. No
-      # QEMU because both Dockerfiles pin the SDK stage to $BUILDPLATFORM and the
-      # runtime/output stages have no RUN — add QEMU back if that ever changes.
+      # docker-container driver required for multi-arch manifest output.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # TUnit's GitHub Actions reporter reads these to attach test results to
-      # the run's job summary; they're only exposed to JS actions by default,
-      # so this copies them into the job-level env for the Test step (`run:`).
-      - name: Expose GitHub Actions Runtime
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env['ACTIONS_RUNTIME_TOKEN']);
-            core.exportVariable('ACTIONS_RESULTS_URL', process.env['ACTIONS_RESULTS_URL']);
+      - name: Restore
+        run: dotnet restore Interfold.slnx
 
-      # Parallel per-RID publish in one buildx invocation. Same GHA scope as
-      # the API build below so the SDK base image, source-tree COPY layer, and
-      # NuGet runtime packs dedup across both Dockerfiles (mode=max exports the
-      # `id=nuget` cache mount too).
-      - name: Build bootstrapper binaries (multi-RID, parallel)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
-          target: out
-          platforms: ${{ env.BUILD_PLATFORMS }}
-          outputs: type=local,dest=./bootstrap-out
-          cache-from: type=gha,scope=interfold-dotnet
-          cache-to: type=gha,mode=max,scope=interfold-dotnet
+      - name: Build (Release)
+        run: dotnet build Interfold.slnx --configuration Release --no-restore
 
-      # tar.gz preserves +x (upload-artifact's zip wrapper would strip it). Also
-      # stage linux-x64 at the path BinarySizeGuardrailTests walks up to. The
-      # rid_for map is the only place buildx dir names ↔ RIDs are translated.
-      - name: Tar.gz binaries + stage linux-x64 for binary-size guardrail
+      - name: Build & upload multi-RID bootstrapper artefacts
+        uses: ./.github/actions/build-bootstrapper-multi-rid
+        with:
+          platforms: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BUILD_PLATFORMS || 'linux/amd64' }}
+          rids: ${{ env.FULL_BOOTSTRAPPER_BUILD == 'true' && env.BOOTSTRAPPER_RIDS || 'linux-x64' }}
+          dockerfile: ${{ env.BOOTSTRAPPER_DOCKERFILE_PATH }}
+          artifact-suffix: ${{ github.sha }}
+
+      # tar.gz preserves +x that upload-artifact@v4's zip strips. Ships test-
+      # project bins (direct-DLL launch) and `tools/*/bin` because
+      # `Interfold.Bootstrapper.UnitTests` locates the managed DLL and the
+      # multi-RID-composite-staged linux-x64 ELF by absolute path, not projref.
+      - name: Package build output
+        shell: bash
+        run: |
+          tar -czf dotnet-build.tar.gz \
+            tests/integration/*/bin \
+            tests/unit/*/bin \
+            tools/*/bin
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-build-${{ github.sha }}
+          path: dotnet-build.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  # test-unit: single job, loops over every `tests/unit/*/` project. Includes
+  # `BinarySizeGuardrailTests`, which reads the staged linux-x64 binary from the
+  # build artefact - see `BinarySizeGuardrailTests.LocatePublishedBinary`.
+  test-unit:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup test runner
+        uses: ./.github/actions/setup-test-runner
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          build-artifact-name: dotnet-build-${{ github.sha }}
+
+      # Directly launch each test project's MTP host DLL instead of going through
+      # `dotnet test <csproj> --no-build --no-restore` - the new .NET 10 `dotnet
+      # test` command regressed test-project discovery on our tarball-extracted
+      # trees between 10.0.301 and 10.0.302 ("No test projects were found."), and
+      # TUnit test hosts are self-contained MTP executables that accept the same
+      # `--coverage` / `--coverage-output-format` flags directly.
+      - name: Test (unit)
         run: |
           set -euo pipefail
-          declare -A rid_for=(
-            [linux_amd64]=linux-x64
-            [linux_arm64]=linux-arm64
-            [linux_arm_v7]=linux-arm
-          )
-          for buildx_dir in "${!rid_for[@]}"; do
-            rid="${rid_for[$buildx_dir]}"
-            chmod +x "bootstrap-out/$buildx_dir/interfold-bootstrap"
-            tar -czf "interfold-bootstrap-$rid.tar.gz" \
-              -C "bootstrap-out/$buildx_dir" interfold-bootstrap
+          for dir in tests/unit/*/; do
+            name=$(basename "$dir")
+            echo "::group::$name"
+            dotnet "$dir"bin/Release/net10.0/"$name".dll \
+              --coverage --coverage-output-format cobertura
+            echo "::endgroup::"
           done
-          dest=tools/Interfold.Bootstrapper/bin/Release/net10.0/linux-x64/publish
-          mkdir -p "$dest"
-          cp bootstrap-out/linux_amd64/interfold-bootstrap "$dest/interfold-bootstrap"
-          chmod +x "$dest/interfold-bootstrap"
 
-      - name: Test
-        run: dotnet test --verbosity normal --coverage --coverage-output-format cobertura
-
-      # 7-day retention. Placed after Test so failures abort before upload.
-      # One artifact per RID so consumers download only the binary they need;
-      # upload-artifact@v4 is one-artifact-per-invocation so this is three steps.
-      - name: Upload bootstrapper artifact (linux-x64)
+      - name: Upload coverage (unit)
         uses: actions/upload-artifact@v4
         with:
-          name: interfold-bootstrap-linux-x64-${{ github.sha }}
-          path: interfold-bootstrap-linux-x64.tar.gz
-          retention-days: 7
+          name: coverage-unit-${{ github.sha }}
+          path: '**/TestResults/**/*.cobertura.xml'
+          retention-days: 1
           if-no-files-found: error
 
-      - name: Upload bootstrapper artifact (linux-arm)
+      # TUnit's cooperative mode (default on GHA) merges every DLL launched
+      # inside the `Test (unit)` loop into one HTML report under
+      # `$RUNNER_TEMP/tunit-aggregate/<scope>/merged-report.html`. Uploaded here
+      # so the merged report is downloadable alongside the coverage bundle.
+      - name: Upload merged TUnit report (unit)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: interfold-bootstrap-linux-arm-${{ github.sha }}
-          path: interfold-bootstrap-linux-arm.tar.gz
+          name: tunit-merged-unit-${{ github.sha }}
+          path: ${{ runner.temp }}/tunit-aggregate/**/merged-report.html
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
 
-      - name: Upload bootstrapper artifact (linux-arm64)
+  # test-int: one matrix leg per project under tests/integration/. In-DinD
+  # concurrency inside the Bootstrapper leg auto-sizes off NCPU / MemTotal /
+  # DockerRootDir - see
+  # `tests/integration/Interfold.Bootstrapper.IntegrationTests/fixtures/DinDParallelLimit.cs`.
+  test-int:
+    runs-on: ubuntu-latest
+    needs: [ prepare, build ]
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    name: test-int (${{ matrix.project }})
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup test runner
+        uses: ./.github/actions/setup-test-runner
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          build-artifact-name: dotnet-build-${{ github.sha }}
+
+      # Direct MTP-host launch (same reasoning as `test-unit`). `defer` tells
+      # TUnit's aggregation reporter to persist its per-suite JSON sidecar
+      # (`{asm}-{os}-{tfm}.tunit-report.json`) alongside the HTML report but
+      # skip writing its markdown block to $GITHUB_STEP_SUMMARY. `test-int-
+      # summary` downloads every leg's sidecar and calls `tunit-report merge`
+      # on them, splicing one native TUnit summary into that job's summary tab
+      # instead of one block per matrix leg. See TUnit PR #6415.
+      - name: Test (integration - ${{ matrix.project }})
+        env:
+          TUNIT_AGGREGATE_REPORTS: defer
+        run: |
+          dotnet "tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll" \
+            --coverage --coverage-output-format cobertura
+
+      # Sidecars land in `TestResults/{asm}-{os}-{tfm}.tunit-report.json` next to
+      # the HTML report the engine also emits by default; `**/*.tunit-report.json`
+      # picks them up wherever the test host's cwd ended up.
+      - name: Upload TUnit report sidecar (${{ matrix.project }})
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: interfold-bootstrap-linux-arm64-${{ github.sha }}
-          path: interfold-bootstrap-linux-arm64.tar.gz
-          retention-days: 7
+          name: tunit-sidecar-${{ matrix.project }}-${{ github.sha }}
+          path: 'tests/integration/${{ matrix.project }}/**/*.tunit-report.json'
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Upload coverage (integration - ${{ matrix.project }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-int-${{ matrix.project }}-${{ github.sha }}
+          path: 'tests/integration/${{ matrix.project }}/**/TestResults/**/*.cobertura.xml'
+          retention-days: 1
           if-no-files-found: error
 
-      - name: Generate code coverage report
-        uses: danielpalme/ReportGenerator-GitHub-Action@5
+  # test-int-summary: renders one native TUnit aggregated block from every
+  # matrix leg's sidecar. `tunit-report merge --github-summary` splices the
+  # block into $GITHUB_STEP_SUMMARY between HTML-comment markers so foreign
+  # summary content is untouched; separate job so its Summary-tab section
+  # renders top-level, not nested under `coverage`.
+  test-int-summary:
+    runs-on: ubuntu-latest
+    needs: test-int
+    if: always()
+    steps:
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          reports: '**/TestResults/*.cobertura.xml'
-          targetdir: coveragereport
-          reporttypes: MarkdownSummaryGithub
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Add Coverage PR Comment
-        uses: marocchino/sticky-pull-request-comment@v2
-        if: github.event_name == 'pull_request'
+      - name: Download TUnit sidecars
+        uses: actions/download-artifact@v4
         with:
-          recreate: true
-          path: coveragereport/SummaryGithub.md
+          path: tunit-sidecars
+          pattern: tunit-sidecar-*
+          merge-multiple: true
 
-      - name: Write to Job Summary
-        run: cat coveragereport/SummaryGithub.md >> $GITHUB_STEP_SUMMARY
+      # Version-pinned to the same 1.61 line as the TUnit engine that produced
+      # the sidecars - the tool links the engine's serializer/merger/renderer
+      # sources directly, so drift here would silently miss fields. `--tool-path`
+      # instead of `--global` because setup-dotnet does not add
+      # `$HOME/.dotnet/tools` to `$GITHUB_PATH`, so a global install would leave
+      # the binary un-findable in the next step.
+      - name: Install tunit-report tool
+        run: dotnet tool install --tool-path .tunit-tools TUnit.Reporting.Tool --version '1.61.*'
+
+      # `--output` overrides the default `<dir>/merged-report.html` so the file
+      # lands outside the sidecar tree and the upload step's `path:` stays a
+      # single glob-free string.
+      - name: Merge and write summary
+        run: |
+          ./.tunit-tools/tunit-report merge \
+            --directory tunit-sidecars \
+            --output merged-report.html \
+            --github-summary
+
+      - name: Upload merged TUnit report (integration)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunit-merged-int-${{ github.sha }}
+          path: merged-report.html
+          retention-days: 7
+          if-no-files-found: warn
+
+  # coverage: three ReportGenerator outputs - unit-only, integration-only,
+  # combined - so integration-only coverage (candidates for adding unit tests)
+  # is visible at a glance.
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [ test-unit, test-int ]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # `merge-multiple: false` keeps each artefact under its own `coverage-*/`
+      # subfolder so the three ReportGenerator globs below can address them
+      # independently.
+      - name: Download all coverage artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage-inputs
+          pattern: coverage-*
+          merge-multiple: false
+
+      # Distinct `sticky-header:` per invocation so sticky-pull-request-comment
+      # keeps the three summaries side-by-side instead of overwriting one slot.
+      - name: Publish unit coverage
+        uses: ./.github/actions/publish-coverage-report
+        with:
+          reports-glob: 'coverage-inputs/coverage-unit-*/**/*.cobertura.xml'
+          targetdir: coveragereport/unit
+          title: 'Unit tests'
+          sticky-header: coverage-unit
+
+      - name: Publish integration coverage
+        uses: ./.github/actions/publish-coverage-report
+        with:
+          reports-glob: 'coverage-inputs/coverage-int-*/**/*.cobertura.xml'
+          targetdir: coveragereport/integration
+          title: 'Integration tests'
+          sticky-header: coverage-integration
+
+      - name: Publish combined coverage
+        uses: ./.github/actions/publish-coverage-report
+        with:
+          reports-glob: 'coverage-inputs/coverage-*/**/*.cobertura.xml'
+          targetdir: coveragereport/all
+          title: 'All tests'
+          sticky-header: coverage-all
+
+      - name: Write coverage summary
+        run: |
+          {
+            cat coveragereport/unit/SummaryGithub.md
+            echo
+            cat coveragereport/integration/SummaryGithub.md
+            echo
+            cat coveragereport/all/SummaryGithub.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # publish: multi-arch API image push, gated to pushes on `main` (tag `latest`)
+  # or `develop` (tag `bleeding-edge`). Shares GHA cache scope `interfold-dotnet`
+  # with the bootstrapper buildx in `build`.
+  publish:
+    runs-on: ubuntu-latest
+    needs: [ test-unit, test-int ]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       github.ref == 'refs/heads/develop')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -151,6 +359,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # `latest` is gated to the default branch (currently `main`); `bleeding-edge`
+      # is gated to `develop`. The other two tags (branch name, `sha-<commit>`)
+      # follow docker/metadata-action defaults.
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -160,6 +371,7 @@ jobs:
             type=ref,event=branch
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=raw,value=bleeding-edge,enable=${{ github.ref == 'refs/heads/develop' }}
 
       # provenance/sbom off so the manifest list doesn't carry BuildKit's
       # `unknown/unknown` attestation entries (breaks some consumers and the

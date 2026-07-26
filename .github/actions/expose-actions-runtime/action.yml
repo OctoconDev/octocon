@@ -1,0 +1,14 @@
+name: Expose GitHub Actions Runtime
+description: >
+  Bridges ACTIONS_RUNTIME_TOKEN and ACTIONS_RESULTS_URL from the JS-action
+  environment onto the job-level env so TUnit's GitHub Actions reporter,
+  invoked in a later `run:` step, can attach test results to the job summary.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/github-script@v7
+      with:
+        script: |
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env['ACTIONS_RUNTIME_TOKEN']);
+          core.exportVariable('ACTIONS_RESULTS_URL', process.env['ACTIONS_RESULTS_URL']);

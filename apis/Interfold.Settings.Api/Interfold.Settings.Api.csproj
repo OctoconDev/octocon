@@ -24,7 +24,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Interfold.Settings.UnitTests" />
-    <InternalsVisibleTo Include="Interfold.IntegrationTests" />
+    <InternalsVisibleTo Include="Interfold.Settings.IntegrationTests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Shared.Api\Interfold.Shared.Api.csproj" />

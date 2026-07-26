@@ -12,7 +12,7 @@ namespace Interfold.Bootstrapper.Phases;
 internal static partial class PrerequisitesPhase
 {
     // Seastar's own startup error text; keep aligned with scripts/docker/ensure-host-aio.sh
-    // and tests/Interfold.IntegrationTests/TestServices/HostAioPrerequisite.cs.
+    // and tests/integration/Interfold.IntegrationTests.Shared/TestServices/HostAioPrerequisite.cs.
     private const int AioPerNodeMin = 66_563;
     private const int AioPerNodeRecommended = 116_562;
     private const int AioHeadroom = 50_000;
