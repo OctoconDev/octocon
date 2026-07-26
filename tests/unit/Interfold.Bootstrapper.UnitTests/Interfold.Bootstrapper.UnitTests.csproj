@@ -23,7 +23,7 @@
   <ItemGroup>
     <!-- Source-linked (not project-referenced) so DinD-parallelism math can be unit-tested
          without pulling Testcontainers into this assembly. -->
-    <Compile Include="..\..\integration\Interfold.Bootstrapper.IntegrationTests\fixtures\DinDParallelLimitCalculator.cs"
+    <Compile Include="..\..\integration\Interfold.Bootstrapper.IntegrationTests\Fixtures\DinDParallelLimitCalculator.cs"
              Link="Fixtures\DinDParallelLimitCalculator.cs" />
   </ItemGroup>
 </Project>

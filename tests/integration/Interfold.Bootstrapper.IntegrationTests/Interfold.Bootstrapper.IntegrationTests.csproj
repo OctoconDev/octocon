@@ -24,13 +24,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="fixtures\Dockerfile.*">
+    <Content Include="Fixtures\Dockerfile.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Fixtures\dockerd-entrypoint.sh">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="fixtures\interfold.bootstrap.test*.json">
+    <Content Include="Fixtures\interfold.bootstrap.test*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
