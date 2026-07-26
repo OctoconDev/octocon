@@ -33,7 +33,7 @@ internal static class AlterRowMappers
             HexColor.FromNullable(row.GetValue<string?>("color")),
             row.GetValue<string?>("pronouns"),
             row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
-            ScyllaSharedQueries.ResolveAlterFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields"), definitions),
+            AlterFieldProjection.ResolveOwnerFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields")?.ToDictionary(x => new FieldId(x.Id), x => x.Value), definitions),
             row.GetValue<string?>("proxy_name"),
             row.GetValue<string?>("alias"),
             row.GetValue<bool?>("untracked"),

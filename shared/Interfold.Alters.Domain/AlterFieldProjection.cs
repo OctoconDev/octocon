@@ -48,6 +48,28 @@ public static class AlterFieldProjection
         }
     }
 
+    /// <summary>Owner-view join: emits one <see cref="AlterPublicFieldReadModel"/> per
+    /// definition, <c>Value = null</c> when the alter didn't populate it. Not viewer-filtered —
+    /// contrast with <see cref="ResolveGuardedFields"/> which drops unpopulated defs and expects
+    /// visibility-filtered definitions.</summary>
+    public static IReadOnlyList<AlterPublicFieldReadModel> ResolveOwnerFields(
+        IReadOnlyDictionary<FieldId, string?>? alterFieldValues,
+        IReadOnlyList<SettingsFieldReadModel> definitions)
+    {
+        if (definitions.Count == 0)
+        {
+            return Array.Empty<AlterPublicFieldReadModel>();
+        }
+
+        return definitions
+            .Select(def => new AlterPublicFieldReadModel(
+                def.Id,
+                def.Name,
+                def.Type,
+                alterFieldValues is not null && alterFieldValues.TryGetValue(def.Id, out var value) ? value : null))
+            .ToArray();
+    }
+
     /// <summary>Field-definition subset visible to the viewer at
     /// <paramref name="friendshipLevel"/> (null = anonymous, public-only).</summary>
     public static async Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(

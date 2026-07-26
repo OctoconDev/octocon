@@ -2,8 +2,6 @@ using Cassandra;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Observability;
 using Microsoft.Extensions.Logging;
 
@@ -54,28 +52,6 @@ internal static class ScyllaSharedQueries
                 ownerSystemId.Value, normalizedViewerSystemId);
             throw;
         }
-    }
-
-    /// <summary>Joins stored field-value UDTs against the system's field definitions,
-    /// emitting one entry per definition (null value when the alter didn't fill it in).</summary>
-    public static IReadOnlyList<AlterPublicFieldReadModel> ResolveAlterFields(
-        IEnumerable<AlterFieldUdt>? alterFields,
-        IReadOnlyList<SettingsFieldReadModel> definitions)
-    {
-        if (definitions.Count == 0)
-        {
-            return [];
-        }
-
-        // Dict lookup — O(N + M), not O(N * M) like the previous LINQ FirstOrDefault.
-        var byFieldId = alterFields?.ToDictionary(x => x.Id, x => x.Value);
-        return definitions
-            .Select(def => new AlterPublicFieldReadModel(
-                def.Id,
-                def.Name,
-                def.Type,
-                byFieldId is not null && byFieldId.TryGetValue(def.Id, out var value) ? value : null))
-            .ToArray();
     }
 
     public static async Task<AlterId?> LoadPrimaryFrontAlterAsync(ISession session, string keyspace, string normalizedSystemId)

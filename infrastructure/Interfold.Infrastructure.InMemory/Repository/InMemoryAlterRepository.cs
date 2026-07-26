@@ -45,9 +45,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     private readonly ConcurrentDictionary<ScopedSystemId, ConcurrentDictionary<AlterId, AlterState>> _bySystem = new();
     // checked((short)…) on increment traps overflow instead of handing back an already-used id.
     private readonly ConcurrentDictionary<ScopedSystemId, short> _nextIdBySystem = new();
-    private readonly IFriendshipRepository? _friendships;
-    private readonly ISettingsFieldRepository? _settingsFields;
-    private readonly IPollRepository? _polls;
+    private readonly IFriendshipRepository _friendships;
+    private readonly ISettingsFieldRepository _settingsFields;
+    private readonly IPollRepository _polls;
     private readonly ILogger<InMemoryAlterRepository> _logger;
 
     public InMemoryAlterRepository(
@@ -185,7 +185,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         }
 
         var removed = store.TryRemove(alterId, out _);
-        if (removed && _polls != null)
+        if (removed)
         {
             await _polls.RemoveAlterFromPollsAsync(systemId, alterId, cancellationToken);
         }
@@ -200,7 +200,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             return Array.Empty<AlterReadModel>();
         }
 
-        var definitions = await ResolveVisibleDefinitionsAsync(systemId, FriendshipLevel.TrustedFriend, cancellationToken);
+        var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
 
         var rows = store.Values
             .OrderBy(x => x.AlterId.Value)
@@ -217,7 +217,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     {
         var sw = Stopwatch.StartNew();
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
-        var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
+        var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
 
         var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
         if (!TryGetStore(systemId, out var store))
@@ -252,7 +252,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             return null;
         }
 
-        var definitions = await ResolveVisibleDefinitionsAsync(systemId, FriendshipLevel.TrustedFriend, cancellationToken);
+        var definitions = await _settingsFields.ListAsync(systemId, cancellationToken);
 
         return MapAlterReadModel(alter, definitions);
     }
@@ -266,7 +266,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         var sw = Stopwatch.StartNew();
         var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
-        var definitions = await ResolveVisibleDefinitionsAsync(systemId, friendshipLevel, cancellationToken);
+        var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
         if (!TryGetAlter(systemId, alterId, out var alter))
         {
             GuardedInstrumentation.RecordGet(_logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId, alterId.Value.ToString(), found: false, filtered: false, sw.Elapsed.TotalMilliseconds);
@@ -351,7 +351,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.Color,
             alter.Pronouns,
             alter.VisibilityLevel,
-            AlterFieldProjection.ResolveGuardedFields(alter.Fields, definitions),
+            AlterFieldProjection.ResolveOwnerFields(alter.Fields, definitions),
             alter.ProxyName,
             alter.Alias,
             alter.Untracked,
@@ -361,15 +361,6 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.InsertedAt,
             alter.UpdatedAt);
     }
-
-    // Short-circuits when _settingsFields is null so the shared helper keeps a non-null repo contract.
-    private Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
-        SystemId systemId,
-        FriendshipLevel? friendshipLevel,
-        CancellationToken cancellationToken)
-        => _settingsFields is null
-            ? Task.FromResult<IReadOnlyList<SettingsFieldReadModel>>(Array.Empty<SettingsFieldReadModel>())
-            : AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
 
     private bool TryGetStore(SystemId systemId, out ConcurrentDictionary<AlterId, AlterState> store)
     {

@@ -106,6 +106,56 @@ public class AltersControllerTests(IWebFactoryFixture fixture) : BaseEndpointTes
 
 
     [Test]
+    public async Task OwnerView_ListAndGet_ReturnsAllFieldValuesIncludingPrivate()
+    {
+        // Regression: the owner-view read paths (/api/systems/me/alters and .../{id}) must return
+        // populated field values at every VisibilityLevel — Public through Private. Before the fix,
+        // InMemoryAlterRepository fed FriendshipLevel.TrustedFriend through the guarded projection,
+        // which stripped Private-tier field definitions and dropped unpopulated ones, so the client
+        // never saw updates to Private fields. Scylla + Cassandra already did the right thing.
+        using var client = TestClient.NoRedirect(fixture);
+
+        var owner = TestIds.NewSystemId("owner-view-fields");
+
+        var fieldPublic = await CreateSettingsFieldAsync(client, owner, "OwnerFieldPublic", FieldType.Text, VisibilityLevel.Public);
+        var fieldFriends = await CreateSettingsFieldAsync(client, owner, "OwnerFieldFriends", FieldType.Text, VisibilityLevel.FriendsOnly);
+        var fieldTrusted = await CreateSettingsFieldAsync(client, owner, "OwnerFieldTrusted", FieldType.Text, VisibilityLevel.TrustedOnly);
+        var fieldPrivate = await CreateSettingsFieldAsync(client, owner, "OwnerFieldPrivate", FieldType.Text, VisibilityLevel.Private);
+
+        var alterId = await CreateAlterAsync(client, owner, "OwnerViewFieldsAlter");
+        await UpdateAlterFieldsAsync(client, owner, alterId, new UpdateAlterFieldRequest[]
+        {
+            new(fieldPublic, "OwnerPublicValue"),
+            new(fieldFriends, "OwnerFriendsValue"),
+            new(fieldTrusted, "OwnerTrustedValue"),
+            new(fieldPrivate, "OwnerPrivateValue"),
+        });
+
+        using var listRes = await client.SendAuthedGetAsync("/api/systems/me/alters", owner);
+        var listBody = await listRes.Content.ReadAsStringAsync();
+        using (Assert.Multiple())
+        {
+            await Assert.That(listRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
+            await Assert.That(listBody).Contains("OwnerPublicValue");
+            await Assert.That(listBody).Contains("OwnerFriendsValue");
+            await Assert.That(listBody).Contains("OwnerTrustedValue");
+            await Assert.That(listBody).Contains("OwnerPrivateValue");
+        }
+
+        using var getRes = await client.SendAuthedGetAsync($"/api/systems/me/alters/{alterId}", owner);
+        var getBody = await getRes.Content.ReadAsStringAsync();
+        using (Assert.Multiple())
+        {
+            await Assert.That(getRes.StatusCode).IsEqualTo(HttpStatusCode.OK);
+            await Assert.That(getBody).Contains("OwnerPublicValue");
+            await Assert.That(getBody).Contains("OwnerFriendsValue");
+            await Assert.That(getBody).Contains("OwnerTrustedValue");
+            await Assert.That(getBody).Contains("OwnerPrivateValue");
+        }
+    }
+
+
+    [Test]
     public async Task AlterDelete_CascadesAlterJournalsAndDetachesFromGlobalJournals()
     {
         // Regression: deleting an alter must wipe its alter_journals entries (both view tables
