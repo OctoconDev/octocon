@@ -1,8 +1,8 @@
+using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Friendships.Domain.Abstractions.Repository;
 
 public interface IFriendshipRepository
 {

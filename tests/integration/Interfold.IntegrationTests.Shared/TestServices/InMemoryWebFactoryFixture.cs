@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts;
 using TUnit.Core.Interfaces;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Standalone fixture (no Aspire, no Docker) that creates an in-memory WebApplicationFactory.

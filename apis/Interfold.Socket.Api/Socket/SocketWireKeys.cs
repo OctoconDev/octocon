@@ -1,4 +1,4 @@
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 /// <summary>
 /// Query-string parameter names on the WebSocket upgrade request. Wire-frozen — the

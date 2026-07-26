@@ -1,21 +1,20 @@
-using Microsoft.AspNetCore.Mvc;
-using System.Text;
-using Interfold.Api.Helpers;
-using Interfold.Api.Models;
-using Interfold.Api.Services;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Contracts.Models.Commands;
+using Interfold.Alters.Contracts.Models.Read;
+using Interfold.Alters.Domain;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Models;
+using Interfold.Shared.Api.Services;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Alters;
-using Interfold.Api.Controllers.Base;
-using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Validation;
+using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Alters.Api.Controllers;
 
 [Route("api/systems/me/alters")]
 public sealed class AltersController : InterfoldControllerBase

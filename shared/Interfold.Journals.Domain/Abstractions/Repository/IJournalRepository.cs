@@ -1,8 +1,9 @@
+using Interfold.Journals.Contracts.Ids;
+using Interfold.Journals.Contracts.Models.Commands;
+using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Journals.Domain.Abstractions.Repository;
 
 public interface IJournalRepository
 {

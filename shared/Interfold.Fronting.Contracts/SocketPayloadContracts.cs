@@ -1,7 +1,8 @@
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Fronting.Contracts;
 
 public sealed record SocketBatchedFrontsPayload(int BatchIndex, int TotalBatches, IReadOnlyList<FrontActiveReadModel> Fronts) : ISocketPayload;
 

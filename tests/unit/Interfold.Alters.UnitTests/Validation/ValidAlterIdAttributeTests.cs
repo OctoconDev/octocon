@@ -1,8 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Validation;
+using Interfold.Tags.Contracts.Models.Read;
 
 namespace Interfold.Api.UnitTests.Validation;
 

@@ -1,8 +1,6 @@
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Primitives;
 
-namespace Interfold.Api.Services;
+namespace Interfold.Shared.Api.Services;
 
 /// <summary>
 /// Non-owning <see cref="IConfigurationRoot"/> proxy that forwards to the wrapped instance

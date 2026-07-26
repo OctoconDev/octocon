@@ -1,7 +1,8 @@
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
 
-namespace Interfold.Shared.Domain.Abstractions;
+namespace Interfold.Settings.Domain.Abstractions;
 
 /// <summary>Full SP data import for a system. MUST NOT throw on graceful failures
 /// (auth, encryption, upstream 4xx) — return Success=false with ErrorCode/ErrorMessage.

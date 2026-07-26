@@ -1,6 +1,7 @@
 using Interfold.Infrastructure.Coordination;
+using Interfold.IntegrationTests.Shared;
 
-namespace Interfold.IntegrationTests.Services;
+namespace Interfold.Infrastructure.IntegrationTests.Services;
 
 public sealed class InProcessEventBusReconnectTests : BaseEndpointTest
 {

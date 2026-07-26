@@ -1,7 +1,8 @@
+using Interfold.Journals.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Validation;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Journals.Contracts.Models.Read;
 
 public sealed record JournalReadModel(
     EntryId Id,

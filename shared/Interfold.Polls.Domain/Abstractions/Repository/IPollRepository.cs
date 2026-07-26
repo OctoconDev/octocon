@@ -1,8 +1,9 @@
+using Interfold.Polls.Contracts.Ids;
+using Interfold.Polls.Contracts.Models.Commands;
+using Interfold.Polls.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Polls.Domain.Abstractions.Repository;
 
 public interface IPollRepository
 {

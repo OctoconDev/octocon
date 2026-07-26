@@ -1,6 +1,7 @@
+using Interfold.Settings.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Settings.Domain.Abstractions.Repository;
 
 public interface INotificationTokenRepository
 {

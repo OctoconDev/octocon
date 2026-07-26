@@ -1,10 +1,9 @@
-using System;
-using System.Collections.Generic;
 using Cassandra;
+using Interfold.Alters.Contracts.Models;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Read;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 

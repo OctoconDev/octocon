@@ -1,7 +1,6 @@
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Infrastructure.Coordination;
-using Interfold.Infrastructure.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.Api.UnitTests.Coordination;

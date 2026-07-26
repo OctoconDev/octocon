@@ -1,4 +1,4 @@
-namespace Interfold.Api.Models;
+namespace Interfold.Auth.Api.Models;
 
 /// <summary>
 /// Minimal <c>{"error": "..."}</c> body used by the auth-link callback's failure branches.

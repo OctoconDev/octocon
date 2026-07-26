@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Util;
-using TUnit.Core;
 using TUnit.Core.Exceptions;
 
 namespace Interfold.Bootstrapper.UnitTests;

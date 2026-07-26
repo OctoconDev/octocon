@@ -1,8 +1,8 @@
-using Interfold.Shared.Contracts.Events;
+using Interfold.Settings.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions;
 
-namespace Interfold.Shared.Domain.Settings;
+namespace Interfold.Settings.Domain.Settings;
 
 // Intent-named publish helpers on IClusterEventBus for settings events. Publish-only —
 // orchestration lives in SettingsIdempotentCommandFlow.

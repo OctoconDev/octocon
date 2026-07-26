@@ -1,13 +1,11 @@
-using Interfold.Shared.Contracts.Events;
+using Interfold.Settings.Contracts.Events;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
-namespace Interfold.Api.Services.ImportJobs;
+namespace Interfold.Settings.Api.Services.ImportJobs;
 
 /// <summary>Single-consumer worker: drains <see cref="IImportJobQueue"/>, transitions
 /// <c>import_operations</c> rows, and publishes completion/failure events for the WS pump.

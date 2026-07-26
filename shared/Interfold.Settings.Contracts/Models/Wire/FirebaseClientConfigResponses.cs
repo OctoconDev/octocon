@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Settings.Contracts.Models.Wire;
 
 /// <summary>Response body for <c>GET /api/settings/firebase-config?platform=…</c>.
 /// The three variants map 1:1 to the client-side Firebase init shapes; STJ emits a

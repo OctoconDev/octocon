@@ -1,4 +1,4 @@
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Socket.Contracts;
 
 /// <summary>
 /// Phoenix-protocol transport event and topic names, mirroring the

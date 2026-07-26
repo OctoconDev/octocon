@@ -1,4 +1,4 @@
-using Interfold.Api.Services.Secrets;
+using Interfold.Api.Host.Services.Secrets;
 using Npgsql;
 
 namespace Interfold.Api.UnitTests.Services;

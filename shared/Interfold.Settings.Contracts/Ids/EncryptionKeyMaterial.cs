@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Ids;
+namespace Interfold.Settings.Contracts.Ids;
 
 /// <summary>
 /// The derived per-system encryption key returned by the setup/recover encryption commands

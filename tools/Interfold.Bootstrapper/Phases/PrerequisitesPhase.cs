@@ -1,4 +1,3 @@
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;

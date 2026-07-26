@@ -1,12 +1,11 @@
 using System.Net;
+using Interfold.Friendships.Contracts.Models.Read;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.IntegrationTests.TestServices;
-using TUnit.Core;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Friendships.IntegrationTests.Controllers;
 
 [Category("Friendships")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]

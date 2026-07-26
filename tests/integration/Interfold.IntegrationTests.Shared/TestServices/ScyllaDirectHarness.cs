@@ -1,9 +1,9 @@
 using Cassandra;
-using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.Scylla;
+using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Shared preamble for direct-CQL Scylla integration tests — the ones that must synthesise

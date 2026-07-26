@@ -1,4 +1,4 @@
-namespace Interfold.AppHostGraph;
+namespace Interfold.AppHost;
 
 /// <summary>
 /// The <c>depends_on</c> condition spellings the compose graph assigns. Values are part of

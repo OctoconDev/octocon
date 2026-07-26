@@ -1,7 +1,7 @@
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
-namespace Interfold.Api.Swagger;
+namespace Interfold.Shared.Api.Swagger;
 
 public class MultipleContentTypeOperationFilter : IDocumentFilter
 {

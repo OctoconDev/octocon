@@ -1,4 +1,6 @@
-namespace Interfold.IntegrationTests.TestServices;
+using Interfold.Api.Host.Services.Secrets;
+
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 public interface IWebFactoryFixture
 {
@@ -24,7 +26,7 @@ public interface IWebFactoryFixture
     /// </para>
     /// <para>
     /// <b>Cost.</b> Each call performs a full host build (including
-    /// <see cref="Interfold.Api.Services.Secrets.SecretsPreBuildLoader"/>'s pre-Build fetch and
+    /// <see cref="SecretsPreBuildLoader"/>'s pre-Build fetch and
     /// the migration-strip DI rewrite for DB-backed runs). Reserve for tests that actually need
     /// isolation; do not use as a default.
     /// </para>

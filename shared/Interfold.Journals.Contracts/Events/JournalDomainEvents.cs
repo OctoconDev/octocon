@@ -1,6 +1,8 @@
+using Interfold.Journals.Contracts.Ids;
+using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Events;
+namespace Interfold.Journals.Contracts.Events;
 
 public sealed record GlobalJournalEntryCreatedEvent(ScopedSystemId TargetSystemId, EntryId EntryId) : ITargetedClusterEvent;
 

@@ -1,10 +1,10 @@
+using Interfold.Auth.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Shared.Domain.Auth;
+namespace Interfold.Auth.Domain;
 
 public sealed record RevokeAuthTokenCommandResult(bool Success);
 

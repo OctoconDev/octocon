@@ -1,13 +1,14 @@
-using Interfold.Shared.Contracts;
+using Interfold.Fronting.Contracts;
+using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Commands;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Shared.Domain.Fronting;
+namespace Interfold.Fronting.Domain;
 
 internal static class FrontingCommandFlow
 {

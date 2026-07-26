@@ -1,4 +1,4 @@
-namespace Interfold.Api.Services.SimplyPlural;
+namespace Interfold.Settings.Api.Services.SimplyPlural;
 
 /// <summary>Simply Plural v1 API paths + CDN hosts + wire sentinels the importer matches
 /// on. All third-party wire contracts (frozen by SP).</summary>

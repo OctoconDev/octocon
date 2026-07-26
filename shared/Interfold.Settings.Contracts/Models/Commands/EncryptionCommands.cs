@@ -1,6 +1,6 @@
-using Interfold.Shared.Contracts.Ids;
+using Interfold.Settings.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Commands;
+namespace Interfold.Settings.Contracts.Models.Commands;
 
 // RecoveryCode's converter emits the raw string, so persisted command JSON and
 // idempotency hashes are unchanged; the property name is frozen.

@@ -1,7 +1,8 @@
 using System.Collections.Concurrent;
+using Interfold.Friendships.Contracts.Models.Read;
+using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;
@@ -56,12 +57,7 @@ public sealed class InMemoryFriendshipRepository : IFriendshipRepository
         var normalizedSystemId = InMemoryStorageKeys.Normalize(systemId);
         var normalizedViewerId = InMemoryStorageKeys.Normalize(viewerSystemId.Value);
 
-        if (normalizedSystemId == normalizedViewerId)
-        {
-            return Task.FromResult<FriendshipLevel?>(FriendshipLevel.TrustedFriend);
-        }
-
-        if (!TryGetFriendshipState(normalizedSystemId, normalizedViewerId, out var state))
+        if (normalizedSystemId == normalizedViewerId || !TryGetFriendshipState(normalizedSystemId, normalizedViewerId, out var state))
         {
             return Task.FromResult<FriendshipLevel?>(null);
         }

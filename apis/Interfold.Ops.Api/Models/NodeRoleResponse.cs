@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Ops.Api.Models;
 
 /// <summary>
 /// Body of <c>GET /health/node-role</c>. Serializes as

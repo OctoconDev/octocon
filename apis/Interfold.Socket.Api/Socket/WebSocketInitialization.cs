@@ -1,13 +1,24 @@
 using System.Net.WebSockets;
-using Interfold.Api.Helpers;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Fronting.Contracts;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Helpers;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Ids;
+using Interfold.Socket.Api.Models;
+using Interfold.Socket.Contracts;
+using Interfold.Tags.Contracts;
+using Interfold.Tags.Contracts.Models.Read;
+using Interfold.Tags.Domain.Abstractions.Repository;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 public class WebSocketInitialization
 {

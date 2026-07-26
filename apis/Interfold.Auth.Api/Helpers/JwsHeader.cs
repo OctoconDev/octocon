@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Api.Helpers;
+namespace Interfold.Auth.Api.Helpers;
 
 /// <summary>
 /// Minimal shape of a decoded JWS/JOSE header (RFC 7515 §4.1). Only the <c>alg</c>

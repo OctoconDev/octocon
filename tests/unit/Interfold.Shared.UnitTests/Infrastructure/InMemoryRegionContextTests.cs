@@ -1,5 +1,4 @@
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
 using Interfold.Infrastructure.InMemory;
 
 namespace Interfold.Api.UnitTests.Infrastructure;

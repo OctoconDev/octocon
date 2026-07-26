@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Interfold.Shared.Contracts.Configuration;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Bounded Docker teardown for Aspire test containers. Resolves runtime container names via the

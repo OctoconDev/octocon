@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 /// <summary>
 /// Typed form of the Phoenix <c>"system:{systemId}"</c> topic. Phoenix frames keep raw

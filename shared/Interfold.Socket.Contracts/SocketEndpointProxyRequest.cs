@@ -1,4 +1,4 @@
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Socket.Contracts;
 
 /// <summary>
 /// Typed shape of the <c>endpoint</c> Phoenix frame payload. <c>Body</c> is a raw

@@ -1,8 +1,10 @@
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.ImportOperations;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Settings.Contracts;
 
 public sealed record AccountCommandResult(SystemId SystemId, Username Username, bool Replay) : ICommandResult<AccountCommandResult>
 {

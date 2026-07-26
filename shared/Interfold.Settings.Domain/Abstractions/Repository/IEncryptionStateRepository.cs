@@ -1,7 +1,7 @@
-using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Settings.Domain.Abstractions.Repository;
 
 public interface IEncryptionStateRepository
 {

@@ -1,10 +1,10 @@
+using Interfold.Ops.Api.Models;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Domain.Abstractions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Interfold.Api.Models;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Api.Controllers.Base;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Ops.Api.Controllers;
 
 /// <summary>
 /// Exposes node-role metadata for load-balancer and ops health checks.

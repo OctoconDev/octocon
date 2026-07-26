@@ -1,9 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts;
-using Interfold.IntegrationTests.TestServices;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Ops.IntegrationTests.Controllers;
 
 /// <summary>
 /// Regression coverage that documents the env-var seed contract for the in-memory

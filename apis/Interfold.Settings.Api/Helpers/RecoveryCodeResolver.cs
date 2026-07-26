@@ -1,11 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.WebUtilities;
+using Interfold.Settings.Contracts.Ids;
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Ids;
+using Microsoft.AspNetCore.WebUtilities;
 
-namespace Interfold.Api.Helpers;
+namespace Interfold.Settings.Api.Helpers;
 
 public static class RecoveryCodeResolver
 {

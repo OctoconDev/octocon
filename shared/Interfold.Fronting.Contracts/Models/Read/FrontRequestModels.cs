@@ -1,8 +1,9 @@
 using System.Text.Json.Serialization;
+using Interfold.Fronting.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Validation;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Fronting.Contracts.Models.Read;
 
 public sealed record FrontBulkUpdateRequest(
     IReadOnlyList<FrontStartEntry> Start,

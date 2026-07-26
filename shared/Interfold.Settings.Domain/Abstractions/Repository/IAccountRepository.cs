@@ -1,8 +1,10 @@
+using Interfold.Auth.Contracts.Ids;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Systems.Contracts.Models.Read;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Settings.Domain.Abstractions.Repository;
 
 public interface IAccountRepository
 {

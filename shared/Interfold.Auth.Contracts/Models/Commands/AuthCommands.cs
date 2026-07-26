@@ -1,6 +1,7 @@
+using Interfold.Auth.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Commands;
+namespace Interfold.Auth.Contracts.Models.Commands;
 
 public sealed record AuthenticateOAuthCommand(ProviderIdentity Identity);
 

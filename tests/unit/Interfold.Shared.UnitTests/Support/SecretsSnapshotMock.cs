@@ -1,9 +1,8 @@
-using Interfold.Api.Services.Secrets;
+using Interfold.Shared.Api.Services.Secrets;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Options;
-using TUnit.Mocks;
 
-namespace Interfold.Api.UnitTests.Options;
+namespace Interfold.Api.UnitTests.Support;
 
 // Shared ISecretsSnapshot mock builder for the PostConfigure test files under this
 // folder. Loose-mode default of null on unconfigured Get(...) preserves the

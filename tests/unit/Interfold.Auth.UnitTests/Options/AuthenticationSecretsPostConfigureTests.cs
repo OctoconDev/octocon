@@ -1,11 +1,11 @@
 using System.Security.Cryptography;
-using Interfold.Api.Services.Secrets;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Api.UnitTests.Support;
+using Interfold.Auth.Api.Services.Secrets;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Shared.Api.Services.Secrets;
 using Interfold.Shared.Contracts.Secrets;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using TUnit.Mocks;
 
 namespace Interfold.Api.UnitTests.Options;
 

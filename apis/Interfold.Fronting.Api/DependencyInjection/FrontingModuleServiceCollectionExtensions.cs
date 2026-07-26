@@ -1,4 +1,4 @@
-using Interfold.Shared.Domain.Fronting;
+using Interfold.Fronting.Domain;
 
 namespace Interfold.Fronting.Api.DependencyInjection;
 

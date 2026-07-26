@@ -1,8 +1,10 @@
 using System.Text.Json;
+using Interfold.Polls.Contracts.Ids;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Polls.Contracts.Models.Read;
 
 public sealed record PollReadModel(
     PollId Id,

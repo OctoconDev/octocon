@@ -2,13 +2,13 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Interfold.Api.Models;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
-using Microsoft.AspNetCore.Http;
+using Interfold.Settings.Contracts.Configuration;
+using Interfold.Settings.Contracts.Models.Wire;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Api.Helpers;
+namespace Interfold.Settings.Api.Helpers;
 
 /// <summary>Pure-function bridge from <see cref="FirebaseClientConfiguration"/> to the
 /// polymorphic <see cref="FirebaseClientConfigResponse"/> shape. Extracted from

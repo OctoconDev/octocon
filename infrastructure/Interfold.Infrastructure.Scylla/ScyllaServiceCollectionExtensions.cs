@@ -1,3 +1,6 @@
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Domain.Abstractions;
@@ -5,6 +8,10 @@ using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.Scylla.Fixups;
 using Interfold.Infrastructure.Scylla.Repository;
+using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Interfold.Infrastructure.Scylla;

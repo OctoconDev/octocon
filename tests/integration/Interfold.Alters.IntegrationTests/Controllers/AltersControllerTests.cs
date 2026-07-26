@@ -1,11 +1,12 @@
 using System.Net;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Contracts.Models.Read;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Journals.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.IntegrationTests.TestServices;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Alters.IntegrationTests.Controllers;
 
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]
 [ClassDataSource<ScyllaWebFactoryFixture>(Shared = SharedType.PerTestSession)]

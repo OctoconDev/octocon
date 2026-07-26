@@ -1,7 +1,8 @@
 using System.Collections.Immutable;
+using Interfold.Shared.Api.Services.Secrets;
 using Interfold.Shared.Contracts.Secrets;
 
-namespace Interfold.Api.Services.Secrets;
+namespace Interfold.Api.Host.Services.Secrets;
 
 /// <summary>Thread-safe in-memory <see cref="ISecretsSnapshot"/>. Written exactly once by
 /// <see cref="SecretsPreBuildLoader"/> pre-Build; reads are lock-free dictionary lookups.

@@ -4,12 +4,12 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Interfold.Api.Models;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
-/// <summary>Test-side mirror of <see cref="SuccessResponse{T}"/>; the production ctor's
+/// <summary>Test-side mirror of <see cref="SuccessResponse{TValue}"/>; the production ctor's
 /// [JsonIgnore] StatusCode parameter blocks STJ deserialisation.</summary>
 public sealed record TestEnvelope<T>(
     T Data,

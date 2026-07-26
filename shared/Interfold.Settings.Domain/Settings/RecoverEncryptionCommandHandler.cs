@@ -1,18 +1,15 @@
-using System.Security.Cryptography;
-using System.Text;
-using Konscious.Security.Cryptography;
-using Microsoft.Extensions.Options;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Operations;
+using Interfold.Shared.Domain.Abstractions;
+using Microsoft.Extensions.Options;
 
-namespace Interfold.Shared.Domain.Settings;
+namespace Interfold.Settings.Domain.Settings;
 
 public sealed class RecoverEncryptionCommandHandler : IdempotentCommandHandler<RecoverEncryptionCommand, EncryptionCommandResult>
 {

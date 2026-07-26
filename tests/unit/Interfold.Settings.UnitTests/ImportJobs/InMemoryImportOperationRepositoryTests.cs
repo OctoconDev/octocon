@@ -1,6 +1,6 @@
-using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Infrastructure.InMemory.Repository;
-using Interfold.Shared.Contracts.Ids;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.ImportOperations;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 

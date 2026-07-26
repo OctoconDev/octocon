@@ -1,4 +1,4 @@
-using Interfold.Api.Services;
+using Interfold.Shared.Api.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 

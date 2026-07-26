@@ -1,8 +1,9 @@
-using Interfold.Shared.Contracts.Events;
+using Interfold.Fronting.Contracts.Events;
+using Interfold.Fronting.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions;
 
-namespace Interfold.Shared.Domain.Fronting;
+namespace Interfold.Fronting.Domain;
 
 // Intent-named publish helpers on IClusterEventBus for fronting events. Each method
 // emits FrontingStateChangedEvent first (cache invalidation), then the transition event

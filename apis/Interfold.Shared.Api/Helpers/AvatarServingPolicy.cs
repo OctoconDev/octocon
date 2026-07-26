@@ -1,4 +1,4 @@
-namespace Interfold.Api.Helpers;
+namespace Interfold.Shared.Api.Helpers;
 
 /// <summary>Decides whether the API process should serve avatar files and, if so, from
 /// which physical root under which request path. Collapses <c>AvatarStorageRoot</c> ×

@@ -1,4 +1,4 @@
-namespace Interfold.Api.Helpers;
+namespace Interfold.Socket.Api.Helpers;
 
 /// <summary>Named <see cref="HttpClient"/> for the WS endpoint-relay's self-call. Uses a
 /// permissive <c>RemoteCertificateValidationCallback</c>: the leaf PFX served by Kestrel

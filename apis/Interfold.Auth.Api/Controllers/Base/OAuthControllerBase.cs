@@ -1,15 +1,18 @@
+using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Api.Models;
+using Interfold.Auth.Api.Services;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Auth.Contracts.Enums;
+using Interfold.Auth.Contracts.Ids;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using Interfold.Api.Auth;
-using Interfold.Api.Services;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts;
-using Interfold.Api.Models;
 
-namespace Interfold.Api.Controllers.Base;
+namespace Interfold.Auth.Api.Controllers.Base;
 
 public abstract class OAuthControllerBase : InterfoldControllerBase
 {

@@ -1,5 +1,3 @@
-using System;
-
 namespace Interfold.Infrastructure.Scylla.Repository;
 
 public sealed class AlterFieldUdt

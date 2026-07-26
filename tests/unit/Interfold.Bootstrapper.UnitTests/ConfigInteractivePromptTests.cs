@@ -5,7 +5,6 @@ using Interfold.Bootstrapper.Phases;
 using Interfold.Shared.Contracts.Enums;
 using Spectre.Console;
 using Spectre.Console.Testing;
-using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests;
 

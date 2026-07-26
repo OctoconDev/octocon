@@ -1,6 +1,7 @@
+using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Events;
+namespace Interfold.Alters.Contracts.Events;
 
 public sealed record AlterCreatedEvent(ScopedSystemId TargetSystemId, AlterId AlterId) : ITargetedClusterEvent;
 

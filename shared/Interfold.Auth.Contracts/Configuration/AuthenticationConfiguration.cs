@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace Interfold.Shared.Contracts.Configuration;
+namespace Interfold.Auth.Contracts.Configuration;
 
 /// <summary>Authentication, OAuth, and JWT configuration. Env-bound (OCTOCON_/GUARDIAN_
 /// prefixes); [Required] secret fields are patched from <c>internal.secrets</c> by

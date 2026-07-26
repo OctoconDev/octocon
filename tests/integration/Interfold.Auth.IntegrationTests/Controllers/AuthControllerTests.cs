@@ -1,15 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Contracts.Models.Read;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Auth.IntegrationTests.Controllers;
 
 /// <summary>
 /// Integration tests for authentication, OAuth flows, and WebSocket upgrades.

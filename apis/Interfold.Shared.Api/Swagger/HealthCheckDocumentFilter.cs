@@ -2,7 +2,7 @@ using Interfold.Shared.Contracts.Configuration;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
-namespace Interfold.Api.Swagger;
+namespace Interfold.Shared.Api.Swagger;
 
 public class HealthCheckDocumentFilter : IDocumentFilter
 {

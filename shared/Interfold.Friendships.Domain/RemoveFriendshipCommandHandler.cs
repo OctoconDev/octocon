@@ -1,14 +1,13 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Friendships.Contracts;
+using Interfold.Friendships.Contracts.Enums;
+using Interfold.Friendships.Contracts.Models.Commands;
+using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Friendships;
+namespace Interfold.Friendships.Domain;
 
 public sealed class RemoveFriendshipCommandHandler : IdempotentCommandHandler<RemoveFriendshipCommand, FriendshipCommandResult>
 {

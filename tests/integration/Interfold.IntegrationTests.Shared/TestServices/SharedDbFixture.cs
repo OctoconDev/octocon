@@ -1,24 +1,20 @@
 extern alias AppHost;
-
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
-using Microsoft.Extensions.Configuration;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Npgsql;
 using TUnit.Aspire;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>Session-shared Aspire host for every DB-bound integration test. Postgres always
 /// runs (internal.secrets is the shared source of truth); Scylla/Cassandra spin up only when

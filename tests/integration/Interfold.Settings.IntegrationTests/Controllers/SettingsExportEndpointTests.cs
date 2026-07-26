@@ -1,9 +1,10 @@
 using System.Net;
 using System.Text.Json;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts;
-using Interfold.IntegrationTests.TestServices;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Settings.IntegrationTests.Controllers;
 
 // GET /api/settings/export coverage — mirrors the Elixir bot's
 // OctoconDiscord.Commands.Export flow (see octocon/lib/octocon_discord/commands/export.ex):

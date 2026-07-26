@@ -1,6 +1,6 @@
 using Cassandra;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Thin <see cref="IAsyncDisposable"/> wrapper around a DataStax <see cref="Cluster"/> +

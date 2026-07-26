@@ -1,13 +1,13 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
+using Interfold.Shared.Contracts.Operations;
+using Interfold.Shared.Domain.Abstractions;
 
-namespace Interfold.Shared.Domain.Settings;
+namespace Interfold.Settings.Domain.Settings;
 
 public sealed class AddPushTokenCommandHandler : IdempotentCommandHandler<AddPushTokenCommand, SettingsCommandResult>
 {

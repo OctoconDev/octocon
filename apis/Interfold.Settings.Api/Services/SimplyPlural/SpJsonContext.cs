@@ -1,7 +1,6 @@
-﻿using System.Collections.Generic;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
-namespace Interfold.Api.Services.SimplyPlural;
+namespace Interfold.Settings.Api.Services.SimplyPlural;
 
 [JsonSerializable(typeof(SpEntity<SpSystemContent>))]
 [JsonSerializable(typeof(List<SpEntity<SpCustomFieldContent>>))]

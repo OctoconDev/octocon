@@ -4,7 +4,6 @@ using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 using Interfold.Shared.Contracts.Configuration;
-using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests;
 

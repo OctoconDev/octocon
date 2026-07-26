@@ -1,6 +1,7 @@
-using Interfold.Api.Services;
+using Interfold.IntegrationTests.Shared;
+using Interfold.Settings.Api.Services.SimplyPlural;
 
-namespace Interfold.IntegrationTests.SimplyPluralImport;
+namespace Interfold.Settings.IntegrationTests.SimplyPluralImport;
 
 /// <summary>
 /// Unit coverage for <see cref="SimplyPluralImportService.IsSpCdnUrl"/>. The discriminator

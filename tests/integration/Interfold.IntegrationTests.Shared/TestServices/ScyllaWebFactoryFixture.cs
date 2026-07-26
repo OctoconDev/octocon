@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts;
 using TUnit.Core.Interfaces;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Fixture chain that creates an <see cref="InterfoldWebApplicationFactory"/> backed by the

@@ -1,4 +1,3 @@
-using System;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.DependencyInjection;

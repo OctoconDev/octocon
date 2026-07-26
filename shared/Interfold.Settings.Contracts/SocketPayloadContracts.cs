@@ -1,7 +1,8 @@
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Settings.Contracts;
 
 public sealed record SettingsFieldsUpdatedPayload(IReadOnlyList<SettingsFieldReadModel> Fields) : ISocketPayload;
 

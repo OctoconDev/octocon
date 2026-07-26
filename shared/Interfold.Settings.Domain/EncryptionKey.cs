@@ -1,9 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
-using Konscious.Security.Cryptography;
+using Interfold.Settings.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
+using Konscious.Security.Cryptography;
 
-namespace Interfold.Shared.Domain;
+namespace Interfold.Settings.Domain;
 
 public class EncryptionKey
 {

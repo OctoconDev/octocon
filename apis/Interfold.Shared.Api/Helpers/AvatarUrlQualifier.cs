@@ -2,7 +2,7 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Api.Helpers;
+namespace Interfold.Shared.Api.Helpers;
 
 internal static class AvatarUrlQualifier
 {

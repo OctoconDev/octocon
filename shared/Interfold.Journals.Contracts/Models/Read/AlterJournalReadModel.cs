@@ -1,6 +1,7 @@
+using Interfold.Journals.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Journals.Contracts.Models.Read;
 
 public sealed record AlterJournalReadModel(
     EntryId Id,

@@ -1,5 +1,5 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Settings.Contracts.Models.Wire;
 
 public sealed record FieldCreatedResponse(FieldId Id);

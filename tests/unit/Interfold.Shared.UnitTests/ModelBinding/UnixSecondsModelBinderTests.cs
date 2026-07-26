@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Reflection;
-using Interfold.Api.ModelBinding;
-using Interfold.Api.Models;
+using Interfold.Shared.Api.ModelBinding;
+using Interfold.Shared.Api.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;

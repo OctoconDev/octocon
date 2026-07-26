@@ -1,7 +1,7 @@
 using Interfold.Shared.Contracts.Configuration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Interfold.Api.Helpers;
+namespace Interfold.Ops.Api.Helpers;
 
 /// <summary>
 /// Convenience extensions for the pair of "-ready" + "-startup" checks the API

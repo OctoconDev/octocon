@@ -1,9 +1,9 @@
-using Interfold.Api.Models;
+using Interfold.Shared.Api.Models;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 
-namespace Interfold.Api.ModelBinding;
+namespace Interfold.Shared.Api.ModelBinding;
 
 /// <summary>
 /// MVC binder for <see cref="UnixSeconds"/> query anchors. Reads the raw string from

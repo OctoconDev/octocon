@@ -1,7 +1,8 @@
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Socket.Contracts;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Read;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Tags.Contracts;
 
 // Extracted from Interfold.Shared.Contracts/SocketPayloadContracts.cs during Phase-3 Tags migration.
 // The cross-feature aggregate join payloads (SocketJoinInitPayload, SocketJoinBatchedPayload)

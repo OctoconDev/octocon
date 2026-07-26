@@ -1,9 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Api.Services.Export;
+namespace Interfold.Settings.Api.Services.Export;
 
 // Every [JsonPropertyName] key is hand-picked to mirror
 // accounts.ex:1273-1415 byte-for-byte. No naming policy

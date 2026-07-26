@@ -1,5 +1,4 @@
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Domain.Abstractions;
 
 namespace Interfold.Infrastructure.Coordination;

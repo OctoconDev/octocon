@@ -1,13 +1,15 @@
 using System.Diagnostics;
 using Cassandra;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Observability;
-using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using static Interfold.Infrastructure.Scylla.Repository.ScyllaAlterRepository;

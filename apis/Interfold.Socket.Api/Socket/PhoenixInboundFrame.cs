@@ -1,8 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using Interfold.Shared.Contracts;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 /// <summary>Parsed inbound Phoenix frame — array (<c>[join_ref, ref, topic, event, payload]</c>)
 /// or object (<c>{topic, event, payload, ref, join_ref}</c>). <see cref="ReplyAsArrayFrame"/>

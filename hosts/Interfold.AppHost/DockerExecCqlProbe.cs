@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Interfold.AppHostGraph;
+namespace Interfold.AppHost;
 
 /// <summary>Runs a readiness probe against a Scylla container via <c>docker exec</c>. Feeds
 /// the per-node <c>{name}-cql</c> health checks in <see cref="InterfoldAppHost.Configure"/>

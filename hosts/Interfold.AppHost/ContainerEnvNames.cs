@@ -1,4 +1,4 @@
-namespace Interfold.AppHostGraph;
+namespace Interfold.AppHost;
 
 /// <summary>Env-var names the AppHost graph sets on third-party containers. Also read
 /// inside compose healthcheck / <see cref="DockerExecCqlProbe"/> shell one-liners, so C#

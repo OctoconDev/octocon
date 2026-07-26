@@ -1,7 +1,7 @@
-using Interfold.Shared.Contracts.Models.ImportOperations;
-using Interfold.Shared.Contracts.Ids;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.ImportOperations;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Settings.Contracts.Models.Wire;
 
 /// <summary>
 /// Body returned by the asynchronous-import endpoints (<c>POST /api/settings/import-sp</c>

@@ -1,6 +1,6 @@
 using System.Net.WebSockets;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>Mint-token + connect + phx_join scaffolding for the Phoenix-style websocket
 /// surface. Both helpers fail fast if the join step returns non-ok; tests that expect a

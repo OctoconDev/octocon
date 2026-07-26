@@ -1,14 +1,22 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Friendships.Contracts.Events;
+using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Events;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
+using Interfold.Tags.Domain.Abstractions.Repository;
 
-namespace Interfold.Shared.Domain.Settings;
+namespace Interfold.Settings.Domain.Settings;
 
 public sealed class DeleteAccountCommandHandler : IdempotentCommandHandler<DeleteAccountCommand, SettingsCommandResult>
 {

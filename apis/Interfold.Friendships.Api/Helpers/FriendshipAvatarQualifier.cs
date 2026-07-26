@@ -1,5 +1,5 @@
-using Interfold.Api.Helpers;
-using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Friendships.Contracts.Models.Read;
+using Interfold.Shared.Api.Helpers;
 
 namespace Interfold.Friendships.Api.Helpers;
 

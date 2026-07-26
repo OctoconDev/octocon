@@ -3,7 +3,7 @@ using Cassandra;
 using Interfold.DatabaseBootstrap;
 using ISession = Cassandra.ISession;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// <see cref="IScyllaExecutor"/> implementation that talks to Scylla/Cassandra in-process

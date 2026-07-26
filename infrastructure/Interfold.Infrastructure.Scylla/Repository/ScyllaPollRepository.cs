@@ -3,11 +3,11 @@ using Cassandra;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Infrastructure.Persistence;
+using Interfold.Polls.Contracts.Ids;
+using Interfold.Polls.Contracts.Models;
+using Interfold.Polls.Contracts.Models.Commands;
+using Interfold.Polls.Contracts.Models.Read;
+using Interfold.Polls.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;

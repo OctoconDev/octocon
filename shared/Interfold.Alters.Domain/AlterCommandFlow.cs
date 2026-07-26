@@ -1,11 +1,11 @@
-using Interfold.Shared.Contracts;
+using Interfold.Alters.Contracts;
+using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Shared.Domain.Alters;
+namespace Interfold.Alters.Domain;
 
 internal static class AlterCommandFlow
 {

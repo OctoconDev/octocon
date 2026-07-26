@@ -1,4 +1,6 @@
-namespace Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Ids;
+
+namespace Interfold.Auth.Contracts.Ids;
 
 /// <summary>Discriminated union: exactly one of Discord/Google/Apple is populated. Construct
 /// via the static factories; dispatch via property-pattern match or <see cref="MatchOrThrow{T}"/>.</summary>

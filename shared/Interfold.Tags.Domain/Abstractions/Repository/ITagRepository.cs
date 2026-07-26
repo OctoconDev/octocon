@@ -1,8 +1,9 @@
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Commands;
+using Interfold.Tags.Contracts.Models.Read;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Tags.Domain.Abstractions.Repository;
 
 public interface ITagRepository
 {

@@ -1,12 +1,12 @@
-using Interfold.Shared.Contracts;
+using Interfold.Fronting.Contracts;
+using Interfold.Fronting.Contracts.Models.Commands;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Fronting;
+namespace Interfold.Fronting.Domain;
 
 public sealed class EndFrontCommandHandler : IdempotentCommandHandler<EndFrontCommand, FrontCommandResult>
 {

@@ -27,7 +27,7 @@
     <Content Include="fixtures\Dockerfile.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="fixtures\dockerd-entrypoint.sh">
+    <Content Include="Fixtures\dockerd-entrypoint.sh">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="fixtures\interfold.bootstrap.test*.json">

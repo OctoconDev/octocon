@@ -1,8 +1,8 @@
 using System.Net.WebSockets;
 using System.Text.Json;
-using Interfold.Shared.Contracts;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 public static class WebSocketEvents
 {

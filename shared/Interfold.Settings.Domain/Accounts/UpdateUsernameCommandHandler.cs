@@ -1,14 +1,13 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Settings;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Settings;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Accounts;
+namespace Interfold.Settings.Domain.Accounts;
 
 public sealed class UpdateUsernameCommandHandler : IdempotentCommandHandler<UpdateUsernameCommand, AccountCommandResult>
 {

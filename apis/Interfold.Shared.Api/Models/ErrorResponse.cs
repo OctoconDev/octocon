@@ -3,7 +3,7 @@ using System.Net;
 using System.Text.Json.Serialization;
 using Interfold.Shared.Contracts;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Shared.Api.Models;
 
 public class ErrorResponse
 {

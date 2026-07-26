@@ -1,11 +1,10 @@
 using System.Net.WebSockets;
-using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Socket.Contracts;
 using Microsoft.AspNetCore.TestHost;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Test-side conveniences for the raw <see cref="WebSocket"/> API. Test code sends thousands of

@@ -1,6 +1,4 @@
-using TUnit.Core;
-
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>Process-static record of which <see cref="IWebFactoryFixture"/> implementations
 /// the filtered test session may request. Populated from

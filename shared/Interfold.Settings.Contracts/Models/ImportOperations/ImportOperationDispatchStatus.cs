@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Shared.Contracts.Models.ImportOperations;
+namespace Interfold.Settings.Contracts.Models.ImportOperations;
 
 /// <summary>
 /// Outcome an import-dispatch controller call reports back to the HTTP caller. Two values:

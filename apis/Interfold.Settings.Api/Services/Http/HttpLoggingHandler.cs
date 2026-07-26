@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 
-namespace Interfold.Api.Services.Http;
+namespace Interfold.Settings.Api.Services.Http;
 
 public class HttpLoggingHandler : DelegatingHandler
 {

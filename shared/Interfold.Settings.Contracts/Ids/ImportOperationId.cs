@@ -1,7 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Ids;
+namespace Interfold.Settings.Contracts.Ids;
 
 /// <summary>TimeUuid surrogate key of an <c>import_operations</c> row; also the public
 /// correlation handle in HTTP + socket frames. Distinct from <see cref="OperationId"/>

@@ -1,13 +1,12 @@
-using Interfold.Shared.Contracts;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Contracts.Models.Commands;
+using Interfold.Alters.Domain;
+using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Alters;
 
 namespace Interfold.Api.UnitTests.Domain;
 

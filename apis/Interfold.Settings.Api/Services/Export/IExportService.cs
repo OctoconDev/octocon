@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Api.Services.Export;
+namespace Interfold.Settings.Api.Services.Export;
 
 public interface IExportService
 {

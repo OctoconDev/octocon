@@ -1,10 +1,11 @@
 using System.Net;
-using Interfold.Api.Models;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Ops.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.IntegrationTests.TestServices;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Ops.IntegrationTests.Controllers;
 
 /// <summary>
 /// Tests covering configuration values that <see cref="WebApplication.Build"/> snapshots once

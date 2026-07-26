@@ -2,10 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts;
-using Interfold.IntegrationTests.TestServices;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Ops.IntegrationTests.Controllers;
 
 /// <summary>
 /// HTTP-level coverage of <c>TrustController</c> (<c>/.well-known/interfold-root-ca.*</c>).

@@ -1,9 +1,9 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using Interfold.Shared.Contracts;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// A strongly-typed representation of a received Phoenix WebSocket frame.

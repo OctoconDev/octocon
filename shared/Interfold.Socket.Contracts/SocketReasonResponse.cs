@@ -1,5 +1,5 @@
-using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Socket.Contracts;
 
 public sealed record SocketReasonResponse(ErrorCode Reason) : ISocketPayload;

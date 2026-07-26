@@ -1,9 +1,10 @@
 using System.Text.Json;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Settings.Contracts.Configuration;
+using Interfold.Shared.Api.Services.Secrets;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.Api.Services.Secrets;
+namespace Interfold.Settings.Api.Services.Secrets;
 
 /// <summary>Deserialises the three optional Firebase client-init JSON rows onto
 /// <see cref="FirebaseClientConfiguration"/>. Missing → property stays null (endpoint 503s);

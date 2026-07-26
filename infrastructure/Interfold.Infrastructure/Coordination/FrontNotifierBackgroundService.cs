@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Fronting.Contracts.Events;
+using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 
 namespace Interfold.Infrastructure.Coordination;
 

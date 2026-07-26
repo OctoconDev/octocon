@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts;
 
-namespace Interfold.Api.Helpers;
+namespace Interfold.Shared.Api.Helpers;
 
 /// <summary>
 /// Boundary-only check for client-supplied avatar URLs. The server never fetches

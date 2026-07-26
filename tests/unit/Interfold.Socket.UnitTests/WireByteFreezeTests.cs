@@ -1,14 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Interfold.Api.Socket;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Alters.Contracts.Events;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Auth.Domain;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain;
-using Interfold.Infrastructure;
 using Interfold.Infrastructure.Coordination;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Domain;
+using Interfold.Socket.Api.Socket;
 
 namespace Interfold.Api.UnitTests;
 

@@ -1,6 +1,4 @@
-using System;
-
-namespace Interfold.Api.Auth;
+namespace Interfold.Auth.Api.Auth;
 
 /// <summary>
 /// Utility methods for handling PEM format keys.

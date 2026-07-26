@@ -1,4 +1,4 @@
-namespace Interfold.Api.ModelBinding;
+namespace Interfold.Shared.Api.ModelBinding;
 
 /// <summary>Inert marker paired with <c>[FromQuery(Name = "…")]</c> on
 /// <see cref="Models.UnixSeconds"/> parameters. Controls the wire-visible

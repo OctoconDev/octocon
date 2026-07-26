@@ -1,10 +1,22 @@
-using Interfold.Api.Socket.Handlers;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Alters.Contracts.Events;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Friendships.Contracts.Events;
+using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Fronting.Contracts.Events;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Journals.Contracts.Events;
+using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Polls.Contracts.Events;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Contracts.Events;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
-using Microsoft.Extensions.Logging;
+using Interfold.Socket.Api.Socket.Handlers;
+using Interfold.Tags.Contracts.Events;
+using Interfold.Tags.Domain.Abstractions.Repository;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 public static class SocketEventPumpRunner
 {

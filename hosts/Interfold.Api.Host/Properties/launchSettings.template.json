@@ -3,7 +3,7 @@
   // full reference. Anything marked <set-via-user-secrets> should be moved out of source
   // control via `dotnet user-secrets set "<key>" "<value>" --project hosts/Interfold.Api.Host`.
   "profiles": {
-    "Octocon.Api": {
+    "Interfold.Api": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {

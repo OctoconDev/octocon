@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Shared.Contracts.Models.ImportOperations;
+namespace Interfold.Settings.Contracts.Models.ImportOperations;
 
 /// <summary>
 /// Stable machine codes for terminal import failures, persisted to the

@@ -1,4 +1,4 @@
-using Interfold.Api.Socket;
+using Interfold.Socket.Api.Socket;
 
 namespace Interfold.Api.UnitTests.Socket;
 

@@ -1,12 +1,12 @@
-using Interfold.Shared.Contracts;
+using Interfold.Polls.Contracts;
+using Interfold.Polls.Contracts.Models.Commands;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Polls;
+namespace Interfold.Polls.Domain;
 
 public sealed class UpdatePollCommandHandler : IdempotentCommandHandler<UpdatePollCommand, PollCommandResult>
 {

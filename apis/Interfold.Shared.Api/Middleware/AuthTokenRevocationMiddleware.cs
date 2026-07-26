@@ -1,10 +1,10 @@
 using System.Text.Json;
-using Interfold.Api.Models;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Api.Middleware;
+namespace Interfold.Shared.Api.Middleware;
 
 /// <summary>Post-authentication JTI-revocation gate. Rejects authenticated requests
 /// whose JWT <c>jti</c> claim has been revoked (logout, incident response, or

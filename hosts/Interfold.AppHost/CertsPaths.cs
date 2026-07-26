@@ -1,4 +1,4 @@
-namespace Interfold.AppHostGraph;
+namespace Interfold.AppHost;
 
 /// <summary>Filesystem wire contract for TLS material. The bootstrapper's CertificatePhase
 /// writes the host-side files, the emitted compose bakes the container paths in, and

@@ -1,17 +1,16 @@
-using Interfold.Api.Services;
-using Interfold.Api.Socket;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Infrastructure;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Auth.Domain;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
-using Microsoft.AspNetCore.Hosting;
-using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions;
+using Interfold.Socket.Api.Socket;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,7 +19,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 public class InterfoldWebApplicationFactory : WebApplicationFactory<Program>
 {

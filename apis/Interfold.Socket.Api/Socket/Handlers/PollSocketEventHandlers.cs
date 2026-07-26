@@ -1,10 +1,12 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Polls.Contracts;
+using Interfold.Polls.Contracts.Events;
+using Interfold.Polls.Contracts.Ids;
+using Interfold.Polls.Contracts.Models.Read;
+using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Api.Socket.Handlers;
+namespace Interfold.Socket.Api.Socket.Handlers;
 
 public static class PollSocketEventHandlers
 {

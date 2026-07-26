@@ -1,9 +1,16 @@
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Polls.Contracts.Models.Read;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Tags.Contracts.Models.Read;
+using Interfold.Tags.Domain.Abstractions.Repository;
 
-namespace Interfold.Api.Services.Export;
+namespace Interfold.Settings.Api.Services.Export;
 
 // Composes the six repositories that back the two export shapes. Structural mirror of
 // Octocon.Accounts.{gather_export_data, format_pk_export, format_full_export} —

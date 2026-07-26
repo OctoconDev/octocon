@@ -1,6 +1,6 @@
 using System.Net;
+using Interfold.ServiceDefaults;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http.Resilience;
 
 namespace Interfold.Api.UnitTests.ServiceDefaults;

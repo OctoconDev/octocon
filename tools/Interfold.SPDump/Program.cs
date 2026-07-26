@@ -1,14 +1,15 @@
 using System.Security.Cryptography;
-using Interfold.Api.Services;
-using Interfold.Api.Services.Http;
-using Interfold.Api.SimplyPlural;
+using Interfold.Infrastructure.DependencyInjection;
+using Interfold.Infrastructure.InMemory;
+using Interfold.Settings.Api.Services.Http;
+using Interfold.Settings.Api.SimplyPlural;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Domain.Abstractions;
+using Interfold.Shared.Api.Services;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.ImportOperations;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Infrastructure.DependencyInjection;
-using Interfold.Infrastructure.InMemory;
+using Interfold.SPDump;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -80,50 +81,53 @@ catch (Exception ex)
 	return ExitUnhandled;
 }
 
-/// <summary>Parsed CLI: <c>SPDump &lt;sp-token&gt; [recovery-key-base64]</c>. Both values are
-/// wrapped in Contracts ID types at the boundary.</summary>
-internal readonly record struct SpDumpOptions(ImportToken Token, RecoveryCode? RecoveryKey)
+namespace Interfold.SPDump
 {
-	/// <summary>Placeholder system id — the InMemory backend keys stores by whatever id it
-	/// is handed, so an empty id keeps the utility free of real-system coupling.</summary>
-	public static readonly SystemId DumpSystemId = new("");
-
-	public static SpDumpOptions FromArgs(string[] args)
+	/// <summary>Parsed CLI: <c>SPDump &lt;sp-token&gt; [recovery-key-base64]</c>. Both values are
+	/// wrapped in Contracts ID types at the boundary.</summary>
+	internal readonly record struct SpDumpOptions(ImportToken Token, RecoveryCode? RecoveryKey)
 	{
-		string spToken = "";
-		if (args.Length >= 1)
+		/// <summary>Placeholder system id — the InMemory backend keys stores by whatever id it
+		/// is handed, so an empty id keeps the utility free of real-system coupling.</summary>
+		public static readonly SystemId DumpSystemId = new("");
+
+		public static SpDumpOptions FromArgs(string[] args)
 		{
-			spToken = args[0];
-		}
-		else
-		{
-			while (string.IsNullOrWhiteSpace(spToken))
+			string spToken = "";
+			if (args.Length >= 1)
 			{
-				Console.Write("Please put in your SP token:");
-				spToken = Console.ReadLine()!;
+				spToken = args[0];
 			}
+			else
+			{
+				while (string.IsNullOrWhiteSpace(spToken))
+				{
+					Console.Write("Please put in your SP token:");
+					spToken = Console.ReadLine()!;
+				}
+			}
+
+			// Blank second arg == "no key provided" (a random one is generated).
+			RecoveryCode? recoveryKey = args.Length >= 2 && !string.IsNullOrWhiteSpace(args[1])
+				? new RecoveryCode(args[1])
+				: null;
+			return new(new(spToken), recoveryKey);
+		}
+	}
+
+	internal sealed class TempAvatarStorage : IAvatarStorage
+	{
+		public Task<AvatarUrl> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
+		{
+			return Task.FromResult(new AvatarUrl(""));
 		}
 
-		// Blank second arg == "no key provided" (a random one is generated).
-		RecoveryCode? recoveryKey = args.Length >= 2 && !string.IsNullOrWhiteSpace(args[1])
-			? new RecoveryCode(args[1])
-			: null;
-		return new(new(spToken), recoveryKey);
-	}
-}
+		public Task<AvatarUrl> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
+		{
+			return Task.FromResult(new AvatarUrl(""));
+		}
 
-internal sealed class TempAvatarStorage : IAvatarStorage
-{
-	public Task<AvatarUrl> SaveSystemAvatarAsync(SystemId systemId, Stream stream, CancellationToken cancellationToken = default)
-	{
-		return Task.FromResult(new AvatarUrl(""));
+		public Task<bool> DeleteByUrlAsync(AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
+			=> Task.FromResult(false);
 	}
-
-	public Task<AvatarUrl> SaveAlterAvatarAsync(SystemId systemId, AlterId alterId, Stream stream, CancellationToken cancellationToken = default)
-	{
-		return Task.FromResult(new AvatarUrl(""));
-	}
-
-	public Task<bool> DeleteByUrlAsync(AvatarUrl? avatarUrl, CancellationToken cancellationToken = default)
-		=> Task.FromResult(false);
 }

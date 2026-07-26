@@ -1,21 +1,23 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Options;
-using Microsoft.AspNetCore.Mvc;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Api.Services;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Api.Controllers.Base;
-using Interfold.Api.Models;
+using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Api.Controllers.Base;
+using Interfold.Auth.Api.Models;
+using Interfold.Auth.Api.Services;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Auth.Contracts.Enums;
+using Interfold.Auth.Contracts.Models.Commands;
+using Interfold.Auth.Domain;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Api.Auth;
-using Interfold.Shared.Domain.Auth;
-using Interfold.Shared.Contracts.Models.Commands;
+using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Shared.Contracts.Operations;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Auth.Api.Controllers;
 
 [AllowAnonymous]
 [Route("auth/link")]

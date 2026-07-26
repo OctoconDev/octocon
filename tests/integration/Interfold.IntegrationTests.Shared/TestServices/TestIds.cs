@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Test-side helpers for minting deterministic-shape-but-unique identifiers. Consolidates

@@ -1,4 +1,5 @@
 using System.Reflection;
+using Interfold.Settings.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;

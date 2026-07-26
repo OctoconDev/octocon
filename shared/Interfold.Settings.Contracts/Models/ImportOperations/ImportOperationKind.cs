@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
-using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Shared.Contracts.Models.ImportOperations;
+namespace Interfold.Settings.Contracts.Models.ImportOperations;
 
 /// <summary>
 /// The third-party platform an import operation is pulling data from. Persisted as its

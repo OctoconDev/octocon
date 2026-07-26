@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using OneOf;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Shared.Api.Models;
 
 public class Response : Response<NoContent>
 {

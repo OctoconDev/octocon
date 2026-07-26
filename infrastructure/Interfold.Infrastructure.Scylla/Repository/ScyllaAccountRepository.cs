@@ -1,12 +1,13 @@
 using System.Collections.Concurrent;
 using Cassandra;
-using System.Security.Cryptography;
+using Interfold.Auth.Contracts.Ids;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Systems.Contracts.Models.Read;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Infrastructure.Scylla.Repository;

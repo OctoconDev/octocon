@@ -1,8 +1,8 @@
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Operations;
+using Interfold.Tags.Contracts.Models.Commands;
 
-namespace Interfold.Shared.Domain.Tags;
+namespace Interfold.Tags.Domain;
 
 internal static class TagCommandValidation
 {

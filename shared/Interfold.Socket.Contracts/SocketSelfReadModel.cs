@@ -1,10 +1,11 @@
 using System.Text.Json.Serialization;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Socket.Contracts;
 
 // The four *Linked members keep the legacy identity-shaped wire names (discord_id etc.)
 // but carry only the "SET"/null link-presence flag — see AccountLinkFlag. GoogleLinked is

@@ -1,30 +1,34 @@
 using System.Globalization;
-using System.Net.Http;
 using System.Text.Json;
 using System.Web;
-using Interfold.Api.Services;
-using Interfold.Api.SimplyPlural;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
-using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Api.Services.SimplyPlural;
+using Interfold.Settings.Api.SimplyPlural;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Domain.Abstractions;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Shared.Api.Services;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
-namespace Interfold.IntegrationTests.SimplyPluralImport;
+namespace Interfold.Settings.IntegrationTests.SimplyPluralImport;
 
 /// <summary>
 /// Regression coverage for the Simply Plural import "today-date" bug fix. Every test wires up the
 /// real <see cref="SimplyPluralImportService"/> against the InMemory persistence stack and feeds
-/// it canned SP responses through <see cref="TestServices.StubSpHandler"/>, so we keep coverage
+/// it canned SP responses through <see cref="StubSpHandler"/>, so we keep coverage
 /// after Apparyllis sunsets the live API.
 ///
 /// Data hygiene: every test mints fresh identifiers via <see cref="Uid"/> / <see cref="MemberUuid"/>
@@ -1095,7 +1099,7 @@ public sealed class SpImportTests : BaseEndpointTest
     /// is wired up so the import creates exactly one alter, which is the only association
     /// front-related assertions care about. Override the front-related blobs per test.
     /// </summary>
-    private static TestServices.StubSpHandler BuildSp(
+    private static StubSpHandler BuildSp(
         string sysId,
         string alpha,
         string? frontHistoryJson = null,
@@ -1127,7 +1131,7 @@ public sealed class SpImportTests : BaseEndpointTest
             },
         });
 
-        return new TestServices.StubSpHandler()
+        return new StubSpHandler()
             .OnGet("/v1/me", meJson)
             .OnGet($"/v1/customFields/{sysId}", customFieldsJson ?? "[]")
             .OnGet($"/v1/members/{sysId}", membersJson ?? defaultMembersJson)
@@ -1139,7 +1143,7 @@ public sealed class SpImportTests : BaseEndpointTest
     }
 
     private static async Task<(ImportJobOutcome Result, IFrontingRepository FrontingRepo, IPollRepository PollRepo, ISettingsFieldRepository FieldRepo, ITagRepository TagRepo, CapturingLogger Logger)> RunImportAsync(
-        TestServices.StubSpHandler stub,
+        StubSpHandler stub,
         SystemId systemId)
     {
         var services = new ServiceCollection();

@@ -1,10 +1,9 @@
-using System.Net.WebSockets;
-using Interfold.Shared.Contracts;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace Interfold.IntegrationTests.Endpoints;
+namespace Interfold.Socket.IntegrationTests.Endpoints;
 
 /// <summary>
 /// Regression guard for the CI-only failure in

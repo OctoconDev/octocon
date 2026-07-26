@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json.Serialization;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Shared.Api.Models;
 
 public class SuccessResponse<TValue>
 {

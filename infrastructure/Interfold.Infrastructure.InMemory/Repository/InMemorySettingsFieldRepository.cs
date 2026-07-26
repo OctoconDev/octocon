@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
+using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Abstractions;

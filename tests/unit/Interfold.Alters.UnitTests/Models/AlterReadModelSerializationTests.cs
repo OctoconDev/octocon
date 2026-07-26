@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Interfold.Alters.Contracts.Models;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;

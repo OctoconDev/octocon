@@ -1,14 +1,9 @@
-using System.Collections.Generic;
-using System.Linq;
 using Cassandra;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Domain;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain;
-using Interfold.Shared.Domain.Alters;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Infrastructure.Scylla.Fixups;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
 

@@ -1,10 +1,10 @@
 using System.Net.Sockets;
 using Cassandra;
-using Interfold.Shared.Contracts.Configuration;
 using Interfold.DatabaseBootstrap;
+using Interfold.Shared.Contracts.Configuration;
 using Npgsql;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>Cold-start waits + thin driver-side entry points that hand seed work to the
 /// shared <see cref="PostgresSeeder"/>/<see cref="ScyllaSeeder"/>. Wait loops stay

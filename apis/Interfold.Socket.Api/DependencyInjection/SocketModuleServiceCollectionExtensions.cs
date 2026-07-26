@@ -1,5 +1,5 @@
-using Interfold.Api.Helpers;
-using Interfold.Api.Socket;
+using Interfold.Socket.Api.Helpers;
+using Interfold.Socket.Api.Socket;
 
 namespace Interfold.Socket.Api.DependencyInjection;
 

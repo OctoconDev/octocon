@@ -1,17 +1,18 @@
 using Cassandra;
+using Interfold.Infrastructure.Postgres;
+using Interfold.Infrastructure.Scylla;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Secrets;
-using Interfold.Infrastructure.Postgres;
-using Interfold.Infrastructure.Scylla;
-using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
-namespace Interfold.IntegrationTests.Services.Migrations;
+namespace Interfold.Infrastructure.IntegrationTests.Services.Migrations;
 
 /// <summary>
 /// Exercises the migration ledger added to <see cref="PostgresMigrationService"/> and

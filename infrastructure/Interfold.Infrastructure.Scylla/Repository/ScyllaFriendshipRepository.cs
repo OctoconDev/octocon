@@ -1,10 +1,10 @@
 using Cassandra;
+using Interfold.Friendships.Contracts.Models.Read;
+using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 

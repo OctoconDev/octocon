@@ -1,4 +1,4 @@
-namespace Interfold.Api.Auth;
+namespace Interfold.Auth.Api.Auth;
 
 /// <summary>
 /// The OAuth 2.0 / OpenID Connect query- and form-parameter names the auth flows read and

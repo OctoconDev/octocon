@@ -1,4 +1,3 @@
-using System.Text;
 using Interfold.Bootstrapper.IntegrationTests.Attributes;
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
 

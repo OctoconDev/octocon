@@ -1,12 +1,13 @@
 using Cassandra;
+using Interfold.Infrastructure.Scylla;
+using Interfold.IntegrationTests.Shared;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Infrastructure.Scylla;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.IntegrationTests.Services.Scylla;
+namespace Interfold.Infrastructure.IntegrationTests.Services.Scylla;
 
 public sealed class RegionContextCachingTests : BaseEndpointTest
 {

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// One-shot host-kernel <c>fs.aio-max-nr</c> tuner used before any test fixture starts a

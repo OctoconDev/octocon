@@ -1,7 +1,7 @@
 using System.Net.WebSockets;
-using Interfold.Shared.Contracts;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// End-to-end wire drive for the "send friend request → accept → trust → untrust" flow used

@@ -1,23 +1,33 @@
-using System.Net.WebSockets;
 using System.IdentityModel.Tokens.Jwt;
-using Interfold.Shared.Domain.Abstractions;
-using System.Text.Json;
-using System.Text;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.IdentityModel.Tokens;
+using System.Net.WebSockets;
 using System.Security.Claims;
-using System.Security.Cryptography;
-using Interfold.Api.Helpers;
-using Interfold.Api.Models;
+using System.Text;
+using System.Text.Json;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Socket.Api.Helpers;
+using Interfold.Socket.Api.Models;
+using Interfold.Socket.Contracts;
+using Interfold.Tags.Domain.Abstractions.Repository;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 public static class WebSocketHandler
 {
@@ -731,7 +741,7 @@ static SecurityToken ValidateJwtTokenSignatureForSocket(
     TokenValidationParameters validationParameters,
     AuthenticationConfiguration config)
 {
-    return Interfold.Api.Auth.JwtEs256Validator.ValidateSignature(token, config.JwtEs256VerificationKeyPems ?? [], useJsonWebToken: false);
+    return JwtEs256Validator.ValidateSignature(token, config.JwtEs256VerificationKeyPems ?? [], useJsonWebToken: false);
 }
 
  static async Task SendPhoenixReplyAsync<TResponse>(

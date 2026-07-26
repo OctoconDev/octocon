@@ -1,6 +1,7 @@
+using Interfold.Journals.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Commands;
+namespace Interfold.Journals.Contracts.Models.Commands;
 
 public sealed record CreateGlobalJournalEntryCommand(string Title);
 

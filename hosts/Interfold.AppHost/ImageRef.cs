@@ -1,4 +1,4 @@
-namespace Interfold.AppHostGraph;
+namespace Interfold.AppHost;
 
 /// <summary>Parsed image reference (name + tag). Tags only — SHA digests would need a
 /// different code path.</summary>

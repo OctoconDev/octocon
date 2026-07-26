@@ -1,10 +1,9 @@
 using System.Collections.Concurrent;
+using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Api.UnitTests.Support;
+using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Infrastructure.InMemory.Repository;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;

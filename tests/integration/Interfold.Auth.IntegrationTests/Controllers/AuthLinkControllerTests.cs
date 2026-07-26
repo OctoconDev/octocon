@@ -1,14 +1,17 @@
 using System.Net;
+using Interfold.Auth.Contracts.Ids;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Settings.Contracts.Models.Read;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Auth.IntegrationTests.Controllers;
 
 [Category("Auth")]
 [ClassDataSource<InMemoryWebFactoryFixture>(Shared = SharedType.PerTestSession)]

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
-using Interfold.Shared.Contracts.Models.ImportOperations;
-using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Infrastructure.InMemory.Repository;

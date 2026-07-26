@@ -1,15 +1,15 @@
-using Interfold.Api.Models;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
-using Microsoft.AspNetCore.Mvc;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Tags;
-using Interfold.Api.Controllers.Base;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Operations;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Commands;
+using Interfold.Tags.Contracts.Models.Read;
+using Interfold.Tags.Domain;
+using Interfold.Tags.Domain.Abstractions.Repository;
+using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Tags.Api.Controllers;
 
 [Route("api/systems/me/tags")]
 public sealed class TagsController : InterfoldControllerBase

@@ -1,8 +1,8 @@
-using Interfold.Shared.Contracts.Events;
+using Interfold.Friendships.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions;
 
-namespace Interfold.Shared.Domain.Friendships;
+namespace Interfold.Friendships.Domain;
 
 // Intent-named pair-publish helpers on IClusterEventBus for friendship events. Each
 // method fans a fixed-order pair so both ends of a friendship / request always move

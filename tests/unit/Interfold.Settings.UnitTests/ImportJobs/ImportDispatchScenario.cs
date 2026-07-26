@@ -1,14 +1,14 @@
-using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Settings;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 
@@ -53,12 +53,12 @@ internal static class ImportDispatchScenario
 
     public static ImportDispatchScenario<ImportSpCommand> ForSp()
         => new(
-            (repo, queue) => new Interfold.Shared.Domain.Settings.ImportSpCommandHandler(repo, queue),
+            (repo, queue) => new ImportSpCommandHandler(repo, queue),
             (key, token) => NewSpEnvelope(SpSystemId, key, token));
 
     public static ImportDispatchScenario<ImportPkCommand> ForPk()
         => new(
-            (repo, queue) => new Interfold.Shared.Domain.Settings.ImportPkCommandHandler(repo, queue),
+            (repo, queue) => new ImportPkCommandHandler(repo, queue),
             (key, token) => NewPkEnvelope(PkSystemId, key, token));
 
     public static CommandEnvelope<ImportSpCommand> NewSpEnvelope(ScopedSystemId systemId, string idempotencyKey, string token) => new(

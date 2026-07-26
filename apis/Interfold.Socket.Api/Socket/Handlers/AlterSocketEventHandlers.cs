@@ -1,11 +1,12 @@
-using Interfold.Api.Helpers;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Alters.Contracts;
+using Interfold.Alters.Contracts.Events;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Helpers;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Api.Socket.Handlers;
+namespace Interfold.Socket.Api.Socket.Handlers;
 
 public static class AlterSocketEventHandlers
 {

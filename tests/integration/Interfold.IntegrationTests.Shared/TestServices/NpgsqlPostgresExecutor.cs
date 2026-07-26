@@ -1,7 +1,7 @@
 using Interfold.DatabaseBootstrap;
 using Npgsql;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// <see cref="IPostgresExecutor"/> implementation that talks to Postgres in-process via

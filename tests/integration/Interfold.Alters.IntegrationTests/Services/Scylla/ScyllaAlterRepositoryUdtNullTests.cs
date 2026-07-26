@@ -1,14 +1,15 @@
 using Cassandra;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Infrastructure.Scylla.Repository;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Infrastructure.Scylla;
-using Interfold.Infrastructure.Scylla.Repository;
-using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Interfold.IntegrationTests.Services.Scylla;
+namespace Interfold.Alters.IntegrationTests.Services.Scylla;
 
 /// <summary>
 /// Direct-to-repository coverage for <see cref="ScyllaAlterRepository"/>'s handling of

@@ -1,11 +1,13 @@
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Settings.Contracts.Configuration;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Secrets;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;

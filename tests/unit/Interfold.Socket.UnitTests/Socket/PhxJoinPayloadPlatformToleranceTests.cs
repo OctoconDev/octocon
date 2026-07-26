@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Socket.Contracts;
 
 namespace Interfold.Api.UnitTests.Socket;
 

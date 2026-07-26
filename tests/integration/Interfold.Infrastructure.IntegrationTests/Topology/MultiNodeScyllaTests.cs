@@ -1,7 +1,8 @@
 using Cassandra;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.Infrastructure.IntegrationTests.TestServices;
+using Interfold.IntegrationTests.Shared.TestServices;
 
-namespace Interfold.IntegrationTests.Topology;
+namespace Interfold.Infrastructure.IntegrationTests.Topology;
 
 /// <summary>
 /// Tests that a multi-node ScyllaDB cluster (7 regional DCs) correctly spins up

@@ -1,6 +1,8 @@
+using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Tags.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Events;
+namespace Interfold.Tags.Contracts.Events;
 
 // Extracted from Interfold.Shared.Contracts/Events/SocketProjectionEvents.cs during Phase-3 Tags
 // migration. Other feature-scoped events (Alter*, Poll*, Journal*, Friendship*, Settings*)

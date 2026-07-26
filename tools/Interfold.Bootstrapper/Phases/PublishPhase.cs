@@ -1,5 +1,5 @@
 using Aspire.Hosting;
-using Interfold.AppHostGraph;
+using Interfold.AppHost;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Shared.Contracts.Enums;

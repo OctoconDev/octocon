@@ -1,6 +1,6 @@
-using Interfold.Shared.Contracts;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Test-side builder for the Phoenix <c>endpoint</c> frame used by the WebSocket integration

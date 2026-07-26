@@ -3,8 +3,9 @@ using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Secrets;
 using Npgsql;
+using System.Security.Cryptography;
 
-namespace Interfold.Api.Services.Secrets;
+namespace Interfold.Api.Host.Services.Secrets;
 
 /// <summary>Populates the API's <see cref="SecretsSnapshot"/> before
 /// <c>WebApplicationBuilder.Build()</c>. Postgres branch: batched read on a bare Npgsql

@@ -1,4 +1,4 @@
-namespace Interfold.Api.Controllers;
+namespace Interfold.Fronting.Api.Controllers;
 
 /// <summary>
 /// Query-parameter names on the fronting history endpoints. Wire-frozen (client-built

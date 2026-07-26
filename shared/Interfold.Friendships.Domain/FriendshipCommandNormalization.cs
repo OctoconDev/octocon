@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Friendships;
+namespace Interfold.Friendships.Domain;
 
 internal static class FriendshipCommandNormalization
 {

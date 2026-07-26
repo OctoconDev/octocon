@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Api.Services.SimplyPlural;
+namespace Interfold.Settings.Api.Services.SimplyPlural;
 
 // --- Wrapper: every SP API entity comes as { "id": "...", "content": { ... } } ---
 

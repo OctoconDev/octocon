@@ -1,9 +1,8 @@
-using Interfold.Shared.Contracts;
+using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Shared.Domain.Alters;
+namespace Interfold.Alters.Domain;
 
 // see IAlterExistenceCheck for the cycle rationale
 public sealed class AlterExistenceCheckAdapter : IAlterExistenceCheck

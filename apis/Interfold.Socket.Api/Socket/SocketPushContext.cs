@@ -1,9 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using Interfold.Shared.Contracts.Ids;
-using Microsoft.Extensions.Logging;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 public sealed class SocketPushContext
 {

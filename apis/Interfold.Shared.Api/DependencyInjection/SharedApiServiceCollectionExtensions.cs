@@ -1,11 +1,10 @@
 using System.Net;
 using System.Text.Json;
-using Interfold.Api.Models;
-using Interfold.Api.ModelBinding;
-using Interfold.Api.Services;
+using Interfold.Shared.Api.ModelBinding;
+using Interfold.Shared.Api.Models;
+using Interfold.Shared.Api.Services;
 using Interfold.Shared.Contracts;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
 using JsonOptions = Microsoft.AspNetCore.Mvc.JsonOptions;
 
 namespace Interfold.Shared.Api.DependencyInjection;

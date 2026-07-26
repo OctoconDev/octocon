@@ -1,13 +1,12 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Journals.Contracts;
+using Interfold.Journals.Contracts.Models.Commands;
+using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Journals;
+namespace Interfold.Journals.Domain;
 
 public sealed class SetGlobalJournalLockedCommandHandler : IdempotentCommandHandler<SetGlobalJournalLockedCommand, GlobalJournalCommandResult>
 {

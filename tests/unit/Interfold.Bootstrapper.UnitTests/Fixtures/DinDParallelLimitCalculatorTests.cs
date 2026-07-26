@@ -1,5 +1,4 @@
 using Interfold.Bootstrapper.IntegrationTests.Fixtures;
-using TUnit.Core;
 
 namespace Interfold.Bootstrapper.UnitTests.Fixtures;
 

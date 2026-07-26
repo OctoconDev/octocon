@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using TUnit.Core;
 
 namespace Interfold.Bootstrapper.IntegrationTests.Attributes;
 

@@ -1,7 +1,7 @@
 using System.Net.WebSockets;
-using Interfold.Shared.Contracts;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Wire-level drivers for the friend-request Phoenix endpoint. The five WebSocket integration

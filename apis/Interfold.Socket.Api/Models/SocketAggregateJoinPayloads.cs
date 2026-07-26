@@ -1,8 +1,9 @@
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Socket.Contracts;
+using Interfold.Tags.Contracts.Models.Read;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Socket.Api.Models;
 
 // Socket aggregate join payloads. Namespace preserved as Interfold.Shared.Contracts for
 // wire-compat; physical file moved out of shared/Interfold.Shared.Contracts/SocketPayloadContracts.cs

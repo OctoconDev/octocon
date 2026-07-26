@@ -1,11 +1,12 @@
-using Interfold.Api.Services.ImportJobs;
-using Interfold.Shared.Contracts.Events;
-using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.Coordination;
 using Interfold.Infrastructure.InMemory.Repository;
+using Interfold.Settings.Api.Services.ImportJobs;
+using Interfold.Settings.Contracts.Events;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging.Abstractions;
 using Interfold.Shared.Contracts.Ids;
 

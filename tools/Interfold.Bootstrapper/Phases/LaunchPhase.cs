@@ -1,5 +1,4 @@
 using Interfold.Bootstrapper.Cli;
-using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts.Configuration;
 using static Interfold.Bootstrapper.Phases.CassandraImagePhase;

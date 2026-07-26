@@ -1,6 +1,8 @@
+using Interfold.Fronting.Contracts.Ids;
+using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Events;
+namespace Interfold.Fronting.Contracts.Events;
 
 /// <summary>Published to <c>IClusterEventBus</c> on any fronting-state change. Consumed on
 /// primary nodes by <c>FrontNotifierBackgroundService</c> for FCM fan-out (Phase N).</summary>

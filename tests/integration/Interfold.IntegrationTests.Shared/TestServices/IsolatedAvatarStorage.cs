@@ -1,4 +1,4 @@
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Test-side scaffold for avatar-storage tests that need a per-test filesystem storage root

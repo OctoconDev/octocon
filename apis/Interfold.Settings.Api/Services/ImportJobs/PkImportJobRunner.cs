@@ -1,7 +1,7 @@
-using Interfold.Shared.Contracts.Models.ImportOperations;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
 
-namespace Interfold.Api.Services.ImportJobs;
+namespace Interfold.Settings.Api.Services.ImportJobs;
 
 /// <summary>
 /// Stub runner that mirrors the placeholder state of the PluralKit import path. The real

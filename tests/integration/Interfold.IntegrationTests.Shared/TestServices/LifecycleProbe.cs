@@ -1,4 +1,4 @@
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// TEMPORARY (planned for removal): logs lifecycle ordering of TUnit hooks and

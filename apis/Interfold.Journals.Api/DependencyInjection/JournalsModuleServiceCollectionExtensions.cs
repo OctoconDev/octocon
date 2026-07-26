@@ -1,5 +1,5 @@
+using Interfold.Journals.Domain;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Journals;
 
 namespace Interfold.Journals.Api.DependencyInjection;
 

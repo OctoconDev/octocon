@@ -1,15 +1,15 @@
-using Interfold.Api.Models;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
-using Microsoft.AspNetCore.Mvc;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Journals;
-using Interfold.Api.Controllers.Base;
+using Interfold.Journals.Contracts.Ids;
+using Interfold.Journals.Contracts.Models.Commands;
+using Interfold.Journals.Contracts.Models.Read;
+using Interfold.Journals.Domain;
+using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Operations;
+using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Journals.Api.Controllers;
 
 [Route("api/journals")]
 public sealed class JournalsController : InterfoldControllerBase

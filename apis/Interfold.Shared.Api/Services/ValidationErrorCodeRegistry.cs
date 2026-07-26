@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using Interfold.Shared.Contracts;
 
-namespace Interfold.Api.Services;
+namespace Interfold.Shared.Api.Services;
 
 /// <summary>
 /// Message-to-<see cref="ErrorCode"/> lookup used by the

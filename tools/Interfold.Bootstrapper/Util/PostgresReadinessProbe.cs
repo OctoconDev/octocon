@@ -1,5 +1,4 @@
 using Interfold.DatabaseBootstrap;
-using Interfold.Bootstrapper.Phases;
 using Interfold.Bootstrapper.Cli;
 
 namespace Interfold.Bootstrapper.Util;

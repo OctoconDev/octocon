@@ -1,4 +1,4 @@
-using Interfold.Shared.Contracts;
+using Interfold.Settings.Contracts.Configuration;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.Configuration;

@@ -1,7 +1,7 @@
+using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 
 namespace Interfold.Infrastructure.InMemory;
 

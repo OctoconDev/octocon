@@ -2,7 +2,7 @@ using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
 using Interfold.Bootstrapper.Phases;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Settings.Contracts.Configuration;
 
 namespace Interfold.Bootstrapper.UnitTests;
 

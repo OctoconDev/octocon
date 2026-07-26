@@ -1,6 +1,8 @@
+using Interfold.Journals.Contracts.Ids;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Journals.Contracts;
 
 public sealed record GlobalJournalCommandResult(SystemId SystemId, EntryId EntryId, bool Replay) : ICommandResult<GlobalJournalCommandResult>
 {

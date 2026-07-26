@@ -1,7 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Ids;
+namespace Interfold.Polls.Contracts.Ids;
 
 /// <summary>Strongly-typed wrapper around a poll id (Guid, wire form is 32-char lowercase hex).</summary>
 [JsonConverter(typeof(PollIdJsonConverter))]

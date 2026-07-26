@@ -1,14 +1,13 @@
-using Interfold.Shared.Contracts;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.ImportOperations;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Settings;
+namespace Interfold.Settings.Domain.Settings;
 
 /// <summary>Async dispatcher for Simply Plural imports. Claims a per-system slot via LWT
 /// and enqueues the actual work for <c>ImportJobBackgroundService</c>; the controller

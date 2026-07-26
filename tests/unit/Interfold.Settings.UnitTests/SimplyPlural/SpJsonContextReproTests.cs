@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using Interfold.Api.Services.SimplyPlural;
+using Interfold.Settings.Api.Services.SimplyPlural;
+using SpJsonContext = Interfold.Settings.Api.Services.SimplyPlural.SpJsonContext;
 
 namespace Interfold.Api.UnitTests.SimplyPlural;
 

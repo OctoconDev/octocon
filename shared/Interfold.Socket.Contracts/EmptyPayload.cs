@@ -1,3 +1,3 @@
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Socket.Contracts;
 
 public sealed record EmptyPayload : ISocketPayload;

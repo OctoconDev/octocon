@@ -1,9 +1,8 @@
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.InMemory.Repository;
 using Interfold.Api.UnitTests.Support;
+using Interfold.Auth.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests;
 

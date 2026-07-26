@@ -1,10 +1,11 @@
 using Cassandra;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.IntegrationTests.TestServices;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Interfold.IntegrationTests.Services.Scylla;
+namespace Interfold.Fronting.IntegrationTests.Services.Scylla;
 
 /// <summary>
 /// Locks the fix for the SP-import "today-date" bug: when

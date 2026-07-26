@@ -1,24 +1,20 @@
 extern alias AppHost;
-
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Cassandra;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Secrets;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
-using Microsoft.Extensions.Configuration;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using TUnit.Aspire;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.Infrastructure.IntegrationTests.TestServices;
 
 /// <summary>7-node multi-DC ScyllaDB cluster in its own Aspire host, sharing Postgres +
 /// seeded internal.secrets with <see cref="SharedDbFixture"/> via a ClassDataSource dependency

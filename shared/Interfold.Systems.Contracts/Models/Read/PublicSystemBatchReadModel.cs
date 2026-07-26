@@ -1,4 +1,8 @@
-namespace Interfold.Shared.Contracts.Models.Read;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Friendships.Contracts.Models.Read;
+using Interfold.Tags.Contracts.Models.Read;
+
+namespace Interfold.Systems.Contracts.Models.Read;
 
 /// <summary>Read model for <c>GET /api/systems/{systemId}/batch</c>. Emits
 /// <c>{ friendship, tags, alters }</c>; guarded (visibility-filtered) projections

@@ -1,13 +1,13 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Alters.Contracts;
+using Interfold.Alters.Contracts.Events;
+using Interfold.Alters.Contracts.Models.Commands;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Alters;
+namespace Interfold.Alters.Domain;
 
 public sealed class UpdateAlterCommandHandler : IdempotentCommandHandler<UpdateAlterCommand, AlterCommandResult>
 {

@@ -1,8 +1,8 @@
 using System.Text.Json;
+using Interfold.Polls.Contracts.Ids;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Commands;
+namespace Interfold.Polls.Contracts.Models.Commands;
 
 /// <summary>
 /// Command payload for creating a poll. <see cref="InsertedAtUtc"/> is a server-side

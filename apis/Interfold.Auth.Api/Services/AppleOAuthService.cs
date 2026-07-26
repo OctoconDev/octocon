@@ -1,13 +1,12 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Interfold.Api.Services.OAuth;
-using Interfold.Shared.Contracts.Configuration;
-using Microsoft.Extensions.Options;
+using Interfold.Auth.Api.Auth;
+using Interfold.Auth.Api.Services.OAuth;
+using Interfold.Auth.Contracts.Configuration;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Api.Auth;
+using Microsoft.Extensions.Options;
 
-namespace Interfold.Api.Services;
+namespace Interfold.Auth.Api.Services;
 
 /// <summary>
 /// Handles Apple OAuth2 backend token exchange and identity extraction.

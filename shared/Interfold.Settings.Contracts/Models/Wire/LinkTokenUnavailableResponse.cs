@@ -1,4 +1,4 @@
-namespace Interfold.Api.Models;
+namespace Interfold.Settings.Contracts.Models.Wire;
 
 /// <summary>
 /// 503 body for <c>GET /settings/link_token</c> on non-primary nodes. Intentionally

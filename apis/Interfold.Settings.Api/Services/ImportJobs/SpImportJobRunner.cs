@@ -1,8 +1,8 @@
-using Interfold.Shared.Contracts.Models.ImportOperations;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Domain.Abstractions;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
 
-namespace Interfold.Api.Services.ImportJobs;
+namespace Interfold.Settings.Api.Services.ImportJobs;
 
 /// <summary>
 /// Bridges the generic <see cref="IImportJobRunner"/> contract to the concrete Simply

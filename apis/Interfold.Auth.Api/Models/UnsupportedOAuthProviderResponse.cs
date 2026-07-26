@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Auth.Api.Models;
 
 /// <summary>
 /// 400 body for an unknown OAuth <c>{provider}</c> route value. Same

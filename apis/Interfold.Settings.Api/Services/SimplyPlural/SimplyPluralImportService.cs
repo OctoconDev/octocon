@@ -1,21 +1,32 @@
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text;
-using Interfold.Api.Services.SimplyPlural;
-using Interfold.Shared.Contracts.Configuration;
+using System.Text.Json;
+using Interfold.Alters.Contracts.Models.Commands;
+using Interfold.Alters.Domain.Abstractions.Repository;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Journals.Contracts.Models.Commands;
+using Interfold.Journals.Domain.Abstractions.Repository;
+using Interfold.Polls.Contracts.Models;
+using Interfold.Polls.Contracts.Models.Commands;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Domain;
+using Interfold.Settings.Domain.Abstractions;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Services;
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Domain;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
 using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Commands;
+using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Models.ImportOperations;
 
-namespace Interfold.Api.Services;
+namespace Interfold.Settings.Api.Services.SimplyPlural;
 
 public sealed class SimplyPluralImportService : ISimplyPluralImportService
 {
@@ -861,7 +872,7 @@ public sealed class SimplyPluralImportService : ISimplyPluralImportService
             await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 
             // Prefer source-generated JsonTypeInfo (trim-safe); fall back to reflection.
-            var typeInfoObj = SpJsonContext.Default.GetTypeInfo(typeof(T));
+            var typeInfoObj = Services.SimplyPlural.SpJsonContext.Default.GetTypeInfo(typeof(T));
             if (typeInfoObj is System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typedInfo)
             {
                 var result = await JsonSerializer.DeserializeAsync<T>(stream, typedInfo, ct).ConfigureAwait(false);

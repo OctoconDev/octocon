@@ -1,4 +1,3 @@
-using System;
 using Cassandra;
 using Interfold.Shared.Contracts.Ids;
 

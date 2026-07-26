@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Ops.Api.Controllers;
 
 /// <summary>
 /// Serves the bootstrapper-issued root CA at the IANA-registered <c>/.well-known/</c> prefix

@@ -1,16 +1,16 @@
-using Microsoft.AspNetCore.Mvc;
-using Interfold.Api.ModelBinding;
-using Interfold.Api.Models;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Fronting;
-using Interfold.Api.Controllers.Base;
+using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Commands;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.Fronting.Domain;
+using Interfold.Fronting.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.ModelBinding;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Operations;
+using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Fronting.Api.Controllers;
 
 [Route("api/systems/me/front")]
 public sealed class FrontingController : InterfoldControllerBase

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Api.Socket;
+namespace Interfold.Socket.Api.Socket;
 
 public sealed class SocketJoinRateLimiter(TimeProvider timeProvider)
 {

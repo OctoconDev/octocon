@@ -1,8 +1,8 @@
 using System.Net;
-using Interfold.Api.Models;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 
-namespace Interfold.IntegrationTests.Friendships;
+namespace Interfold.Friendships.IntegrationTests.Friendships;
 
 /// <summary>
 /// End-to-end pins on the <see cref="Interfold.Shared.Contracts.Ids.FriendLookup"/> dispatch

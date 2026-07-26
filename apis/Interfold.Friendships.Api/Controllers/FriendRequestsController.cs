@@ -1,16 +1,16 @@
-using Interfold.Api.Models;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
-using Microsoft.AspNetCore.Mvc;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Friendships;
-using Interfold.Api.Controllers.Base;
-using Interfold.Shared.Contracts;
 using Interfold.Friendships.Api.Helpers;
+using Interfold.Friendships.Contracts.Models.Commands;
+using Interfold.Friendships.Contracts.Models.Read;
+using Interfold.Friendships.Domain;
+using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Models;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Operations;
+using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Friendships.Api.Controllers;
 
 [Route("api/friend-requests")]
 public sealed class FriendRequestsController : InterfoldControllerBase

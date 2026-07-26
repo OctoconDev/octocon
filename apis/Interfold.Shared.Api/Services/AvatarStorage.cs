@@ -3,7 +3,7 @@ using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Ids;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.Api.Services;
+namespace Interfold.Shared.Api.Services;
 
 public interface IAvatarStorage
 {

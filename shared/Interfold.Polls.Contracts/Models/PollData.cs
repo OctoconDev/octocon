@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models;
+namespace Interfold.Polls.Contracts.Models;
 
 // Server-side producer/mutator models for the poll `data` blob interior. Wire is
 // two closed schemas keyed by poll type:

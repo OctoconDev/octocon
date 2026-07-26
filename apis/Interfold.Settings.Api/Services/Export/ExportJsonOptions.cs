@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Interfold.Api.Services.Export;
+namespace Interfold.Settings.Api.Services.Export;
 
 // Every wire key is stamped by [JsonPropertyName] on the payload records, so no naming
 // policy is applied — a missing/typo'd key breaks the pinned-fixture test loudly rather

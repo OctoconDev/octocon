@@ -1,8 +1,7 @@
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Shared.Contracts.Models.Commands;
+namespace Interfold.Alters.Contracts.Models.Commands;
 
 public sealed record CreateAlterCommand(string Name, DateTimeOffset CreatedAt);
 

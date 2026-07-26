@@ -1,6 +1,8 @@
+using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Tags.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Tags.Contracts;
 
 // Extracted from OperationResults.cs during Phase-3 Tags migration. The other per-feature
 // command results (Alter, Poll, etc.) will migrate with their respective features.

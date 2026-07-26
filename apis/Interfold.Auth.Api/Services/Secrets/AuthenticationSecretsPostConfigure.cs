@@ -1,9 +1,10 @@
 using System.Security.Cryptography;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Shared.Api.Services.Secrets;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.Api.Services.Secrets;
+namespace Interfold.Auth.Api.Services.Secrets;
 
 /// <summary>Layers <c>internal.secrets</c> rows onto the env-bound
 /// <see cref="AuthenticationConfiguration"/>. Runs post-<c>IConfigureOptions</c>,

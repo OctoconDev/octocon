@@ -1,7 +1,8 @@
+using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Fronting.Domain.Abstractions.Repository;
 
 public interface IFrontingRepository
 {

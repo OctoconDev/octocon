@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.Json;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;

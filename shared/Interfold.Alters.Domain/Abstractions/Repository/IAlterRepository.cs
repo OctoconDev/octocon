@@ -1,8 +1,8 @@
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 
-namespace Interfold.Shared.Domain.Abstractions.Repository;
+namespace Interfold.Alters.Domain.Abstractions.Repository;
 
 public interface IAlterRepository
 {

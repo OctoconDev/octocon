@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Interfold.Settings.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 
 namespace Interfold.Bootstrapper.Configuration;
@@ -333,13 +334,13 @@ public sealed class UpdateSection
 public sealed class FirebaseSection
 {
     /// <summary>Firebase Android <c>google-services.json</c>. Reshaped into
-    /// <see cref="Interfold.Shared.Contracts.Configuration.FirebaseAndroidClientConfig"/> and
+    /// <see cref="FirebaseAndroidClientConfig"/> and
     /// seeded as <c>firebase:client:android</c>.</summary>
     [JsonPropertyName("androidConfigPath")]
     public string AndroidConfigPath { get; set; } = string.Empty;
 
     /// <summary>iOS <c>GoogleService-Info.plist</c>. Parsed as XML and reshaped into
-    /// <see cref="Interfold.Shared.Contracts.Configuration.FirebaseIosClientConfig"/> for
+    /// <see cref="FirebaseIosClientConfig"/> for
     /// <c>firebase:client:ios</c>.</summary>
     [JsonPropertyName("iosConfigPath")]
     public string IosConfigPath { get; set; } = string.Empty;

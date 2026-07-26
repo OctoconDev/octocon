@@ -1,9 +1,9 @@
 using System.Text;
 using System.Text.Json;
-using Interfold.IntegrationTests.Models;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.IntegrationTests.Shared.Models;
+using Interfold.IntegrationTests.Shared.TestServices;
 
-namespace Interfold.IntegrationTests;
+namespace Interfold.IntegrationTests.Shared;
 
 /// <summary>
 /// Deterministic replay parity tests (Phase N, Scope 1).

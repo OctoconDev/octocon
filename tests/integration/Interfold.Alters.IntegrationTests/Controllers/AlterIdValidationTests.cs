@@ -1,9 +1,10 @@
 using System.Net;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.IntegrationTests.TestServices;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Alters.IntegrationTests.Controllers;
 
 /// <summary>
 /// Wire-boundary verification for the <c>ValidAlterId</c> refactor: every controller path

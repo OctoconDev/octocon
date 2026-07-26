@@ -1,15 +1,18 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text.Json;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Settings.Contracts.Events;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.Socket.Api.Models;
+using Interfold.Socket.Contracts;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 
-namespace Interfold.IntegrationTests.Endpoints;
+namespace Interfold.Socket.IntegrationTests.Endpoints;
 
 // 5 minute timeout since we want to ensure this does end up timing out if a connection gets stuck but we also 
 // need to account for Cassandra's slower performance with bootstrapping.

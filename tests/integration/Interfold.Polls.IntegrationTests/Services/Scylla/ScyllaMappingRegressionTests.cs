@@ -1,7 +1,11 @@
+using Interfold.IntegrationTests.Shared;
+using Interfold.Journals.Contracts.Ids;
+using Interfold.Polls.Contracts.Ids;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Tags.Contracts.Ids;
 
-namespace Interfold.IntegrationTests.Services.Scylla;
+namespace Interfold.Polls.IntegrationTests.Services.Scylla;
 
 public sealed class ScyllaMappingRegressionTests : BaseEndpointTest
 {

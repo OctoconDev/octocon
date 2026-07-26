@@ -1,11 +1,11 @@
 using System.Security.Claims;
-using Interfold.Api.Controllers.Base;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.Controllers;
+using Interfold.Shared.Api.Controllers.Base;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Controllers;
 
-namespace Interfold.Api.Middleware;
+namespace Interfold.Shared.Api.Middleware;
 
 /// <summary>
 /// Resolves and validates principal IDs for Interfold API controllers.

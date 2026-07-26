@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Interfold.Api.Services.OAuth;
+namespace Interfold.Auth.Api.Services.OAuth;
 
 // Typed DTOs for OAuth token/userinfo responses. Callers were previously walking
 // JsonDocument roots with TryGetProperty; typing the shapes here means schema drift

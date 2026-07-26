@@ -1,8 +1,7 @@
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Alters.Contracts.Models.Read;
 
 public sealed record CreateAlterRequest(
     string Name

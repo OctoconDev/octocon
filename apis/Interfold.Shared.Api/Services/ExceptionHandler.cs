@@ -1,8 +1,8 @@
-using Interfold.Api.Models;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Microsoft.AspNetCore.Diagnostics;
 
-namespace Interfold.Api.Services;
+namespace Interfold.Shared.Api.Services;
 
 public class ExceptionHandler : IExceptionHandler
 {

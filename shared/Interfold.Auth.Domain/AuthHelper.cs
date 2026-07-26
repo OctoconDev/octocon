@@ -1,10 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Auth.Contracts.Configuration;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Infrastructure;
+namespace Interfold.Auth.Domain;
 
 public class AuthHelper
 {

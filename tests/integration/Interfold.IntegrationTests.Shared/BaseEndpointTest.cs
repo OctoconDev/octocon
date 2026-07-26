@@ -2,19 +2,25 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Interfold.Api.Models;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Alters.Contracts.Models.Read;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Auth.Domain;
+using Interfold.Fronting.Contracts.Ids;
+using Interfold.Fronting.Contracts.Models.Read;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Settings.Contracts.Models.Read;
+using Interfold.Settings.Contracts.Models.Wire;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Infrastructure;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Read;
 using Microsoft.Extensions.Options;
 using TUnit.Core.Services;
 
-namespace Interfold.IntegrationTests;
+namespace Interfold.IntegrationTests.Shared;
 
 public class BaseEndpointTest
 {
@@ -137,7 +143,7 @@ public class BaseEndpointTest
     }
 
     /// <summary>Creates an alter and returns its typed <see cref="AlterId"/>. Reads the
-    /// response as <see cref="SuccessResponse{T}"/> over <see cref="AlterReadModel"/> so
+    /// response as <see cref="SuccessResponse{TValue}"/> over <see cref="AlterReadModel"/> so
     /// read-model drift surfaces at deserialisation.</summary>
     public static async Task<AlterId> CreateAlterAsync(HttpClient client, string principal, string name, VisibilityLevel visibility = VisibilityLevel.Public)
     {

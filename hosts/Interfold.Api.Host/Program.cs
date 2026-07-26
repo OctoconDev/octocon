@@ -1,30 +1,32 @@
-using Interfold.Api.Helpers;
-using Interfold.Api.Middleware;
-using Interfold.Api.Services;
-using Interfold.Api.Services.Secrets;
-using Interfold.Shared.Api.DependencyInjection;
-using Interfold.Api.Swagger;
 using Interfold.Alters.Api.DependencyInjection;
+using Interfold.Api.Host.Services.Secrets;
 using Interfold.Auth.Api.DependencyInjection;
 using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
-using Interfold.Journals.Api.DependencyInjection;
-using Interfold.Ops.Api.DependencyInjection;
-using Interfold.Polls.Api.DependencyInjection;
-using Interfold.Settings.Api.DependencyInjection;
-using Interfold.Socket.Api.DependencyInjection;
-using Interfold.Systems.Api.DependencyInjection;
-using Interfold.Tags.Api.DependencyInjection;
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
 using Interfold.Infrastructure.DependencyInjection;
 using Interfold.Infrastructure.InMemory;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
+using Interfold.Journals.Api.DependencyInjection;
+using Interfold.Ops.Api.DependencyInjection;
+using Interfold.Ops.Api.Helpers;
+using Interfold.Polls.Api.DependencyInjection;
+using Interfold.ServiceDefaults;
+using Interfold.Settings.Api.DependencyInjection;
+using Interfold.Shared.Api.DependencyInjection;
+using Interfold.Shared.Api.Helpers;
+using Interfold.Shared.Api.Middleware;
+using Interfold.Shared.Api.Services;
+using Interfold.Shared.Api.Services.Secrets;
+using Interfold.Shared.Api.Swagger;
+using Interfold.Shared.Contracts;
+using Interfold.Shared.Contracts.Configuration;
+using Interfold.Socket.Api.DependencyInjection;
+using Interfold.Systems.Api.DependencyInjection;
+using Interfold.Tags.Api.DependencyInjection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
-using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -311,11 +313,14 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-app.UseHsts();
-// /.well-known stays plain HTTP so clients can fetch the root CA before trusting HTTPS.
-app.UseWhen(
-    static ctx => !ctx.Request.Path.StartsWithSegments("/.well-known"),
-    static branch => branch.UseHttpsRedirection());
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    // /.well-known stays plain HTTP so clients can fetch the root CA before trusting HTTPS.
+    app.UseWhen(
+        static ctx => !ctx.Request.Path.StartsWithSegments("/.well-known"),
+        static branch => branch.UseHttpsRedirection());
+}
 app.UseCors();
 app.UseAuthentication();
 app.UseMiddleware<InterfoldPrincipalMiddleware>();
@@ -395,6 +400,3 @@ app.MapControllers();
 
 app.Run();
 return 0;
-
-// Kept public for WebApplicationFactory<Program> to bind in Interfold.IntegrationTests.
-public partial class Program;

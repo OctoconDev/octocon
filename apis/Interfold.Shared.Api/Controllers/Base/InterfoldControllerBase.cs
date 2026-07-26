@@ -1,22 +1,22 @@
 using System.Diagnostics;
 using System.Net;
-using Interfold.Api.Helpers;
-using Interfold.Api.Middleware;
-using Interfold.Api.Models;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
-using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Abstractions;
+using Interfold.Shared.Api.Helpers;
+using Interfold.Shared.Api.Middleware;
+using Interfold.Shared.Api.Models;
+using Interfold.Shared.Api.Services;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Api.Services;
+using Interfold.Shared.Contracts.Operations;
+using Interfold.Shared.Domain.Abstractions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Net.Http.Headers;
 
-namespace Interfold.Api.Controllers.Base;
+namespace Interfold.Shared.Api.Controllers.Base;
 
 [ApiController]
 [Authorize]

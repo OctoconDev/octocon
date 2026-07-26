@@ -1,13 +1,16 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Interfold.Alters.Contracts.Models;
+using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Observability;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Commands;
+using Interfold.Tags.Contracts.Models.Read;
+using Interfold.Tags.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Infrastructure.InMemory.Repository;

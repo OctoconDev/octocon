@@ -1,16 +1,16 @@
-using Microsoft.AspNetCore.Mvc;
-using Interfold.Api.Models;
+using Interfold.Polls.Contracts.Ids;
+using Interfold.Polls.Contracts.Models.Commands;
+using Interfold.Polls.Contracts.Models.Read;
+using Interfold.Polls.Domain;
+using Interfold.Polls.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Operations;
-using Interfold.Shared.Domain.Polls;
-using Interfold.Shared.Contracts.Models.Commands;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Api.Controllers.Base;
+using Microsoft.AspNetCore.Mvc;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Polls.Api.Controllers;
 
 [Route("api/polls")]
 public sealed class PollsController : InterfoldControllerBase

@@ -1,12 +1,13 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Journals.Contracts;
+using Interfold.Journals.Contracts.Events;
+using Interfold.Journals.Contracts.Ids;
+using Interfold.Journals.Domain.Abstractions.Repository;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Shared.Domain.Journals;
+namespace Interfold.Journals.Domain;
 
 internal static class AlterJournalCommandFlow
 {

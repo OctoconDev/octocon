@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Interfold.Api.Services.SimplyPlural;
+namespace Interfold.Settings.Api.Services.SimplyPlural;
 
 internal static class SpObjectId
 {

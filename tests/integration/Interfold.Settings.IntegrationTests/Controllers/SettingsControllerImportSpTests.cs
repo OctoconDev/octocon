@@ -1,13 +1,13 @@
 using System.Net;
-using Interfold.Api.Models;
-using Interfold.Shared.Contracts.Enums;
-using Interfold.Shared.Contracts.Events;
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.ImportOperations;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.IntegrationTests.TestServices;
+using Interfold.IntegrationTests.Shared;
+using Interfold.IntegrationTests.Shared.TestServices;
+using Interfold.Settings.Contracts.Events;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.ImportOperations;
+using Interfold.Settings.Contracts.Models.Read;
+using Interfold.Settings.Contracts.Models.Wire;
 
-namespace Interfold.IntegrationTests.Controllers;
+namespace Interfold.Settings.IntegrationTests.Controllers;
 
 /// <summary>
 /// End-to-end tests for the async-import dispatch endpoint. The controller layer is the

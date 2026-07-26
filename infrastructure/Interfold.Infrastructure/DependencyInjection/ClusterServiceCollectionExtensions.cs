@@ -1,12 +1,12 @@
-using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
 using Interfold.Infrastructure.Coordination;
+using Interfold.Settings.Contracts.Configuration;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
 
 namespace Interfold.Infrastructure.DependencyInjection;
 

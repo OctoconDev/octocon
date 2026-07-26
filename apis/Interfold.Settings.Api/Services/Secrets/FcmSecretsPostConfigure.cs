@@ -1,8 +1,9 @@
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Settings.Contracts.Configuration;
+using Interfold.Shared.Api.Services.Secrets;
 using Interfold.Shared.Contracts.Secrets;
 using Microsoft.Extensions.Options;
 
-namespace Interfold.Api.Services.Secrets;
+namespace Interfold.Settings.Api.Services.Secrets;
 
 /// <summary>
 /// Post-configure step that copies the optional <c>fcm:service_account_json</c> row from the

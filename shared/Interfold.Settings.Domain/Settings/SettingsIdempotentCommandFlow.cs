@@ -1,14 +1,14 @@
-using Interfold.Shared.Contracts;
+using Interfold.Settings.Contracts;
 using Interfold.Shared.Contracts.Enums;
+using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain.Settings;
+namespace Interfold.Settings.Domain.Settings;
 
 /// <summary>Mutate → check → publish → success helper for settings handlers that already
-/// inherit <see cref="IdempotentCommandHandler{TPayload, TResult}"/>. Companion to
+/// inherit <see cref="IdempotentCommandHandler{TPayload,TResult}"/>. Companion to
 /// <see cref="SettingsFieldCommandFlow"/> (which returns a different result shape).</summary>
 internal static class SettingsIdempotentCommandFlow
 {

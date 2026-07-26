@@ -1,6 +1,4 @@
-using Microsoft.AspNetCore.Authentication;
-
-namespace Interfold.Api.Auth;
+namespace Interfold.Auth.Api.Auth;
 
 /// <summary>Registers OAuth challenge redirect schemes. Provider endpoint + scope set are
 /// constants; only <c>client_id</c> is per-deployment.</summary>

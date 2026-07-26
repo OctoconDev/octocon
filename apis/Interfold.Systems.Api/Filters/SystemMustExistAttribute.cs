@@ -1,12 +1,12 @@
 using System.Net;
-using Interfold.Api.Models;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Shared.Api.Models;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 
-namespace Interfold.Api.Filters;
+namespace Interfold.Systems.Api.Filters;
 
 /// <summary>Action filter that short-circuits with 404
 /// (<see cref="ErrorCodes.SystemNotFound"/>) when the <c>systemId</c> route value doesn't

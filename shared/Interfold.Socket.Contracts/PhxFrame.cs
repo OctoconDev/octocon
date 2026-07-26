@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Interfold.Shared.Contracts.Enums;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Socket.Contracts;
 
 /// <summary>
 /// A Phoenix-protocol WebSocket frame (object format).
@@ -34,7 +34,7 @@ public sealed class PhxFrame<TPayload>
 public sealed class PhxJoinPayload
 {
     [JsonPropertyName("token")]
-    public Ids.SocketToken Token { get; init; } = new(string.Empty);
+    public Shared.Contracts.Ids.SocketToken Token { get; init; } = new(string.Empty);
 
     [JsonPropertyName("protocolVersion")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

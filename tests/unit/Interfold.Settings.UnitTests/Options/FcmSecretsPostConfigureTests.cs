@@ -1,8 +1,7 @@
-using Interfold.Api.Services.Secrets;
-using Interfold.Shared.Contracts.Configuration;
+using Interfold.Api.UnitTests.Support;
+using Interfold.Settings.Api.Services.Secrets;
+using Interfold.Settings.Contracts.Configuration;
 using Interfold.Shared.Contracts.Secrets;
-using Microsoft.Extensions.Options;
-using TUnit.Mocks;
 
 namespace Interfold.Api.UnitTests.Options;
 

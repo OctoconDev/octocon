@@ -1,10 +1,12 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
+using Interfold.Socket.Contracts;
+using Interfold.Tags.Contracts;
+using Interfold.Tags.Contracts.Events;
+using Interfold.Tags.Contracts.Ids;
+using Interfold.Tags.Contracts.Models.Read;
+using Interfold.Tags.Domain.Abstractions.Repository;
 
-namespace Interfold.Api.Socket.Handlers;
+namespace Interfold.Socket.Api.Socket.Handlers;
 
 public static class TagSocketEventHandlers
 {

@@ -1,8 +1,9 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Events;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Api.Socket.Handlers;
+namespace Interfold.Socket.Api.Socket.Handlers;
 
 public static class ImportSocketEventHandlers
 {

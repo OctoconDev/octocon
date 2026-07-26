@@ -1,15 +1,11 @@
-using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Docker.Resources.ComposeNodes;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
+using Microsoft.Extensions.DependencyInjection;
 // Aspire.Hosting.ApplicationModel also defines PersistenceMode; alias to disambiguate.
 using PersistenceMode = Interfold.Shared.Contracts.PersistenceMode;
 
-// Namespace deliberately differs from the assembly name — `Interfold.AppHost` collides with
-// SDK-generated `Projects.*` partials that reference the assembly name as a namespace.
-namespace Interfold.AppHostGraph;
+namespace Interfold.AppHost;
 
 /// <summary>Interfold distributed-application resource graph. Consumed by the dev
 /// <c>Interfold.AppHost</c> executable (`aspire run`) and by the self-hosting

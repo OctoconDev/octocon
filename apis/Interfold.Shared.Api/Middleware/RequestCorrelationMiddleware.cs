@@ -1,8 +1,8 @@
 using System.Diagnostics;
-using Microsoft.Extensions.Primitives;
 using Interfold.Shared.Contracts;
+using Microsoft.Extensions.Primitives;
 
-namespace Interfold.Api.Middleware;
+namespace Interfold.Shared.Api.Middleware;
 
 /// <summary>
 /// Middleware that:

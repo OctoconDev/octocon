@@ -1,4 +1,4 @@
-using Interfold.Shared.Contracts.Models.ImportOperations;
+using Interfold.Settings.Contracts.Models.ImportOperations;
 
 namespace Interfold.Api.UnitTests.ImportJobs;
 

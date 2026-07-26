@@ -1,9 +1,8 @@
-using Aspire.Hosting.ApplicationModel;
+using System.Net.Sockets;
 using Aspire.Hosting.Docker.Resources.ServiceNodes;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using System.Net.Sockets;
 
-namespace Interfold.AppHostGraph;
+namespace Interfold.AppHost;
 
 /// <summary>Raw TCP-connect <see cref="IHealthCheck"/> factory for the AppHost dashboard
 /// readiness gates on non-HTTP containers (Postgres, Cassandra-only CQL). Scylla uses

@@ -1,7 +1,7 @@
 using System.Text;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Api.Services.Export;
+namespace Interfold.Settings.Api.Services.Export;
 
 // Reference parity helpers for the pk-side transforms in
 // octocon/lib/octocon/accounts.ex:1273-1332.

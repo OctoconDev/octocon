@@ -1,7 +1,8 @@
-using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models.Read;
+using Interfold.Journals.Contracts.Ids;
+using Interfold.Journals.Contracts.Models.Read;
+using Interfold.Socket.Contracts;
 
-namespace Interfold.Shared.Contracts;
+namespace Interfold.Journals.Contracts;
 
 public sealed record GlobalJournalSocketPayload(JournalReadModel Entry) : ISocketPayload;
 

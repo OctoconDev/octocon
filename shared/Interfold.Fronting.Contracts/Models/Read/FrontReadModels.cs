@@ -1,6 +1,8 @@
+using Interfold.Alters.Contracts.Models;
+using Interfold.Fronting.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Fronting.Contracts.Models.Read;
 
 public sealed record FrontActiveReadModel(
     BareAlter Alter,

@@ -1,4 +1,4 @@
-using Interfold.AppHostGraph;
+using Interfold.AppHost;
 
 var builder = DistributedApplication.CreateBuilder(args);
 InterfoldAppHost.Configure(builder);

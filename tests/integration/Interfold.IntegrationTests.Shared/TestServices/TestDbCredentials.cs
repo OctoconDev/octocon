@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace Interfold.IntegrationTests.TestServices;
+namespace Interfold.IntegrationTests.Shared.TestServices;
 
 /// <summary>
 /// Deterministic credentials shared by the consolidated <see cref="SharedDbFixture"/> and

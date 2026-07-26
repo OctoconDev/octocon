@@ -1,5 +1,5 @@
-using Interfold.Api.Socket;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Socket.Api.Socket;
 
 namespace Interfold.Api.UnitTests.Socket;
 

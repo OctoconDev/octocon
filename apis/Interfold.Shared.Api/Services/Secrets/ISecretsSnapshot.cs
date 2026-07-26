@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Secrets;
 
-namespace Interfold.Api.Services.Secrets;
+namespace Interfold.Shared.Api.Services.Secrets;
 
 /// <summary>Synchronous read-only view over the <see cref="ISecretsStore"/> rows the API's
 /// <see cref="Microsoft.Extensions.Options.IPostConfigureOptions{TOptions}"/> patchers

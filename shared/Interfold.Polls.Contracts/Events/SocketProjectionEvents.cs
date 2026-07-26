@@ -1,6 +1,8 @@
+using Interfold.Polls.Contracts.Ids;
+using Interfold.Shared.Contracts.Events;
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Events;
+namespace Interfold.Polls.Contracts.Events;
 
 public sealed record PollCreatedEvent(ScopedSystemId TargetSystemId, PollId PollId) : ITargetedClusterEvent;
 

@@ -5,8 +5,6 @@ using System.Text.Json.Nodes;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
-using DotNet.Testcontainers.Images;
-using TUnit.Assertions;
 using TUnit.Core.Interfaces;
 
 namespace Interfold.Bootstrapper.IntegrationTests.Fixtures;

@@ -2,7 +2,7 @@ using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Friendships.Contracts.Models.Read;
 
 // DiscordId here is the friend's real linked Discord id from the users table (exposed to
 // friends over the wire); the raw-string converter keeps the body shape unchanged.

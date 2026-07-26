@@ -1,29 +1,32 @@
-using Microsoft.AspNetCore.Mvc;
-using System.Security.Cryptography;
+using System.Net;
 using System.Text;
 using System.Text.Json;
-using Interfold.Api.Helpers;
-using Interfold.Api.Models;
-using Interfold.Api.Services;
-using Interfold.Api.Services.Export;
+using Interfold.Auth.Contracts.Configuration;
+using Interfold.Settings.Api.Helpers;
+using Interfold.Settings.Api.Services.Export;
+using Interfold.Settings.Contracts;
+using Interfold.Settings.Contracts.Configuration;
+using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Contracts.Models.Commands;
+using Interfold.Settings.Contracts.Models.Read;
+using Interfold.Settings.Contracts.Models.Wire;
+using Interfold.Settings.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain.Accounts;
+using Interfold.Settings.Domain.Settings;
+using Interfold.Shared.Api.Controllers.Base;
+using Interfold.Shared.Api.Models;
+using Interfold.Shared.Api.Services;
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
-using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Commands;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.Repository;
-using Interfold.Shared.Domain.Accounts;
-using Interfold.Shared.Domain.Settings;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using Interfold.Api.Controllers.Base;
-using System.Net;
 
-namespace Interfold.Api.Controllers;
+namespace Interfold.Settings.Api.Controllers;
 
 [Route("api/settings")]
 public sealed class SettingsController : InterfoldControllerBase

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Interfold.IntegrationTests.Models;
+namespace Interfold.IntegrationTests.Shared.Models;
 
 /// <summary>
 /// A replay trace is a JSON file containing a sequence of <see cref="ReplayStep"/>s.

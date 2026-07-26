@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
-namespace Interfold.Api.Models;
+namespace Interfold.Shared.Api.Models;
 
 /// <summary>Validated Unix-seconds anchor for fronting history endpoints. Combines
 /// long parse + <see cref="DateTimeOffset.FromUnixTimeSeconds"/> range check.

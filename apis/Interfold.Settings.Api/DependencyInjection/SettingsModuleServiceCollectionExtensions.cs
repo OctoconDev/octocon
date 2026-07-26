@@ -1,14 +1,14 @@
-using Interfold.Api.Services;
-using Interfold.Api.Services.Export;
-using Interfold.Api.Services.Http;
-using Interfold.Api.Services.ImportJobs;
-using Interfold.Api.Services.Secrets;
+using Interfold.Settings.Api.Services.Export;
+using Interfold.Settings.Api.Services.Http;
+using Interfold.Settings.Api.Services.ImportJobs;
+using Interfold.Settings.Api.Services.Secrets;
+using Interfold.Settings.Api.Services.SimplyPlural;
+using Interfold.Settings.Contracts.Configuration;
+using Interfold.Settings.Domain.Abstractions;
+using Interfold.Settings.Domain.Abstractions.ImportJobs;
+using Interfold.Settings.Domain.Accounts;
+using Interfold.Settings.Domain.Settings;
 using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Configuration;
-using Interfold.Shared.Domain.Abstractions;
-using Interfold.Shared.Domain.Abstractions.ImportJobs;
-using Interfold.Shared.Domain.Accounts;
-using Interfold.Shared.Domain.Settings;
 using Microsoft.Extensions.Options;
 
 namespace Interfold.Settings.Api.DependencyInjection;

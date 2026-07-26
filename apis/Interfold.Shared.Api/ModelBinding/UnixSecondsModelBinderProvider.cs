@@ -1,8 +1,8 @@
-using Interfold.Api.Models;
+using Interfold.Shared.Api.Models;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
 
-namespace Interfold.Api.ModelBinding;
+namespace Interfold.Shared.Api.ModelBinding;
 
 /// <summary>
 /// Wires <see cref="UnixSecondsModelBinder"/> into the MVC binder pipeline for

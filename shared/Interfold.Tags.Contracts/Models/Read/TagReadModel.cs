@@ -1,8 +1,10 @@
+using Interfold.Alters.Contracts.Models;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Validation;
+using Interfold.Tags.Contracts.Ids;
 
-namespace Interfold.Shared.Contracts.Models.Read;
+namespace Interfold.Tags.Contracts.Models.Read;
 
 public sealed record TagReadModel(
     TagId Id,

@@ -1,6 +1,6 @@
 using Interfold.Shared.Contracts.Ids;
 
-namespace Interfold.Shared.Domain;
+namespace Interfold.Friendships.Domain;
 
 // Canonicalise a friendship candidate id into the principal's region so downstream
 // publishers, routers, and repos all see byte-identical scoped ids.

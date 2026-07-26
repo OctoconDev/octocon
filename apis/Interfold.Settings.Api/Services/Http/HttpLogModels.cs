@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace Interfold.Api.Services.Http;
+namespace Interfold.Settings.Api.Services.Http;
 
 internal sealed class RequestMeta
 {

@@ -1,12 +1,12 @@
-using Interfold.Shared.Contracts;
-using Interfold.Shared.Contracts.Enums;
+using Interfold.Friendships.Contracts;
+using Interfold.Friendships.Contracts.Enums;
+using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
-using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Contracts.Operations;
 using Interfold.Shared.Domain.Abstractions;
 
-namespace Interfold.Shared.Domain.Friendships;
+namespace Interfold.Friendships.Domain;
 
 internal static class FriendshipCommandFlow
 {
