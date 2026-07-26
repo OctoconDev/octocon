@@ -52,7 +52,10 @@ public sealed class AlterReadModel : BareAlter {
         string? alias,
         bool? untracked,
         bool? archived,
-        bool? pinned) : base(id, name, avatarUrl, avatarSource, color, pronouns, description, fields)
+        bool? pinned,
+        IReadOnlyList<string>? discordProxies = null,
+        DateTime insertedAt = default,
+        DateTime updatedAt = default) : base(id, name, avatarUrl, avatarSource, color, pronouns, description, fields)
     {
         Alias = alias;
         SecurityLevel = securityLevel;
@@ -60,6 +63,9 @@ public sealed class AlterReadModel : BareAlter {
         Untracked = untracked ?? false;
         Archived = archived ?? false;
         Pinned = pinned ?? false;
+        DiscordProxies = discordProxies ?? System.Array.Empty<string>();
+        InsertedAt = insertedAt;
+        UpdatedAt = updatedAt;
     }
 
     // The 14-arg ctor above takes `bool?` for the flag trio so the CQL projections in
@@ -85,8 +91,11 @@ public sealed class AlterReadModel : BareAlter {
         string? alias,
         bool untracked,
         bool archived,
-        bool pinned)
-        : this(id, name, description, avatarUrl, avatarSource, color, pronouns, securityLevel, fields, proxyName, alias, (bool?)untracked, (bool?)archived, (bool?)pinned)
+        bool pinned,
+        IReadOnlyList<string>? discordProxies,
+        DateTime insertedAt,
+        DateTime updatedAt)
+        : this(id, name, description, avatarUrl, avatarSource, color, pronouns, securityLevel, fields, proxyName, alias, (bool?)untracked, (bool?)archived, (bool?)pinned, discordProxies, insertedAt, updatedAt)
     {
     }
 
@@ -96,4 +105,7 @@ public sealed class AlterReadModel : BareAlter {
     public bool Untracked { get; set; }
     public bool Archived { get; set; }
     public bool Pinned { get; set; }
+    public IReadOnlyList<string> DiscordProxies { get; set; }
+    public DateTime InsertedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }

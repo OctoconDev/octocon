@@ -1,4 +1,5 @@
 using Interfold.Api.Services;
+using Interfold.Api.Services.Export;
 using Interfold.Api.Services.Http;
 using Interfold.Api.Services.ImportJobs;
 using Interfold.Api.Services.Secrets;
@@ -68,6 +69,7 @@ public static class SettingsModuleServiceCollectionExtensions
         services.AddSingleton<IImportJobRunner, SpImportJobRunner>();
         services.AddSingleton<IImportJobRunner, PkImportJobRunner>();
         services.AddHostedService<ImportJobBackgroundService>();
+        services.AddSingleton<IExportService, ExportService>();
 
         return services;
     }

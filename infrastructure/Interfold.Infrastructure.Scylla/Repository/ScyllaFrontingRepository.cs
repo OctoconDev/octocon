@@ -284,6 +284,29 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<FrontHistoryReadModel>> ListAllAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        return await _scopeResolver.ExecuteAsync(systemId, async scope =>
+        {
+            var (session, keyspace, normalizedSystemId) = scope;
+
+            // Base `fronts` partition key = user_id → no ALLOW FILTERING needed. Corrupt rows
+            // (null time_start) fall through the row-mapper's DateTimeOffset.UtcNow fallback;
+            // drop them here before they leak into export output.
+            var query = new SimpleStatement(
+                $"SELECT id, alter_id, comment, time_start, time_end FROM {keyspace}.fronts WHERE user_id = ?",
+                normalizedSystemId);
+
+            var rows = await session.ExecuteAsync(query);
+            return (IReadOnlyList<FrontHistoryReadModel>)rows
+                .Where(row => row.GetValue<DateTimeOffset?>("time_start") is not null)
+                .Select(row => FrontingRowMappers.MapFrontHistoryReadModel(row, new(normalizedSystemId), row.GetValue<DateTimeOffset?>("time_end")))
+                .DistinctBy(x => x.Id)
+                .OrderByDescending(x => x.TimeStart)
+                .ToArray();
+        }, cancellationToken);
+    }
+
     public async Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
         return await _scopeResolver.ExecuteAsync(systemId, async scope =>

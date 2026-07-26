@@ -26,6 +26,7 @@ public static class OperationIds
     public static readonly OperationId SettingsFieldUpdate = new("cmd.settings.field.update");
     public static readonly OperationId SettingsFieldDelete = new("cmd.settings.field.delete");
     public static readonly OperationId SettingsFieldRelocate = new("cmd.settings.field.relocate");
+    public static readonly OperationId SettingsExport = new("qry.settings.export");
 
     public static readonly OperationId QueryFrontMonth = new("qry.front.month");
     public static readonly OperationId QueryFrontBetween = new("qry.front.between");

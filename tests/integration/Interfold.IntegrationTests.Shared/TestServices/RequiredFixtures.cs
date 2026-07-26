@@ -16,12 +16,10 @@ public static class RequiredFixtures
 
     public static bool NeedCassandra => Has<CassandraWebFactoryFixture>();
 
-    // MultiNodeScyllaFixture lives in Interfold.Infrastructure.IntegrationTests since the
-    // Phase-6 split, so we can't hold a typeof() reference to it from Shared without a
-    // circular ref. HostAioPrerequisite still needs to know when the multi-node cluster is
-    // scheduled to bump fs.aio-max-nr, so probe by unqualified type name against the same
-    // discovered set. Any fixture named "MultiNodeScyllaFixture" that passes through
-    // discovery matches — there is exactly one in the tree.
+    // MultiNodeScyllaFixture lives in a sibling test assembly, so a typeof() reference from
+    // Shared would form a project cycle. HostAioPrerequisite still needs to know when the
+    // multi-node cluster is scheduled (so it can bump fs.aio-max-nr), so probe by unqualified
+    // type name against the same discovered set — there is exactly one in the tree.
     public static bool NeedMultiNodeScylla => HasByName("MultiNodeScyllaFixture");
 
     private static bool HasByName(string simpleName)
@@ -79,11 +77,9 @@ public static class RequiredFixtures
                 return;
             }
 
-            // Defensive fallback: the scheduled-test contexts weren't populated, so fall back
-            // to the legacy assembly walk. This keeps SharedDbFixture from silently running
-            // with the wrong toggles if we end up on a TUnit version that changes the
-            // discovery lifecycle. The over-eagerness only manifests under filtering, and is
-            // exactly the behavior we used to ship.
+            // Fallback: scheduled-test contexts weren't populated (e.g. a future TUnit release
+            // reshuffles the discovery lifecycle). Walk the full assembly so filter-only runs
+            // never miss a needed fixture; the over-eagerness only manifests under filtering.
             DiscoverViaAssemblyWalk();
             _populated = true;
         }
@@ -101,8 +97,7 @@ public static class RequiredFixtures
             return null;
         }
 
-        // Materialise once so multiple Linq passes don't re-enumerate the underlying TUnit
-        // collection (it isn't documented as multi-iteration safe).
+        // Materialise once — TUnit's AllTests collection isn't documented as multi-iteration safe.
         var snapshot = allTests as IReadOnlyCollection<TestContext> ?? allTests.ToArray();
         if (snapshot.Count == 0)
         {
@@ -114,7 +109,6 @@ public static class RequiredFixtures
         var classTypes = new HashSet<Type>();
         foreach (var test in snapshot)
         {
-            // TestContext exposes test details via Metadata.TestDetails per TUnit.Core 1.56.
             var classType = test.Metadata.TestDetails.ClassType;
             if (classType is not null)
             {

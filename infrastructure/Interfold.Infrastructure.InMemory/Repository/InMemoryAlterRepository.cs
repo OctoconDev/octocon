@@ -32,6 +32,9 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         public bool Untracked { get; set; }
         public bool Archived { get; set; }
         public bool Pinned { get; set; }
+        public List<string> DiscordProxies { get; } = new();
+        public DateTime InsertedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
     }
 
     private readonly IRegionContext _regionContext;
@@ -67,10 +70,13 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         var store = _bySystem.GetOrAdd(systemKey, _ => new ConcurrentDictionary<AlterId, AlterState>());
         AlterId next = new(_nextIdBySystem.AddOrUpdate(systemKey, (short)1, (_, current) => checked((short)(current + 1))));
 
+        var now = command.CreatedAt.UtcDateTime;
         var created = store.TryAdd(next, new AlterState
         {
             AlterId = next,
-            Name = command.Name
+            Name = command.Name,
+            InsertedAt = now,
+            UpdatedAt = now,
         });
 
         return Task.FromResult<AlterId?>(created ? next : null);
@@ -163,6 +169,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             existing.Pinned = command.Pinned.Value;
         }
 
+        existing.UpdatedAt = command.UpdatedAt.UtcDateTime;
         return Task.FromResult(true);
     }
 
@@ -345,7 +352,10 @@ public sealed class InMemoryAlterRepository : IAlterRepository
             alter.Alias,
             alter.Untracked,
             alter.Archived,
-            alter.Pinned);
+            alter.Pinned,
+            alter.DiscordProxies.ToArray(),
+            alter.InsertedAt,
+            alter.UpdatedAt);
     }
 
     // Short-circuits when _settingsFields is null so the shared helper keeps a non-null repo contract.

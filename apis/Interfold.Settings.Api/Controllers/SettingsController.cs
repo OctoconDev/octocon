@@ -5,6 +5,7 @@ using System.Text.Json;
 using Interfold.Api.Helpers;
 using Interfold.Api.Models;
 using Interfold.Api.Services;
+using Interfold.Api.Services.Export;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
@@ -55,6 +56,7 @@ public sealed class SettingsController : InterfoldControllerBase
     private readonly DeleteFieldCommandHandler _deleteFieldHandler;
     private readonly RelocateFieldCommandHandler _relocateFieldHandler;
     private readonly CreateLinkTokenCommandHandler _createLinkTokenHandler;
+    private readonly IExportService _exportService;
 
     public SettingsController(
         IAccountRepository accountRepository,
@@ -83,7 +85,8 @@ public sealed class SettingsController : InterfoldControllerBase
         RelocateFieldCommandHandler relocateFieldHandler,
         IOptionsMonitor<AuthenticationConfiguration> authenticationConfiguration,
         IOptionsMonitor<FirebaseClientConfiguration> firebaseClientConfiguration,
-        CreateLinkTokenCommandHandler createLinkTokenHandler)
+        CreateLinkTokenCommandHandler createLinkTokenHandler,
+        IExportService exportService)
     {
         _accountRepository = accountRepository;
         _singletonTaskOwner = singletonTaskOwner;
@@ -112,6 +115,36 @@ public sealed class SettingsController : InterfoldControllerBase
         _createLinkTokenHandler = createLinkTokenHandler;
         _authenticationConfiguration = authenticationConfiguration;
         _firebaseClientConfiguration = firebaseClientConfiguration;
+        _exportService = exportService;
+    }
+
+    /// <summary>
+    /// Downloads the authenticated user's export in either PluralKit v2 importable form
+    /// (<c>?format=pk</c>) or the full-fidelity Octocon backup (<c>?format=full</c>).
+    /// </summary>
+    /// <remarks>
+    /// Response body is the raw JSON payload at the root, allowing PluralKit users to save the file and feed it directly to PK's
+    /// importer. Missing or unrecognised <c>?format</c> returns 400 with
+    /// <see cref="ErrorCodes.InvalidExportFormat"/>.
+    /// </remarks>
+    [HttpGet("export")]
+    public async Task<IActionResult> Export([FromQuery] ExportFormat? format, CancellationToken ct)
+    {
+        if (format is not { } fmt)
+        {
+            return BadRequest(new ErrorResponse("Invalid export format.", ErrorCodes.InvalidExportFormat, HttpStatusCode.BadRequest));
+        }
+
+        var payload = fmt switch
+        {
+            ExportFormat.Pk => (object)await _exportService.BuildPkAsync(PrincipalId, ct),
+            ExportFormat.Full => await _exportService.BuildFullAsync(PrincipalId, ct),
+            _ => throw new InvalidOperationException($"Unhandled ExportFormat: {fmt}"),
+        };
+
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, payload.GetType(), ExportJsonOptions.Default);
+        var wire = EnumWire<ExportFormat>.ToWire(fmt);
+        return File(bytes, "application/json", $"octocon_export_{wire}.json");
     }
 
     [HttpGet("link_token")]

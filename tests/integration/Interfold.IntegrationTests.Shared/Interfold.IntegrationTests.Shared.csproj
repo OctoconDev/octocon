@@ -1,9 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Shared plumbing consumed by every per-feature Interfold.<Feature>.IntegrationTests and
-       by Interfold.Infrastructure.IntegrationTests. Owns BaseEndpointTest, the WebFactoryFixture
-       triad, TestServices/, ReplayParityTests, and the Fixtures/*.trace.json corpus. Reaches
-       internals of Interfold.Infrastructure / Interfold.Infrastructure.Scylla / Interfold.Shared.Api
-       / Interfold.Api.Host via matching InternalsVisibleTo grants in each of those csprojs. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
@@ -18,9 +13,8 @@
     <PackageReference Include="TUnit.Aspire" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
-    <!-- see the retired Interfold.IntegrationTests.csproj: DbInitHelper drives Postgres +
-         Scylla directly, so the drivers must be visible at the test-project level even
-         though they are transitively available via Interfold.Infrastructure. -->
+    <!-- Direct refs (not just transitive via Interfold.Infrastructure): DbInitHelper drives
+         Postgres + Scylla straight from the test project and needs the drivers at test scope. -->
     <PackageReference Include="Npgsql" />
     <PackageReference Include="CassandraCSharpDriver" />
   </ItemGroup>

@@ -2,13 +2,12 @@ using System.Diagnostics.Metrics;
 
 namespace Interfold.Shared.Domain.Observability;
 
-// Mirror of the guarded-family instruments declared in Interfold.Api.Helpers.InterfoldMetrics.
-// Domain and Infrastructure layers can't reach the Api project (would create a
-// reference cycle), so the physical instrument definitions are duplicated here on
-// the same "Interfold.Api" meter name. OpenTelemetry aggregates identically-named
-// instrument samples by (meter, name, tags) at export time, so callers get a single
-// time-series regardless of which side bumped it. Consolidates to a single source
-// during feature-module-split Phase 1 (see docs/active/feature-module-split.md).
+// Mirror of the guarded-family instruments also declared on the "Interfold.Api" meter by
+// Interfold.Api.Helpers.InterfoldMetrics (in the Interfold.Shared.Api project). Domain and
+// Infrastructure can't reference Shared.Api without forming a cycle, so the physical instrument
+// declarations are duplicated here on the same meter name. OpenTelemetry aggregates by
+// (meter, name, tags) at export, so a single time-series flows out regardless of which side
+// bumps it.
 public static class GuardedMetrics
 {
     private static readonly Meter Meter = new("Interfold.Api", "1.0");

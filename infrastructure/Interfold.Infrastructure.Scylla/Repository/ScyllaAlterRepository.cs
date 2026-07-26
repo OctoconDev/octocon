@@ -383,7 +383,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             EnsureAlterFieldUdtMapping(session, keyspace);
 
             var query = new SimpleStatement(
-                $"SELECT id, name, alias, fields, security_level, color, pronouns, avatar_url, avatar_source, pinned, archived, untracked, description, proxy_name FROM {keyspace}.alters WHERE user_id = ?",
+                $"SELECT id, name, alias, fields, security_level, color, pronouns, avatar_url, avatar_source, pinned, archived, untracked, description, proxy_name, discord_proxies, inserted_at, updated_at FROM {keyspace}.alters WHERE user_id = ?",
                 normalizedSystemId
             );
 
@@ -437,7 +437,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             EnsureAlterFieldUdtMapping(session, keyspace);
 
             var query = new SimpleStatement(
-                $"SELECT id, name, alias, fields, security_level, color, pronouns, avatar_url, avatar_source, pinned, archived, untracked, description, proxy_name FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
+                $"SELECT id, name, alias, fields, security_level, color, pronouns, avatar_url, avatar_source, pinned, archived, untracked, description, proxy_name, discord_proxies, inserted_at, updated_at FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
                 normalizedSystemId,
                 alterId.Value
             );

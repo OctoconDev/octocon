@@ -27,6 +27,12 @@ public interface IFrontingRepository
         DateTimeOffset endInclusive,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Every front on record for <paramref name="systemId"/>, open + closed, ordered
+    /// by <c>time_start</c> descending. Rows with a null <c>time_start</c> are dropped —
+    /// export path only surfaces populated rows (mirrors accounts.ex:1215's filter). Bypasses
+    /// the <c>fronts_by_time</c> denormalisation because it's only populated on close.</summary>
+    Task<IReadOnlyList<FrontHistoryReadModel>> ListAllAsync(SystemId systemId, CancellationToken cancellationToken = default);
+
     Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default);
 
     Task<FrontHistoryReadModel?> GetHistoryEntryByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default);

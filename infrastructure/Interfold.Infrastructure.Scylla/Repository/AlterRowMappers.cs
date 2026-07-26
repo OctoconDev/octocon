@@ -43,7 +43,10 @@ internal static class AlterRowMappers
             row.GetValue<string?>("alias"),
             row.GetValue<bool?>("untracked"),
             row.GetValue<bool?>("archived"),
-            row.GetValue<bool?>("pinned")
+            row.GetValue<bool?>("pinned"),
+            row.GetValue<IEnumerable<string>?>("discord_proxies")?.ToArray() ?? System.Array.Empty<string>(),
+            row.GetValue<DateTime?>("inserted_at") ?? default,
+            row.GetValue<DateTime?>("updated_at") ?? default
         );
     }
 }

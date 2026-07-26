@@ -236,6 +236,26 @@ public sealed class InMemoryFrontingRepository : IFrontingRepository
         }
     }
 
+    public Task<IReadOnlyList<FrontHistoryReadModel>> ListAllAsync(SystemId systemId, CancellationToken cancellationToken = default)
+    {
+        var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
+
+        lock (_sync)
+        {
+            if (!TryGetHistory(systemKey, out var history))
+            {
+                return Task.FromResult<IReadOnlyList<FrontHistoryReadModel>>(Array.Empty<FrontHistoryReadModel>());
+            }
+
+            var results = history
+                .OrderByDescending(x => x.StartedAt)
+                .Select(x => new FrontHistoryReadModel(x.FrontId, x.AlterId, x.Comment, x.StartedAt, x.EndedAt, systemId))
+                .ToArray();
+
+            return Task.FromResult<IReadOnlyList<FrontHistoryReadModel>>(results);
+        }
+    }
+
     public Task<FrontActiveReadModel?> GetActiveByFrontIdAsync(SystemId systemId, FrontId frontId, CancellationToken cancellationToken = default)
     {
         var systemKey = InMemoryStorageKeys.ForSystem(_regionContext, systemId);
