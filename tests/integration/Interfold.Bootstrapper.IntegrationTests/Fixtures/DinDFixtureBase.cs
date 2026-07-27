@@ -410,7 +410,7 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
         throw new TimeoutException("Inner dockerd inside the DinD fixture failed to become ready within 60 seconds.");
     }
 
-    private static string FixturesDir => Path.Combine(AppContext.BaseDirectory, "fixtures");
+    private static string FixturesDir => Path.Combine(AppContext.BaseDirectory, "Fixtures");
 
     private static string SupportFilesHostPath()
     {
