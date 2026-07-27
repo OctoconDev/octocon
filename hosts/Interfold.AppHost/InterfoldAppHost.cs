@@ -1,4 +1,5 @@
 using Aspire.Hosting.Docker.Resources.ComposeNodes;
+using Interfold.AppHost.DevSeed;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.DependencyInjection;
@@ -162,7 +163,13 @@ public static class InterfoldAppHost
         var scyllaPassword = builder.AddParameter(ParamName(AppHostParameterKeys.ScyllaPassword), secret: true);
         // The <user>_admin superuser is minted by DatabaseInitPhase into internal.secrets and
         // is never surfaced here.
-        var encryptionPrivateKey = builder.AddParameter(ParamName(AppHostParameterKeys.EncryptionPrivateKey), secret: true);
+        // GenerateParameterDefault covers the dev `aspire run` case (bootstrapper always injects
+        // a real PEM in publish mode, config wins over the default). The generated value is a
+        // random alphanumeric string — RecoveryCodeResolver.TryLoadEncryptionPrivateKey checks
+        // for "BEGIN" and short-circuits, so JWE-encrypted recovery codes silently 400 in dev.
+        // That's the accepted trade-off for the no-config F5 target.
+        var encryptionPrivateKey = builder.AddParameter(ParamName(AppHostParameterKeys.EncryptionPrivateKey),
+            new GenerateParameterDefault { MinLength = 32 }, secret: true, persist: true);
 
         // Public OAuth client IDs — empty default disables the corresponding provider (see
         // OAuthChallengeServiceCollectionExtensions). Attached to the container path only so
@@ -419,9 +426,25 @@ public static class InterfoldAppHost
             cqlEndpointOwners.Add(cassandra);
         }
 
-        // DatabaseInitPhase (bootstrapper, not compose) owns the admin/seed work: by
-        // `docker compose up` time the app user is DML-only, <user>_admin exists, and
-        // internal.secrets is populated. Only the app user's creds appear in the compose graph.
+        // Seed ownership by mode:
+        //  - Publish: DatabaseInitPhase in the bootstrapper (docker compose exec).
+        //  - Tests (include-api=false): SharedDbFixture drives DbInitHelper directly.
+        //  - RunMode dev (include-api=true): DevSeedHostedService, wired below.
+        // First cqlEndpointOwners entry is scylla node 0 in the default flow, cassandra when
+        // the user picked the cassandra launch profile; mixed scylla+cassandra is test-only
+        // so we only ever seed one backend.
+        IResourceBuilder<DevSeedResource>? devSeedResource = null;
+        if (!builder.ExecutionContext.IsPublishMode && includeApi && includePostgres)
+        {
+            var firstCqlBackend = cqlEndpointOwners.Count > 0 ? cqlEndpointOwners[0] : null;
+            // Aspire persists GenerateParameterDefault outputs to user-secrets, but only
+            // after Build() completes — on first run IConfiguration doesn't yet see them.
+            // Threading the ParameterResource lets the hosted service read the effective
+            // value via GetValueAsync in both first-run and subsequent-run cases.
+            devSeedResource = builder.AddDevSeedPipeline(
+                msgDb!, firstCqlBackend,
+                postgresInitPassword, postgresPassword, scyllaPassword);
+        }
 
         // Interfold API: pre-built image for self-hosting (Parameters:api-image), csproj build
         // for dev (`aspire run`).
@@ -438,6 +461,23 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.PostgresConnection,
                        ReferenceExpression.Create($"Host={pgEndpoint.Property(EndpointProperty.Host)};Port={pgEndpoint.Property(EndpointProperty.Port)};Database={postgresDb};Username={postgresUser};Password={postgresPassword}"))
                    .WithEnvironment(ContainerEnvNames.EncryptionPrivateKey, encryptionPrivateKey);
+            }
+
+            // Dev-project path only. ConfigureApiSelfHostEnv covers the container path via the
+            // operator-provided Parameters:jwt-authority etc.; the dev path has no operator so
+            // we stamp localhost-derived defaults driven by the AppHost's own port allocation.
+            // Empty CORS falls back to "any origin" in the API — noisy in browser devtools but
+            // functional; we still narrow it here so socket + fetch calls behave the same as prod.
+            void ConfigureApiDevEnv(IResourceBuilder<IResourceWithEnvironment> api)
+            {
+                var apiHttpsUrl = $"https://localhost:{apiHttpsPort}";
+                var webOrigins =
+                    $"https://localhost:{webHttpsPort},http://localhost:{webHttpPort}";
+                api.WithEnvironment(OctoconEnvKeys.JwtAuthority, apiHttpsUrl)
+                   .WithEnvironment(OctoconEnvKeys.JwtAudience, "octocon")
+                   .WithEnvironment(OctoconEnvKeys.AuthCallbackBaseUrl, apiHttpsUrl)
+                   .WithEnvironment(OctoconEnvKeys.CorsAllowedOrigins, webOrigins)
+                   .WithEnvironment(OctoconEnvKeys.ScyllaKeyspace, ScyllaKeyspace.Nam.ToWire());
             }
 
             // Self-hosting only. Bind-mounts /certs (root CA + leaf PFX from CertificatePhase)
@@ -515,6 +555,10 @@ public static class InterfoldAppHost
                 ConfigureApiSelfHostEnv(apiContainer);
                 foreach (var owner in cqlEndpointOwners)
                     apiContainer.WaitFor(owner);
+                // Symmetry with the AddProject branch — bootstrapper's publish never sees
+                // devSeedResource so this is a no-op in publish mode.
+                if (devSeedResource is not null)
+                    apiContainer.WaitFor(devSeedResource);
             }
             else
             {
@@ -526,8 +570,11 @@ public static class InterfoldAppHost
                     .WaitFor(msgDbResource)
                     .PublishAsDockerComposeService(ApiComposeServicePublisher(apiContainerHttpPort));
                 ConfigureApiCommon(apiProject);
+                ConfigureApiDevEnv(apiProject);
                 foreach (var owner in cqlEndpointOwners)
                     apiProject.WaitFor(owner);
+                if (devSeedResource is not null)
+                    apiProject.WaitFor(devSeedResource);
             }
         }
 

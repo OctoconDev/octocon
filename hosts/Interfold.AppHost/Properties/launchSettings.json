@@ -11,7 +11,9 @@
         "DOTNET_ENVIRONMENT": "Development",
         "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21246",
         "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22223",
-        "Parameters__scylla-mode": "single",
+        "Parameters__include-scylla": "true",
+        "Parameters__include-cassandra": "false",
+        "Parameters__scylla-topology": "single",
         "Parameters__include-web": "true"
       }
     },
@@ -25,7 +27,9 @@
         "DOTNET_ENVIRONMENT": "Development",
         "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21246",
         "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22223",
-        "Parameters__scylla-mode": "multi",
+        "Parameters__include-scylla": "true",
+        "Parameters__include-cassandra": "false",
+        "Parameters__scylla-topology": "multi",
         "Parameters__include-web": "true"
       }
     },
@@ -39,21 +43,8 @@
         "DOTNET_ENVIRONMENT": "Development",
         "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21246",
         "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22223",
-        "Parameters__scylla-mode": "cassandra",
-        "Parameters__include-web": "true"
-      }
-    },
-    "memory": {
-      "commandName": "Project",
-      "dotnetRunMessages": true,
-      "launchBrowser": true,
-      "applicationUrl": "https://localhost:17182;http://localhost:15277",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "DOTNET_ENVIRONMENT": "Development",
-        "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21246",
-        "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22223",
-        "Parameters__scylla-mode": "inmemory",
+        "Parameters__include-scylla": "false",
+        "Parameters__include-cassandra": "true",
         "Parameters__include-web": "true"
       }
     }

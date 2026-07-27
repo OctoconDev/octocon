@@ -1,14 +1,14 @@
 using System.Text;
 using Cassandra;
-using Interfold.DatabaseBootstrap;
 using ISession = Cassandra.ISession;
 
-namespace Interfold.IntegrationTests.Shared.TestServices;
+namespace Interfold.DatabaseBootstrap;
 
 /// <summary>
 /// <see cref="IScyllaExecutor"/> implementation that talks to Scylla/Cassandra in-process
-/// via the DataStax driver. Used by the TUnit.Aspire fixtures alongside
-/// <see cref="NpgsqlPostgresExecutor"/>.
+/// via the DataStax driver. Consumed by the TUnit.Aspire fixtures alongside
+/// <see cref="NpgsqlPostgresExecutor"/> and by the dev-mode seed hosted service in
+/// <c>Interfold.AppHost</c>.
 /// </summary>
 /// <remarks>
 /// Each call builds a single-use <see cref="Cluster"/> + <see cref="ISession"/> because the
@@ -17,7 +17,7 @@ namespace Interfold.IntegrationTests.Shared.TestServices;
 /// nothing leaks across test cases. Tests run on a single host:port pair so the cluster cost
 /// is dwarfed by the seed work itself.
 /// </remarks>
-internal sealed class DataStaxScyllaExecutor(string host, int port) : IScyllaExecutor
+public sealed class DataStaxScyllaExecutor(string host, int port) : IScyllaExecutor
 {
     public async Task ExecCqlAsync(string user, string password, string cql, CancellationToken ct)
     {

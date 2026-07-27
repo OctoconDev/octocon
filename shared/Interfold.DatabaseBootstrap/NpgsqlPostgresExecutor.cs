@@ -1,13 +1,12 @@
-using Interfold.DatabaseBootstrap;
 using Npgsql;
 
-namespace Interfold.IntegrationTests.Shared.TestServices;
+namespace Interfold.DatabaseBootstrap;
 
 /// <summary>
 /// <see cref="IPostgresExecutor"/> implementation that talks to Postgres in-process via
-/// <see cref="NpgsqlConnection"/>. Used by the TUnit.Aspire fixtures (single-node Scylla,
-/// multi-node Scylla, Cassandra) once they've waited for the <c>msg-db</c> resource to come
-/// up. The bootstrapper uses a different implementation
+/// <see cref="NpgsqlConnection"/>. Consumed by the TUnit.Aspire fixtures (single-node
+/// Scylla, multi-node Scylla, Cassandra) and by the dev-mode seed hosted service in
+/// <c>Interfold.AppHost</c>. The bootstrapper uses a different implementation
 /// (<c>ComposeExecPostgresExecutor</c>) that shells out to <c>docker compose exec</c>.
 /// </summary>
 /// <remarks>
@@ -25,7 +24,7 @@ namespace Interfold.IntegrationTests.Shared.TestServices;
 /// SQL are untouched.
 /// </para>
 /// </remarks>
-internal sealed class NpgsqlPostgresExecutor(string baseConnectionString) : IPostgresExecutor
+public sealed class NpgsqlPostgresExecutor(string baseConnectionString) : IPostgresExecutor
 {
     public Task ExecScriptAsync(string user, string password, string database, string sql, CancellationToken ct)
         => RunNonQueryAsync(user, password, database, sql, vars: null, ct);

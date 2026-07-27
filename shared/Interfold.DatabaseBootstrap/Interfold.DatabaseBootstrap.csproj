@@ -1,10 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Framework-only shared seed orchestration for Interfold.Bootstrapper and
-    Interfold.IntegrationTests. Zero PackageReferences on purpose — pulling
-    Npgsql / CassandraCSharpDriver in here would blow the trimmed-binary size
-    guardrail asserted by Interfold.Bootstrapper.UnitTests.BinarySizeGuardrailTests.
+    Shared seed orchestration + in-process driver executors for Interfold.Bootstrapper,
+    Interfold.IntegrationTests, and the dev-mode seed hosted service in Interfold.AppHost.
+    Npgsql / CassandraCSharpDriver are pulled in for NpgsqlPostgresExecutor +
+    DataStaxScyllaExecutor; the bootstrapper's own compose-exec executors don't touch
+    them. Binary-size regression guarded by
+    Interfold.Bootstrapper.UnitTests.BinarySizeGuardrailTests — the current pair adds
+    a few MiB well under the 75 MiB ceiling.
   -->
 
   <PropertyGroup>
@@ -25,6 +28,11 @@
          while sharing one source of truth for internal.secrets row keys. -->
     <Compile Include="..\Interfold.Shared.Contracts\Secrets\SecretsStoreKeys.cs"
              Link="SecretsStoreKeys.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="CassandraCSharpDriver" />
   </ItemGroup>
 
 </Project>

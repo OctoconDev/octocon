@@ -14,6 +14,11 @@
          service-name / region constants with Contracts instead of duplicating literals.
          IsAspireProjectResource=false keeps Aspire from treating it as a deployable. -->
     <ProjectReference Include="..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" IsAspireProjectResource="false" />
+    <!-- Dev-mode seed pipeline (RunMode-only, guarded by IsPublishMode). Brings in Npgsql +
+         CassandraCSharpDriver via NpgsqlPostgresExecutor / DataStaxScyllaExecutor so the
+         AppHost can run the same in-process seed the tests use. Publish mode keeps this out
+         of the emitted graph — the bootstrapper's DatabaseInitPhase owns compose-exec seeding. -->
+    <ProjectReference Include="..\..\shared\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
 
   <ItemGroup>
