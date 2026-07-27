@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Interfold.Shared.Contracts.Ids;
+namespace Interfold.Friendships.Contracts.Ids;
 
 /// <summary>Which registry lane a client-supplied friend-request handle routes to.</summary>
 public enum FriendLookupKind

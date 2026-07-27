@@ -1,6 +1,7 @@
 using Interfold.Alters.Api.DependencyInjection;
 using Interfold.Api.Host.Services.Secrets;
 using Interfold.Auth.Api.DependencyInjection;
+using Interfold.Auth.Api.Middleware;
 using Interfold.Friendships.Api.DependencyInjection;
 using Interfold.Fronting.Api.DependencyInjection;
 using Interfold.Infrastructure.DependencyInjection;

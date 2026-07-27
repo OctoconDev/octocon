@@ -29,7 +29,7 @@ public sealed class DeleteAvatarCommandHandler : IdempotentCommandHandler<Delete
         => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _accountRepository.ClearAvatarAsync(command.PrincipalId, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.AvatarDeleted),
+            SettingsAction.AvatarDeleted.ToFailedEntityRef(),
             SettingsAction.AvatarDeleted,
             ct => _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, ct),
             cancellationToken);

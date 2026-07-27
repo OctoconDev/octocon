@@ -22,6 +22,9 @@
     <ProjectReference Include="..\..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
     <ProjectReference Include="..\..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <!-- InMemoryFrontingRepository test builder wires the production
+         AlterFieldDefinitionsAdapter (Settings.Domain) instead of duplicating the filter rule. -->
+    <ProjectReference Include="..\..\..\shared\Interfold.Settings.Domain\Interfold.Settings.Domain.csproj" />
     <ProjectReference Include="..\..\..\infrastructure\Interfold.Infrastructure.InMemory\Interfold.Infrastructure.InMemory.csproj" />
     <ProjectReference Include="..\Interfold.Shared.UnitTests\Interfold.Shared.UnitTests.csproj" />
   </ItemGroup>

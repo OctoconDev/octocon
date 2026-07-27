@@ -1,4 +1,6 @@
+using System.Net;
 using Interfold.Friendships.Api.Helpers;
+using Interfold.Friendships.Contracts.Ids;
 using Interfold.Friendships.Contracts.Models.Commands;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain;
@@ -59,14 +61,13 @@ public sealed class FriendRequestsController : InterfoldControllerBase
     [HttpPut("{id}")]
     public async Task<Response> Send(FriendLookup id, CancellationToken ct)
     {
-        // Semantic self-check via the FriendLookup overload — catches the "client
-        // sent their own id" fast-path case without a repository hop. The overload
-        // fires for both Kind.Id (delegates to the SystemId primitive so raw and
-        // same-region-scoped inputs both self-reject) and Kind.Username (trivially
-        // returns false — deciding "is alice me?" requires a registry lookup, so
-        // SendFriendRequestCommandHandler's post-resolution guard takes over).
-        if (RejectIfSelf(id, "You cannot send a friend request to yourself.", ErrorCodes.CannotSendSelf) is { } reject)
-            return reject;
+        // Semantic self-check via FriendLookupExtensions.RepresentsSameUserAs — catches the
+        // "client sent their own id" fast-path case without a repository hop. Kind.Id delegates
+        // to the SystemId primitive so raw and same-region-scoped inputs both self-reject;
+        // Kind.Username trivially returns false — deciding "is alice me?" requires a registry
+        // lookup, so SendFriendRequestCommandHandler's post-resolution guard takes over.
+        if (id.RepresentsSameUserAs(PrincipalId))
+            return new ErrorResponse("You cannot send a friend request to yourself.", ErrorCodes.CannotSendSelf, HttpStatusCode.BadRequest);
 
         return await DispatchNoContentAsync(_send, OperationIds.FriendRequestSend, new SendFriendRequestCommand(id), ct);
     }

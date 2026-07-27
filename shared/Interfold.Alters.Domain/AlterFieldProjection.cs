@@ -1,15 +1,13 @@
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
-using Interfold.Shared.Domain.Abstractions.Repository;
 using Interfold.Shared.Domain.Observability;
 using Microsoft.Extensions.Logging;
 
 namespace Interfold.Alters.Domain;
 
-// Backend-agnostic helpers for guarded alter-field projection. Kept in Interfold.Alters.Domain
-// so InMemory + Scylla repos share the visibility rules and can't drift.
+// Backend-agnostic helpers for guarded alter-field projection so InMemory + Scylla repos
+// share the visibility rules and can't drift.
 public static class AlterFieldProjection
 {
     /// <summary>Guarded join: emits one <see cref="AlterPublicFieldReadModel"/> per
@@ -68,33 +66,5 @@ public static class AlterFieldProjection
                 def.Type,
                 alterFieldValues is not null && alterFieldValues.TryGetValue(def.Id, out var value) ? value : null))
             .ToArray();
-    }
-
-    /// <summary>Field-definition subset visible to the viewer at
-    /// <paramref name="friendshipLevel"/> (null = anonymous, public-only).</summary>
-    public static async Task<IReadOnlyList<SettingsFieldReadModel>> ResolveVisibleDefinitionsAsync(
-        ISettingsFieldRepository settingsFields,
-        SystemId systemId,
-        FriendshipLevel? friendshipLevel,
-        CancellationToken cancellationToken = default,
-        ILogger? logger = null)
-    {
-        try
-        {
-            var definitions = await settingsFields.ListAsync(systemId, cancellationToken).ConfigureAwait(false);
-            return definitions
-                .Where(def => def.SecurityLevel.CanBeViewedBy(friendshipLevel))
-                .ToArray();
-        }
-        catch (Exception ex)
-        {
-            GuardedMetrics.ErrorsTotal.Add(1,
-                new KeyValuePair<string, object?>("entity_type", "field"),
-                new KeyValuePair<string, object?>("exception_type", ex.GetType().Name));
-            logger?.LogError(ex,
-                "Guarded field-definition load failed: system={SystemId}, friendship_level={FriendshipLevel}",
-                systemId.Value, friendshipLevel);
-            throw;
-        }
     }
 }

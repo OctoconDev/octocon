@@ -1,3 +1,4 @@
+using Interfold.Friendships.Contracts.Ids;
 using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Friendships.Contracts.Models.Commands;

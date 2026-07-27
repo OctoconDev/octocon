@@ -4,6 +4,7 @@ using Interfold.Shared.Api.Helpers;
 using Interfold.Shared.Api.Middleware;
 using Interfold.Shared.Api.Models;
 using Interfold.Shared.Api.Services;
+using Interfold.Shared.Api.Uploads;
 using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
@@ -56,13 +57,6 @@ public abstract class InterfoldControllerBase : ControllerBase
     /// so raw and same-region-scoped shapes both self-reject with the per-op
     /// <c>Cannot*Self</c> code rather than a downstream generic error.</summary>
     protected ErrorResponse? RejectIfSelf(SystemId target, string message, ErrorCode code)
-        => PrincipalId.RepresentsSameUserAs(target)
-            ? new ErrorResponse(message, code, HttpStatusCode.BadRequest)
-            : null;
-
-    /// <summary><see cref="FriendLookup"/> overload; username-kind never self-rejects
-    /// here (registry hop needed) — the command handler's post-resolution guard covers it.</summary>
-    protected ErrorResponse? RejectIfSelf(FriendLookup target, string message, ErrorCode code)
         => PrincipalId.RepresentsSameUserAs(target)
             ? new ErrorResponse(message, code, HttpStatusCode.BadRequest)
             : null;

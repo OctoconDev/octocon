@@ -3,9 +3,11 @@ using Interfold.Shared.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 
-// Pins the RepresentsSameUserAs primitives that back the eight controller self-request
-// guards. A bare byte compare would miss the raw-id shape (/api/friends/{rawId}); these
-// tests catch that regression.
+// Pins the ScopedSystemId.RepresentsSameUserAs(SystemId) primitive that backs every
+// SystemId-typed controller self-request guard. A bare byte compare would miss the
+// raw-id shape (/api/friends/{rawId}); these tests catch that regression. The
+// FriendLookup overload's tests live in Interfold.Friendships.UnitTests alongside the
+// FriendLookupExtensions.RepresentsSameUserAs extension.
 public sealed class ScopedSystemIdRepresentsSameUserAsTests
 {
     private static readonly ScopedSystemId Principal = ScopedSystemId.Compose(ScyllaKeyspace.Nam, "abcdefg");
@@ -58,29 +60,5 @@ public sealed class ScopedSystemIdRepresentsSameUserAsTests
 
         await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
             .Because("Blank candidates cannot represent any user — the primitive must return false rather than throw so the guard is safe on defensive inputs.");
-    }
-
-    // Bare and id:-prefixed both parse as FriendLookupKind.Id and delegate through the
-    // SystemId primitive's raw-id branch.
-    [Test]
-    [Arguments("abcdefg")]
-    [Arguments("id:abcdefg")]
-    public async Task FriendLookup_IdSelf_IsSelf(string input)
-    {
-        var candidate = FriendLookup.Parse(input, provider: null);
-
-        await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsTrue()
-            .Because($"'{input}' parses as FriendLookupKind.Id whose Value equals the principal's RawId; the overload must delegate to the SystemId primitive's raw-id branch and self-reject.");
-    }
-
-    // Username shape can't self-reject without a registry hit; the downstream
-    // resolved-id self-check takes over.
-    [Test]
-    public async Task FriendLookup_UsernameShape_IsNotSelf()
-    {
-        var candidate = FriendLookup.Parse("username:alice", provider: null);
-
-        await Assert.That(Principal.RepresentsSameUserAs(candidate)).IsFalse()
-            .Because("The controller cannot decide 'is alice me?' without a registry lookup; the fast-path must return false and let the downstream resolved-id self-check take over.");
     }
 }

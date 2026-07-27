@@ -33,7 +33,7 @@ public sealed class UploadAvatarCommandHandler : IdempotentCommandHandler<Upload
         return SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _accountRepository.UpdateAvatarAsync(command.PrincipalId, command.Payload.AvatarUrl, command.Payload.Source, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.AvatarUploaded),
+            SettingsAction.AvatarUploaded.ToFailedEntityRef(),
             SettingsAction.AvatarUploaded,
             ct => _eventBus.PublishProfileUpdatedAsync(command.PrincipalId, includeUsername: false, ct),
             cancellationToken);

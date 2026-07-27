@@ -8,5 +8,8 @@
     <ProjectReference Include="..\Interfold.Tags.Contracts\Interfold.Tags.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <!-- Interfold.Tags.Domain -> Interfold.Alters.Contracts back-ref:
+         Attach/Detach + TagCommandFlow depend on IAlterExistenceCheck. -->
+    <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
   </ItemGroup>
 </Project>

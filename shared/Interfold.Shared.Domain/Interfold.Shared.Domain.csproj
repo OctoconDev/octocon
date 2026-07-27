@@ -6,22 +6,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
-    <!-- All eight Phase-3 back-refs (Alters / Auth / Tags / Polls / Friendships / Fronting /
-         Systems / Journals Contracts) dissolved with Phase-3 Settings slice #8: the settings-
-         shape command handlers + four settings-owned repository interfaces (IAccountRepository,
-         INotificationTokenRepository, IEncryptionStateRepository, IImportOperationRepository)
-         moved into Interfold.Settings.Domain, and the six peer repository interfaces
-         (IAlterRepository / ITagRepository / IPollRepository / IJournalRepository /
-         IFrontingRepository / IFriendshipRepository) relocated to their feature.Domain
-         projects. Interfold.Shared.Domain is now a pure cross-cutting-abstractions module
-         (IIdempotencyStore, ICommandHandler, IdempotentCommandHandler, IClusterEventBus,
-         IRegionContext, INodeRoleContext, IFCMService, ISingletonTaskOwner,
-         IAuthTokenRevocationRepository, ISettingsFieldRepository, ISimplyPluralImportService,
-         marker types). ISettingsFieldRepository stays here as an in-slice deviation from the
-         Settings-slice plan: it binds only spine types, and hosting it here breaks the
-         Alters.Domain <-> Settings.Domain cycle that would otherwise form
-         (AlterFieldProjection reaches it, and Settings.Domain reaches Alters.Domain for
-         IAlterRepository). -->
+    <!-- Pure cross-cutting-abstractions module: IIdempotencyStore, ICommandHandler,
+         IdempotentCommandHandler, IClusterEventBus, IRegionContext, INodeRoleContext,
+         ISingletonTaskOwner, ISimplyPluralImportService, marker types. Feature-owned
+         repositories and adapters live in their feature.Domain / feature.Contracts projects. -->
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />

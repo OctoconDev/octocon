@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Web;
+using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Auth.Contracts.Configuration;
 using Interfold.Fronting.Domain.Abstractions.Repository;
 using Interfold.Infrastructure.DependencyInjection;
@@ -11,6 +12,7 @@ using Interfold.Polls.Domain.Abstractions.Repository;
 using Interfold.Settings.Api.Services.SimplyPlural;
 using Interfold.Settings.Api.SimplyPlural;
 using Interfold.Settings.Contracts.Ids;
+using Interfold.Settings.Domain;
 using Interfold.Settings.Domain.Abstractions;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Shared.Api.Services;
@@ -1159,6 +1161,12 @@ public sealed class SpImportTests : BaseEndpointTest
             cfg.ScyllaKeyspace = ScyllaKeyspace.Nam;
         });
         services.AddInterfoldDomainHandlers();
+
+        // InMemoryAlterRepository takes IAlterFieldDefinitions via ctor injection; the
+        // adapter's real home is AddSettingsModule but this fixture builds its own graph
+        // (see the -Core rationale below), so wire it explicitly — same pattern as
+        // FCMServiceFactoryFixture.CreateScope.
+        services.AddSingleton<IAlterFieldDefinitions, AlterFieldDefinitionsAdapter>();
 
         services.AddOptions<AuthenticationConfiguration>();
         services.AddSingleton<IAvatarStorage, NullAvatarStorage>();

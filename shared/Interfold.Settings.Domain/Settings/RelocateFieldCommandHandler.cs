@@ -30,7 +30,7 @@ public sealed class RelocateFieldCommandHandler : IdempotentCommandHandler<Reloc
         => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _fieldRepository.RelocateAsync(command.PrincipalId, command.Payload.FieldId, command.Payload.Index, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.FieldRelocated),
+            SettingsAction.FieldRelocated.ToFailedEntityRef(),
             SettingsAction.FieldRelocated,
             ct => _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), ct),
             cancellationToken);

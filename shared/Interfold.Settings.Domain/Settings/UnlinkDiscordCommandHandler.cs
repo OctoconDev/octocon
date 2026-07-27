@@ -33,7 +33,7 @@ public sealed class UnlinkDiscordCommandHandler : IdempotentCommandHandler<Unlin
         => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _accountRepository.UnlinkDiscordAsync(command.PrincipalId, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.DiscordUnlinked),
+            SettingsAction.DiscordUnlinked.ToFailedEntityRef(),
             SettingsAction.DiscordUnlinked,
             ct => _eventBus.PublishAsync(new SettingsDiscordAccountUnlinkedSignalEvent(command.PrincipalId), ct),
             cancellationToken);

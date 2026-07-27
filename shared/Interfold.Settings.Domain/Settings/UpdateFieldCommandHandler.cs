@@ -30,7 +30,7 @@ public sealed class UpdateFieldCommandHandler : IdempotentCommandHandler<UpdateF
         => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _fieldRepository.UpdateAsync(command.PrincipalId, command.Payload.FieldId, command.Payload.Name, command.Payload.SecurityLevel, command.Payload.Locked, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.FieldUpdated),
+            SettingsAction.FieldUpdated.ToFailedEntityRef(),
             SettingsAction.FieldUpdated,
             ct => _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), ct),
             cancellationToken);

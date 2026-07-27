@@ -8,23 +8,15 @@ using Interfold.Shared.Contracts;
 
 namespace Interfold.Ops.IntegrationTests.Controllers;
 
-/// <summary>
-/// HTTP-level coverage of <c>TrustController</c> (<c>/.well-known/interfold-root-ca.*</c>).
-/// Each test constructs a fresh factory so the env-bound <see cref="Interfold.Shared.Contracts.Configuration.TrustOptions"/>
-/// snapshot — read once at startup via <see cref="Microsoft.Extensions.Options.IOptions{T}"/> —
-/// captures the per-test path the case under test wants to exercise. In-memory persistence is
-/// used because the trust routes don't touch any persistence surface and the inmemory factory
-/// boots in well under a second.
-/// </summary>
+// Each test spins its own factory so the env-bound TrustOptions snapshot (read once at
+// startup via IOptions) captures the path shape the case wants.
 public class TrustControllerTests : BaseEndpointTest
 {
     [Test]
     public async Task ReturnsNotFoundWhenRootCaPathUnset()
     {
-        // Dev-mode parity: no /certs bind mount → bootstrapper doesn't emit the OCTOCON_TRUST_*
-        // env vars → the controller has nothing to serve. The contract is "404 on every
-        // route", not "500 because IO failed", so users running `aspire run` locally just
-        // see a clean miss instead of a noisy stack trace.
+        // Dev-mode parity: no /certs bind mount -> no OCTOCON_TRUST_* env vars; contract is
+        // 404-on-every-route, not 500-because-IO-failed.
         await using var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory);
         using var client = factory.CreateClient();
 
@@ -44,11 +36,6 @@ public class TrustControllerTests : BaseEndpointTest
     [Test]
     public async Task ReturnsCertWithCorrectContentTypeAndBytes()
     {
-        // Mint a self-signed CA cert + write its SHA-256 sidecar to a temp dir, then point
-        // TrustOptions at those paths. The controller must hand back the exact DER for the
-        // .crt route (re-encoded from PEM in-controller via X509CertificateLoader) and the
-        // verbatim PEM bytes for the .pem route — byte-for-byte. Anything else is a content
-        // corruption regression.
         await using var h = await NewTrustCertHarnessAsync();
 
         var crt = await h.Client.GetAsync("/.well-known/interfold-root-ca.crt");
@@ -71,9 +58,8 @@ public class TrustControllerTests : BaseEndpointTest
         var sha256Text = (await sha256.Content.ReadAsStringAsync()).Trim();
         await Assert.That(sha256Text).IsEqualTo(h.ExpectedFingerprint);
 
-        // Legacy MIME negotiation: clients that explicitly Accept application/x-x509-ca-cert
-        // (Safari / iOS profile flow) get the legacy type back; default is the modern
-        // application/pkix-cert from the unsuffixed request above.
+        // Safari / iOS profile flow: explicit Accept: application/x-x509-ca-cert gets the
+        // legacy type back.
         using var legacyReq = new HttpRequestMessage(HttpMethod.Get, "/.well-known/interfold-root-ca.crt");
         legacyReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/x-x509-ca-cert"));
         var legacy = await h.Client.SendAsync(legacyReq);
@@ -114,15 +100,9 @@ public class TrustControllerTests : BaseEndpointTest
     [Test]
     public async Task HeadRequestsReturnHeadersWithoutBody()
     {
-        // HEAD is mandatory wherever GET is supported (RFC 9110 §9.3.2) and is the request
-        // CDNs / browsers / curl -I issue when revalidating a cached artefact - including
-        // the bootstrapper integration test's curl-based ETag check. Without [HttpHead]
-        // alongside [HttpGet] on each action, the routing layer rejects HEAD as
-        // "no matching endpoint", which then falls through to the default authorize policy
-        // and returns 401 with a WWW-Authenticate: Bearer challenge - the exact regression
-        // we shipped once. This test pins HEAD against the same matrix the GET tests cover
-        // and asserts the cache contract (ETag, Cache-Control) is identical so cache
-        // revalidation behaves correctly.
+        // [HttpHead] must sit alongside [HttpGet] on each action; otherwise routing rejects
+        // HEAD, it falls through to the default authorize policy, and CDN / curl -I
+        // revalidation gets a 401 challenge instead of headers.
         await using var h = await NewTrustCertHarnessAsync();
 
         foreach (var path in new[]
@@ -151,22 +131,18 @@ public class TrustControllerTests : BaseEndpointTest
     [Test]
     public async Task WellKnownRoutesBypassHttpsRedirect()
     {
-        // The trust-distribution bootstrap requires plain HTTP at /.well-known/* because
-        // end-user devices fetching the root CA have no trust path to HTTPS yet. A
-        // UseHttpsRedirection 308 to https:// would either (a) fail TLS handshake because
-        // the device doesn't trust the leaf, or (b) redirect to the container-internal
-        // HTTPS port which isn't reachable from external clients - either way the bootstrap
-        // breaks. Program.cs bypasses HttpsRedirection for /.well-known/* exclusively;
-        // this test pins that bypass against the matrix of routes the controller serves
-        // and asserts the rest of the pipeline still redirects (so the bypass stays narrowly
-        // scoped to the trust-bootstrap surface and nothing else).
-        //
-        // HTTPS_PORT activates HttpsRedirectionMiddleware in-test - without it the
-        // middleware logs a warning and lets every request through, so a regression
-        // would slip past the assertion below. The exact port doesn't matter because
-        // we're not following redirects.
+        // Trust-bootstrap contract: devices fetching the root CA have no HTTPS trust path yet,
+        // so /.well-known/* must serve over plain HTTP. HTTPS_PORT=443 activates
+        // HttpsRedirectionMiddleware in-test (without it the middleware logs a warning and
+        // lets everything through); environment=Production opens the !IsDevelopment() gate in
+        // Program.cs that wraps HSTS + HttpsRedirection.
         await using var h = await NewTrustCertHarnessAsync(
-            noRedirect: true, extraConfig: ("HTTPS_PORT", "443"));
+            noRedirect: true,
+            extraConfig:
+            [
+                ("HTTPS_PORT", "443"),
+                ("environment", "Production"),
+            ]);
 
         foreach (var path in new[]
                  {
@@ -182,66 +158,46 @@ public class TrustControllerTests : BaseEndpointTest
                 .Because($"{path} must NOT issue any 3xx redirect - clients fetching the root CA have no HTTPS trust path");
         }
 
-        // Negative control: every other path must still redirect, proving the middleware
-        // is wired and the bypass is narrowly scoped to /.well-known/* only.
+        // Negative control: every other path must still redirect, so the bypass stays
+        // narrowly scoped.
         var control = await h.Client.GetAsync("/api/i-do-not-exist");
         await Assert.That((int)control.StatusCode is >= 300 and < 400).IsTrue()
             .Because($"non-.well-known paths must still go through HttpsRedirection (got {(int)control.StatusCode})");
     }
 
-    /// <summary>
-    /// Stands up a full "trust controller under test" harness: a temp dir holding a freshly-minted
-    /// self-signed CA + its SHA-256 sidecar, an <see cref="InterfoldWebApplicationFactory"/> with
-    /// <c>OCTOCON_TRUST_ROOT_CA_PATH</c> / <c>OCTOCON_TRUST_ROOT_CA_FINGERPRINT_PATH</c> wired to
-    /// those files, and an <see cref="HttpClient"/> bound to that factory. All four resources are
-    /// owned by the returned <see cref="TrustCertHarness"/> and released deterministically on
-    /// <see cref="TrustCertHarness.DisposeAsync"/> — call sites use
-    /// <c>await using var h = await NewTrustCertHarnessAsync(...);</c> and drop the try/finally
-    /// pair entirely.
-    /// </summary>
-    /// <param name="noRedirect">
-    /// When <see langword="true"/>, the client is built via <see cref="TestClient.NoRedirect(InterfoldWebApplicationFactory)"/>
-    /// so <c>3xx</c> responses surface as-is (needed by <see cref="WellKnownRoutesBypassHttpsRedirect"/>
-    /// where the assertion is "must not redirect").
-    /// </param>
-    /// <param name="extraConfig">
-    /// Optional single extra env-var key/value applied after the two <c>OCTOCON_TRUST_ROOT_CA_*</c>
-    /// keys — currently only used to set <c>HTTPS_PORT=443</c> in the no-redirect test so
-    /// <c>HttpsRedirectionMiddleware</c> activates. Keep this narrow; a wider need means the
-    /// harness has outgrown its shape and should sprout a proper builder.
-    /// </param>
+    // Mints a self-signed CA + fingerprint sidecar in a temp dir, wires them onto the factory
+    // via OCTOCON_TRUST_ROOT_CA_{PATH,FINGERPRINT_PATH}, and returns a harness that owns
+    // teardown. noRedirect: surfaces 3xx responses as-is. extraConfig: extra env-var pairs
+    // applied after the two OCTOCON_TRUST_ROOT_CA_* keys.
     private static async Task<TrustCertHarness> NewTrustCertHarnessAsync(
         bool noRedirect = false,
-        (string Key, string Value)? extraConfig = null)
+        IReadOnlyList<(string Key, string Value)>? extraConfig = null)
     {
         var (certPath, fingerprintPath, expectedDer, expectedFingerprint, tmpDir) = MintTempCertFiles();
 
         var factory = new InterfoldWebApplicationFactory(PersistenceMode.InMemory)
             .WithConfiguration("OCTOCON_TRUST_ROOT_CA_PATH", certPath)
             .WithConfiguration("OCTOCON_TRUST_ROOT_CA_FINGERPRINT_PATH", fingerprintPath);
-        if (extraConfig is { } extra)
+        if (extraConfig is not null)
         {
-            factory.WithConfiguration(extra.Key, extra.Value);
+            foreach (var (key, value) in extraConfig)
+            {
+                factory.WithConfiguration(key, value);
+            }
         }
 
         var client = noRedirect ? TestClient.NoRedirect(factory) : factory.CreateClient();
 
-        // Force at least one round-trip so the factory's TestServer is booted before the caller
-        // starts asserting — matches the eager initialisation the pre-harness try-blocks got by
-        // calling CreateClient() then GetAsync() in sequence.
+        // Boot the factory's TestServer before the caller starts asserting.
         await Task.Yield();
 
         return new TrustCertHarness(client, factory, tmpDir,
             certPath, expectedDer, expectedFingerprint);
     }
 
-    /// <summary>
-    /// Owns the full trust-controller test surface: <see cref="HttpClient"/>, backing
-    /// <see cref="InterfoldWebApplicationFactory"/>, and the temp dir holding the minted cert +
-    /// fingerprint files. <see cref="DisposeAsync"/> tears down in reverse: client first (so no
-    /// in-flight response outlives the server), then the factory (which stops the in-memory host),
-    /// then the temp dir (best-effort — a leaked dir is harmless and the OS tmp reaper cleans it).
-    /// </summary>
+    // Teardown order matters: client first so no in-flight response outlives the server,
+    // then factory (stops the in-memory host), then temp dir (best-effort; OS tmp reaper
+    // catches leaks).
     private sealed class TrustCertHarness(
         HttpClient client,
         InterfoldWebApplicationFactory factory,
@@ -263,13 +219,8 @@ public class TrustControllerTests : BaseEndpointTest
         }
     }
 
-    /// <summary>
-    /// Produces a temp directory holding <c>rootCA.crt</c> (PEM) and <c>rootCA.sha256.txt</c>
-    /// (uppercase colon-hex) for a freshly-minted self-signed CA. Returns the paths, the
-    /// expected DER bytes for byte-for-byte response assertions, the expected fingerprint,
-    /// and the temp-dir path so the caller (currently only <see cref="TrustCertHarness"/>)
-    /// can delete it during teardown.
-    /// </summary>
+    // Mints rootCA.crt (PEM) + rootCA.sha256.txt (uppercase colon-hex) in a temp dir; returns
+    // paths + expected DER so the caller can assert byte-for-byte.
     private static (string certPath, string fingerprintPath, byte[] expectedDer, string expectedFingerprint, string tmpDir) MintTempCertFiles()
     {
         var tmpDir = Path.Combine(Path.GetTempPath(), "interfold-trust-test-" + Guid.NewGuid().ToString("N"));

@@ -30,7 +30,7 @@ public sealed class DeleteFieldCommandHandler : IdempotentCommandHandler<DeleteF
         => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _fieldRepository.DeleteAsync(command.PrincipalId, command.Payload.FieldId, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.FieldDeleted),
+            SettingsAction.FieldDeleted.ToFailedEntityRef(),
             SettingsAction.FieldDeleted,
             ct => _eventBus.PublishAsync(new SettingsFieldsChangedEvent(command.PrincipalId), ct),
             cancellationToken);
