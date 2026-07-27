@@ -7,13 +7,14 @@
   <ItemGroup>
     <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
-    <!-- ISettingsFieldRepository (bound by AlterFieldProjection.ResolveVisibleDefinitionsAsync +
-         ResolveGuardedFields) is reached via Interfold.Shared.Domain — kept there as an in-slice
-         deviation from the Phase-3 Settings slice #8 plan because relocating it to
-         Interfold.Settings.Domain would form an Alters.Domain <-> Settings.Domain cycle
-         (Settings.Domain refs Alters.Domain for IAlterRepository via DeleteAccountCommandHandler
-         / WipeAltersCommandHandler). ISettingsFieldRepository binds only spine types, so
-         keeping it on Interfold.Shared.Domain reintroduces zero back-refs. -->
+    <!-- AlterFieldProjection reaches only spine types (SettingsFieldReadModel etc.) plus
+         GuardedMetrics / GuardedInstrumentation on Interfold.Shared.Domain. The
+         visibility-filtered definition load flows through the IAlterFieldDefinitions seam
+         (Interfold.Alters.Contracts.Abstractions), so Interfold.Alters.Domain never sees
+         ISettingsFieldRepository. -->
     <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <!-- Interfold.Alters.Domain -> Interfold.Journals.Contracts back-ref:
+         DeleteAlterCommandHandler depends on IJournalAlterCascade. -->
+    <ProjectReference Include="..\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
   </ItemGroup>
 </Project>

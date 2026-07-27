@@ -2,9 +2,6 @@ using System.Security.Cryptography;
 
 namespace Interfold.Shared.Contracts.Ids;
 
-// EncryptionKeyMaterial migrated to Interfold.Settings.Contracts/Ids/EncryptionKeyMaterial.cs
-// (Phase-3 Settings slice; namespace Interfold.Shared.Contracts.Ids preserved for wire-compat).
-
 /// <summary>
 /// Checksum of the derived encryption key persisted to <c>encryption_state.key_checksum</c>
 /// and compared on recover/import. <c>ToString()</c> redacts.

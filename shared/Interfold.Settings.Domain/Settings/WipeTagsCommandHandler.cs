@@ -46,7 +46,7 @@ public sealed class WipeTagsCommandHandler : IdempotentCommandHandler<WipeTagsCo
 
                 return true;
             },
-            EntityRefs.SettingsActionFailed(SettingsAction.TagsWiped),
+            SettingsAction.TagsWiped.ToFailedEntityRef(),
             SettingsAction.TagsWiped,
             ct => _eventBus.PublishAsync(new SettingsTagsWipedSignalEvent(command.PrincipalId), ct),
             cancellationToken);

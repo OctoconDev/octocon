@@ -1,9 +1,6 @@
 namespace Interfold.Shared.Contracts;
 
-/// <summary>
-/// Typed name of a singleton background task gated by <c>ISingletonTaskOwner</c>.
-/// The registry below is the closed vocabulary.
-/// </summary>
+/// <summary>Typed name of a singleton background task gated by <c>ISingletonTaskOwner</c>.</summary>
 public readonly record struct SingletonTaskName
 {
     public string Value { get; }
@@ -14,14 +11,4 @@ public readonly record struct SingletonTaskName
     }
 
     public override string ToString() => Value;
-}
-
-/// <summary>Well-known singleton task names.</summary>
-public static class SingletonTaskNames
-{
-    /// <summary>Batched push-notification flush for fronting changes.</summary>
-    public static readonly SingletonTaskName FrontNotifier = new("front_notifier");
-
-    /// <summary>Single-writer link-token issuer.</summary>
-    public static readonly SingletonTaskName LinkTokenRegistry = new("link_token_registry");
 }

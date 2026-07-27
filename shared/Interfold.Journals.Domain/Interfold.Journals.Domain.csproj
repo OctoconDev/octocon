@@ -8,5 +8,8 @@
     <ProjectReference Include="..\Interfold.Journals.Contracts\Interfold.Journals.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Contracts\Interfold.Shared.Contracts.csproj" />
     <ProjectReference Include="..\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <!-- Interfold.Journals.Domain -> Interfold.Alters.Contracts back-ref:
+         AlterJournalCommandFlow + Attach/Detach handlers depend on IAlterExistenceCheck. -->
+    <ProjectReference Include="..\Interfold.Alters.Contracts\Interfold.Alters.Contracts.csproj" />
   </ItemGroup>
 </Project>

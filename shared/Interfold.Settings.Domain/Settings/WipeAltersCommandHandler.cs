@@ -44,7 +44,7 @@ public sealed class WipeAltersCommandHandler : IdempotentCommandHandler<WipeAlte
 
                 return true;
             },
-            EntityRefs.SettingsActionFailed(SettingsAction.AltersWiped),
+            SettingsAction.AltersWiped.ToFailedEntityRef(),
             SettingsAction.AltersWiped,
             ct => _eventBus.PublishAsync(new SettingsAltersWipedSignalEvent(command.PrincipalId), ct),
             cancellationToken);

@@ -1,9 +1,11 @@
+using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Settings.Api.Services.Export;
 using Interfold.Settings.Api.Services.Http;
 using Interfold.Settings.Api.Services.ImportJobs;
 using Interfold.Settings.Api.Services.Secrets;
 using Interfold.Settings.Api.Services.SimplyPlural;
 using Interfold.Settings.Contracts.Configuration;
+using Interfold.Settings.Domain;
 using Interfold.Settings.Domain.Abstractions;
 using Interfold.Settings.Domain.Abstractions.ImportJobs;
 using Interfold.Settings.Domain.Accounts;
@@ -70,6 +72,7 @@ public static class SettingsModuleServiceCollectionExtensions
         services.AddSingleton<IImportJobRunner, PkImportJobRunner>();
         services.AddHostedService<ImportJobBackgroundService>();
         services.AddSingleton<IExportService, ExportService>();
+        services.AddSingleton<IAlterFieldDefinitions, AlterFieldDefinitionsAdapter>();
 
         return services;
     }

@@ -114,7 +114,7 @@ public sealed class DeleteAccountCommandHandler : IdempotentCommandHandler<Delet
 
                 //TODO: Delete account image if it exists
             },
-            EntityRefs.SettingsActionFailed(SettingsAction.AccountDeleted),
+            SettingsAction.AccountDeleted.ToFailedEntityRef(),
             SettingsAction.AccountDeleted,
             async ct =>
             {

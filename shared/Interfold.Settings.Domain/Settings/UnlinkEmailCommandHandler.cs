@@ -33,7 +33,7 @@ public sealed class UnlinkEmailCommandHandler : IdempotentCommandHandler<UnlinkE
         => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _accountRepository.UnlinkEmailAsync(command.PrincipalId, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.EmailUnlinked),
+            SettingsAction.EmailUnlinked.ToFailedEntityRef(),
             SettingsAction.EmailUnlinked,
             // Legacy Octocon.Accounts.unlink_email_from_user broadcast google_account_unlinked
             // because the only email auth path in the old stack was the Google OAuth one;

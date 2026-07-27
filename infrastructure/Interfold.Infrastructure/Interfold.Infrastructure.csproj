@@ -11,12 +11,20 @@
     <InternalsVisibleTo Include="Interfold.Infrastructure.InMemory" />
     <InternalsVisibleTo Include="Interfold.Infrastructure.Postgres" />
     <ProjectReference Include="..\..\shared\Interfold.Shared.Domain\Interfold.Shared.Domain.csproj" />
+    <!-- Interfold.Infrastructure -> Interfold.Auth.Domain back-ref:
+         IAuthTokenRevocationRepository is bound by PostgresServiceCollectionExtensions +
+         InMemoryServiceCollectionExtensions (both ref Interfold.Infrastructure only). -->
+    <ProjectReference Include="..\..\shared\Interfold.Auth.Domain\Interfold.Auth.Domain.csproj" />
     <!-- Interfold.Infrastructure -> Interfold.Fronting.Contracts back-ref:
          FrontNotifierBackgroundService (infrastructure/Interfold.Infrastructure/Coordination/)
          subscribes to FrontingStateChangedEvent, which moved into Interfold.Fronting.Contracts.Events
          during Phase-3 Fronting migration. Dissolves when FrontNotifier migrates into
          Interfold.Fronting.Api. -->
     <ProjectReference Include="..\..\shared\Interfold.Fronting.Contracts\Interfold.Fronting.Contracts.csproj" />
+    <!-- Interfold.Infrastructure -> Interfold.Fronting.Domain back-ref:
+         FirebaseFCMService + NullFCMService + FrontNotifierBackgroundService bind IFCMService
+         here. Also brings IFrontingRepository into scope for FrontNotifierBackgroundService. -->
+    <ProjectReference Include="..\..\shared\Interfold.Fronting.Domain\Interfold.Fronting.Domain.csproj" />
     <!-- Phase-3 Settings slice #8: FirebaseFCMService injects FcmConfiguration (moved to
          Interfold.Settings.Contracts), IAccountRepository + INotificationTokenRepository
          (moved to Interfold.Settings.Domain), and IAlterRepository (moved to

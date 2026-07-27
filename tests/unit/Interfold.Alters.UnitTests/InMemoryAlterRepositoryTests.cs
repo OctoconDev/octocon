@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Interfold.Alters.Contracts.Models.Commands;
+using Interfold.Settings.Domain;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Api.UnitTests.Support;
@@ -33,8 +34,9 @@ public sealed class InMemoryAlterRepositoryTests
         // Empty provider is safe: only used for cascade-delete of field definitions,
         // which these tests never trigger.
         var fields = new InMemorySettingsFieldRepository(region, new ServiceCollection().BuildServiceProvider());
+        var alterFieldDefinitions = new AlterFieldDefinitionsAdapter(fields, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
         var polls = new InMemoryPollRepository(region);
-        var alters = new InMemoryAlterRepository(region, friendships, fields, polls, NullLogger<InMemoryAlterRepository>.Instance);
+        var alters = new InMemoryAlterRepository(region, friendships, fields, alterFieldDefinitions, polls, NullLogger<InMemoryAlterRepository>.Instance);
         return new TestHarness(alters, friendships, fields);
     }
 

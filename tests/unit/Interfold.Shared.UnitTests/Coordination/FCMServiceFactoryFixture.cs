@@ -1,5 +1,7 @@
+using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Alters.Domain.Abstractions.Repository;
 using Interfold.Friendships.Domain.Abstractions.Repository;
+using Interfold.Settings.Domain;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Domain.Abstractions;
 using Interfold.Shared.Domain.Abstractions.Repository;
@@ -38,6 +40,7 @@ public sealed class FCMServiceFactoryFixture : IAsyncInitializer
         services.AddSingleton<IPollRepository, InMemoryPollRepository>();
         services.AddSingleton<ISettingsFieldRepository, InMemorySettingsFieldRepository>();
         services.AddSingleton<IAccountRepository, InMemoryAccountRepository>();
+        services.AddSingleton<IAlterFieldDefinitions, AlterFieldDefinitionsAdapter>();
         services.AddSingleton<IAlterRepository, InMemoryAlterRepository>();
 
         services.Configure<FcmConfiguration>(o =>

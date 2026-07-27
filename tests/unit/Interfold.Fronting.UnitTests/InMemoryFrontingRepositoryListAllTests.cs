@@ -1,3 +1,4 @@
+using Interfold.Settings.Domain;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Api.UnitTests.Support;
@@ -24,8 +25,9 @@ public sealed class InMemoryFrontingRepositoryListAllTests
         var region = new FixedRegionContext(ScyllaKeyspace.Nam);
         var friendships = new InMemoryFriendshipRepository();
         var fields = new InMemorySettingsFieldRepository(region, new ServiceCollection().BuildServiceProvider());
+        var alterFieldDefinitions = new AlterFieldDefinitionsAdapter(fields, NullLogger<AlterFieldDefinitionsAdapter>.Instance);
         var polls = new InMemoryPollRepository(region);
-        var alters = new InMemoryAlterRepository(region, friendships, fields, polls, NullLogger<InMemoryAlterRepository>.Instance);
+        var alters = new InMemoryAlterRepository(region, friendships, fields, alterFieldDefinitions, polls, NullLogger<InMemoryAlterRepository>.Instance);
         return new InMemoryFrontingRepository(region, friendships, alters, NullLogger<InMemoryFrontingRepository>.Instance);
     }
 

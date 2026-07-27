@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
@@ -47,6 +48,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     private readonly ConcurrentDictionary<ScopedSystemId, short> _nextIdBySystem = new();
     private readonly IFriendshipRepository _friendships;
     private readonly ISettingsFieldRepository _settingsFields;
+    private readonly IAlterFieldDefinitions _alterFieldDefinitions;
     private readonly IPollRepository _polls;
     private readonly ILogger<InMemoryAlterRepository> _logger;
 
@@ -54,12 +56,14 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         IRegionContext regionContext,
         IFriendshipRepository friendships,
         ISettingsFieldRepository settingsFields,
+        IAlterFieldDefinitions alterFieldDefinitions,
         IPollRepository polls,
         ILogger<InMemoryAlterRepository> logger)
     {
         _regionContext = regionContext;
         _friendships = friendships;
         _settingsFields = settingsFields;
+        _alterFieldDefinitions = alterFieldDefinitions;
         _polls = polls;
         _logger = logger;
     }
@@ -217,7 +221,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
     {
         var sw = Stopwatch.StartNew();
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
-        var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
+        var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
 
         var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
         if (!TryGetStore(systemId, out var store))
@@ -266,7 +270,7 @@ public sealed class InMemoryAlterRepository : IAlterRepository
         var sw = Stopwatch.StartNew();
         var ownerId = InMemoryStorageKeys.Normalize(systemId).Value;
         var friendshipLevel = await InMemoryStorageKeys.ResolveFriendshipLevelAsync(systemId, viewerSystemId, _friendships, cancellationToken);
-        var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
+        var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
         if (!TryGetAlter(systemId, alterId, out var alter))
         {
             GuardedInstrumentation.RecordGet(_logger, "alter", nameof(GetGuardedAsync), viewerSystemId, ownerId, alterId.Value.ToString(), found: false, filtered: false, sw.Elapsed.TotalMilliseconds);

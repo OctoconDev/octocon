@@ -159,7 +159,7 @@ public sealed class SettingsController : InterfoldControllerBase
         // been provisioned yet, return 503 to inform the caller to retry via a
         // primary node.
         var principal = PrincipalId;
-        if (_singletonTaskOwner.OwnsTask(SingletonTaskNames.LinkTokenRegistry))
+        if (_singletonTaskOwner.OwnsTask(SettingsTaskNames.LinkTokenRegistry))
         {
             var result = await _createLinkTokenHandler.HandleAsync(BuildEnvelope(OperationIds.SettingsLinkToken, new CreateLinkTokenCommand()), ct);
             return Ok(new SuccessResponse<LinkTokenReadModel>(new LinkTokenReadModel(result.Result!.Token)));

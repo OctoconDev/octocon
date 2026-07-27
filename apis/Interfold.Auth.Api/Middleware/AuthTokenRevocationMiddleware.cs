@@ -4,13 +4,12 @@ using Interfold.Shared.Contracts;
 using Interfold.Shared.Contracts.Ids;
 using Interfold.Shared.Domain.Abstractions.Repository;
 
-namespace Interfold.Shared.Api.Middleware;
+namespace Interfold.Auth.Api.Middleware;
 
-/// <summary>Post-authentication JTI-revocation gate. Rejects authenticated requests
-/// whose JWT <c>jti</c> claim has been revoked (logout, incident response, or
-/// background expiry cleanup) with a 401 carrying <see cref="ErrorCodes.TokenRevoked"/>.
-/// Unauthenticated requests and authenticated-without-jti requests fall through
-/// untouched — matches the inline shape this replaced in Program.cs.</summary>
+/// <summary>Post-authentication JTI-revocation gate. Rejects authenticated requests whose JWT
+/// <c>jti</c> claim has been revoked (logout, incident response, background expiry cleanup)
+/// with a 401 carrying <see cref="ErrorCodes.TokenRevoked"/>. Unauthenticated and
+/// authenticated-without-jti requests fall through untouched.</summary>
 public sealed class AuthTokenRevocationMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)

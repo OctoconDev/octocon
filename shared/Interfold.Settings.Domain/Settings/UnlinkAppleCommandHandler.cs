@@ -30,7 +30,7 @@ public sealed class UnlinkAppleCommandHandler : IdempotentCommandHandler<UnlinkA
         => SettingsIdempotentCommandFlow.ExecuteMutationAsync(
             command,
             ct => _accountRepository.UnlinkAppleAsync(command.PrincipalId, ct),
-            EntityRefs.SettingsActionFailed(SettingsAction.AppleUnlinked),
+            SettingsAction.AppleUnlinked.ToFailedEntityRef(),
             SettingsAction.AppleUnlinked,
             ct => _eventBus.PublishAsync(new SettingsAppleAccountUnlinkedSignalEvent(command.PrincipalId), ct),
             cancellationToken);

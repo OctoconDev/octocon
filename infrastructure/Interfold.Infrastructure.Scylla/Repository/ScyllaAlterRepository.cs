@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Cassandra;
+using Interfold.Alters.Contracts.Abstractions;
 using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Contracts.Models.Commands;
 using Interfold.Alters.Domain;
@@ -23,6 +24,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
     private readonly IScyllaScopeResolver _scopeResolver;
     private readonly IScyllaKeyspaceResolver _keyspaceResolver;
     private readonly ISettingsFieldRepository _settingsFields;
+    private readonly IAlterFieldDefinitions _alterFieldDefinitions;
     private readonly IPollRepository _pollRepository;
     private readonly PersistenceConfiguration _options;
     private readonly ILogger<ScyllaAlterRepository> _logger;
@@ -33,6 +35,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         IScyllaScopeResolver scopeResolver,
         IScyllaKeyspaceResolver keyspaceResolver,
         ISettingsFieldRepository settingsFields,
+        IAlterFieldDefinitions alterFieldDefinitions,
         IPollRepository pollRepository,
         IOptions<PersistenceConfiguration> options,
         ILogger<ScyllaAlterRepository> logger
@@ -42,6 +45,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
         _scopeResolver = scopeResolver;
         _keyspaceResolver = keyspaceResolver;
         _settingsFields = settingsFields;
+        _alterFieldDefinitions = alterFieldDefinitions;
         _pollRepository = pollRepository;
         _options = options.Value;
         _logger = logger;
@@ -407,7 +411,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var (session, keyspace, normalizedSystemId) = scope;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId, _logger);
             EnsureAlterFieldUdtMapping(session, keyspace);
-            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
+            var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
 
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, color, description, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ?",
@@ -462,7 +466,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
             var (session, keyspace, normalizedSystemId) = scope;
             var friendshipLevel = await ScyllaSharedQueries.ResolveFriendshipLevelAsync(session, _keyspaceResolver, new(normalizedSystemId), viewerSystemId, _logger);
             EnsureAlterFieldUdtMapping(session, keyspace);
-            var definitions = await AlterFieldProjection.ResolveVisibleDefinitionsAsync(_settingsFields, systemId, friendshipLevel, cancellationToken, _logger);
+            var definitions = await _alterFieldDefinitions.ListVisibleAsync(systemId, friendshipLevel, cancellationToken);
 
             var query = new SimpleStatement(
                 $"SELECT id, name, avatar_url, avatar_source, description, color, pronouns, pinned, security_level, fields FROM {keyspace}.alters WHERE user_id = ? AND id = ? LIMIT 1",
