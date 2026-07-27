@@ -5,7 +5,7 @@ using Interfold.IntegrationTests.Shared.TestServices;
 namespace Interfold.Friendships.IntegrationTests.Friendships;
 
 /// <summary>
-/// End-to-end pins on the <see cref="Interfold.Shared.Contracts.Ids.FriendLookup"/> dispatch
+/// End-to-end pins on the <see cref="Interfold.Friendships.Contracts.Ids.FriendLookup"/> dispatch
 /// matrix, exercised through the <c>/api/friend-requests/{id}</c> route so the whole
 /// stack (controller → command handler → friendship repo → registry) is in play.
 ///
@@ -20,7 +20,7 @@ namespace Interfold.Friendships.IntegrationTests.Friendships;
 ///       <b>Backend-uniform</b> — dispatch matrix contracts that must hold regardless of
 ///       which persistence backend is behind the API. The surviving shapes are bare id,
 ///       <c>id:</c>-prefixed, and <c>username:unknown</c> (all go through
-///       <see cref="Interfold.Shared.Contracts.Ids.FriendLookup"/> route binding). The pre-merge
+///       <see cref="Interfold.Friendships.Contracts.Ids.FriendLookup"/> route binding). The pre-merge
 ///       <c>discord:</c> and unknown-prefix shapes now fail
 ///       <c>FriendLookup.TryParse</c> and surface as a 400 at ASP.NET route binding —
 ///       pinned by <see cref="SendFriendRequest_UnparseableShape_Returns400"/> below.
@@ -82,7 +82,7 @@ public sealed class SendFriendRequestPrefixTests(IWebFactoryFixture fixture) : B
     // ---------------- Backend-uniform: strict rejection --------------------
 
     /// <summary>
-    /// Every shape that <see cref="Interfold.Shared.Contracts.Ids.FriendLookup.TryParse"/>
+    /// Every shape that <see cref="Interfold.Friendships.Contracts.Ids.FriendLookup.TryParse"/>
     /// rejects surfaces as a 400 from ASP.NET Core's IParsable route-binding pipeline
     /// before the controller action runs. Covers the pre-merge <c>discord:</c> and
     /// unknown-prefix shapes (previously 422 <c>friend_request:no_user</c> via a

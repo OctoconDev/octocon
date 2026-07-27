@@ -124,17 +124,6 @@ public readonly record struct ScopedSystemId : IParsable<ScopedSystemId>
         return string.Equals(RawId, candidate.Value, StringComparison.Ordinal);
     }
 
-    /// <summary>Route-binding overload for the friend-request send path (FriendLookup segment).
-    /// Id shapes delegate to <see cref="RepresentsSameUserAs(SystemId)"/>; username shapes
-    /// require a registry hop and return false so the downstream handler's post-resolution
-    /// self-check takes over.</summary>
-    public bool RepresentsSameUserAs(FriendLookup candidate) => candidate.Kind switch
-    {
-        FriendLookupKind.Id => RepresentsSameUserAs(new SystemId(candidate.Value)),
-        FriendLookupKind.Username => false,
-        _ => false,
-    };
-
     // Byte-identical implicit widen so persistence adapters can keep declaring SystemId
     // parameters while ingress tightens to ScopedSystemId.
     public static implicit operator SystemId(ScopedSystemId scoped) => scoped.AsSystemId();

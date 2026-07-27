@@ -1,4 +1,4 @@
-using Interfold.Shared.Contracts.Ids;
+using Interfold.Friendships.Contracts.Ids;
 
 namespace Interfold.Api.UnitTests.Ids;
 

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Interfold.Friendships.Contracts.Ids;
 using Interfold.Friendships.Contracts.Models.Read;
 using Interfold.Friendships.Domain.Abstractions.Repository;
 using Interfold.Settings.Domain.Abstractions.Repository;

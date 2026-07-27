@@ -24,7 +24,7 @@ internal enum UserRegistryLookupKind
 
 /// <summary>Pre-resolution handle to a <c>user_registry</c> row, parsed from a raw
 /// client-supplied string. Scylla-only — friend-request routing uses the tighter
-/// <see cref="Interfold.Shared.Contracts.Ids.FriendLookup"/>.
+/// <see cref="Interfold.Friendships.Contracts.Ids.FriendLookup"/>.
 ///
 /// <para><b>Strict rejection of unknown non-region prefixes.</b> Inputs like
 /// <c>"xxx:abcdefg"</c> return <see langword="false"/> from <see cref="TryParse"/>.
