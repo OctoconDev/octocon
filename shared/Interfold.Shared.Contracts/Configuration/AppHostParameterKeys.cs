@@ -41,6 +41,11 @@ public static class AppHostParameterKeys
     public const string WebServerName = "Parameters:web-server-name";
     public const string ApiImage = "Parameters:api-image";
 
+    // Bench-mode marker consumed by InterfoldAppHost + TestBenchCoordinator. When on, the
+    // AppHost forces api/web/dashboard off, pins stable container names, and emits a
+    // machine-readable readiness line so the coordinator's launcher can exit deterministically.
+    public const string TestBenchMode = "Parameters:test-bench-mode";
+
     // --- Credentials / secrets ---
     public const string PostgresUser = "Parameters:postgres-user";
     public const string PostgresPassword = "Parameters:postgres-password";

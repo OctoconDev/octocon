@@ -112,14 +112,23 @@ public class BaseEndpointTest
     /// <summary>Seeds the four-viewer visibility quartet used by every "public read gated by
     /// relationship" test. All four principals get a public profile row; the three viewers
     /// also get a seed alter so <c>ListGuardedAsync</c> can't short-circuit before the
-    /// relationship gate. Returns <c>(Owner, NonFriend, Friend, Trusted)</c>.</summary>
+    /// relationship gate. Returns <c>(Owner, NonFriend, Friend, Trusted)</c>.
+    /// <para>
+    /// The composed IDs carry an 8-hex per-invocation nonce so bench-shared idempotency
+    /// state (<c>PostgresIdempotencyStore</c>, single Postgres across every leaf project
+    /// under the centralised test-bench) can't replay a previous run's response and hand
+    /// back an <c>AlterId</c> the current backend never wrote — same failure mode as
+    /// <see cref="ReplayParityTests"/>. Callers must therefore not assume the returned
+    /// principals equal <c>{prefix}-role</c> verbatim.
+    /// </para></summary>
     public static async Task<(string Owner, string NonFriend, string Friend, string Trusted)>
         SeedVisibilityQuartetAsync(HttpClient client, string prefix)
     {
-        var owner = $"{prefix}-owner";
-        var nonFriend = $"{prefix}-nonfriend";
-        var friend = $"{prefix}-friend";
-        var trusted = $"{prefix}-trusted";
+        var nonce = Guid.NewGuid().ToString("N")[..8];
+        var owner = $"{prefix}-owner-{nonce}";
+        var nonFriend = $"{prefix}-nonfriend-{nonce}";
+        var friend = $"{prefix}-friend-{nonce}";
+        var trusted = $"{prefix}-trusted-{nonce}";
 
         _ = await CreateAlterAsync(client, nonFriend, "SeedNonFriend");
         _ = await CreateAlterAsync(client, friend, "SeedFriend");
@@ -138,8 +147,11 @@ public class BaseEndpointTest
     {
         var body = new SettingsUsernameRequest(new Username(username ?? principal));
         using var res = await client.SendAsJsonAsync(HttpMethod.Post, "/api/settings/username", body, principal);
+        var responseBody = res.IsSuccessStatusCode || res.StatusCode == HttpStatusCode.Conflict
+            ? string.Empty
+            : await res.Content.ReadAsStringAsync();
         await Assert.That(res.IsSuccessStatusCode || res.StatusCode == HttpStatusCode.Conflict)
-            .IsTrue().Because($"EnsureUserExistsAsync failed for '{principal}': {(int)res.StatusCode}");
+            .IsTrue().Because($"EnsureUserExistsAsync failed for '{principal}': {(int)res.StatusCode} body={responseBody}");
     }
 
     /// <summary>Creates an alter and returns its typed <see cref="AlterId"/>. Reads the

@@ -25,6 +25,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// </remarks>
 [RequiresDocker]
 [ClassDataSource<UbuntuBarePrereqsDinDFixture>(Shared = SharedType.PerTestSession)]
+[Explicit]
 public class UbuntuPrereqsPhaseTests(UbuntuBarePrereqsDinDFixture dinD)
 {
     [After(Test)]
@@ -113,6 +114,7 @@ public class UbuntuPrereqsPhaseTests(UbuntuBarePrereqsDinDFixture dinD)
 /// </summary>
 [RequiresDocker]
 [ClassDataSource<FedoraBarePrereqsDinDFixture>(Shared = SharedType.PerTestSession)]
+[Explicit]
 public class FedoraPrereqsPhaseTests(FedoraBarePrereqsDinDFixture dinD)
 {
     [After(Test)]

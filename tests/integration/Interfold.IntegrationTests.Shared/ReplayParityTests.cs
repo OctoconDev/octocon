@@ -56,16 +56,18 @@ public sealed class ReplayParityTests(IWebFactoryFixture fixture) : BaseEndpoint
 
         using var client = TestClient.NoRedirect(factory);
 
-        // Build a per-fixture identity namespace so the same trace fixture can run
-        // independently across the InMemory / Scylla / Cassandra factory variants.
-        // The Scylla and Cassandra factories share a single Postgres instance for
-        // the idempotency store (PostgresIdempotencyStore is registered for every
-        // db-backed run via PostgresServiceCollectionExtensions), so without this
-        // suffix the second variant to run any given trace would replay the first
-        // variant's outcome — returning AlterId/EntryId values that the second
-        // variant's *own* CQL backend never wrote, making the controller's read-
-        // back-after-create return null and surface as `unknown_error` 500.
-        var principalSuffix = SanitizeIdentitySuffix(factory.DisplayName);
+        // Build a per-invocation identity namespace so the same trace fixture can run
+        // independently across the InMemory / Scylla / Cassandra factory variants AND
+        // across concurrent leaf integration projects. PostgresIdempotencyStore is
+        // registered for every db-backed run via PostgresServiceCollectionExtensions,
+        // and under the centralised test-bench (see TestBenchCoordinator) that store's
+        // Postgres instance is shared across every project. Without a per-invocation
+        // discriminator, the second consumer of any given trace — variant or project —
+        // would replay the first's outcome and receive an AlterId/EntryId that its own
+        // CQL backend never wrote, making the controller's read-back-after-create
+        // return null and surface as `unknown_error` 500. The 8-hex nonce is bounded
+        // so the composed principal stays inside SettingsUsernameRequest's validator.
+        var principalSuffix = $"{SanitizeIdentitySuffix(factory.DisplayName)}-{Guid.NewGuid().ToString("N")[..8]}";
         var principalMap = trace.Steps
             .Select(s => s.PrincipalId)
             .Where(p => !string.IsNullOrWhiteSpace(p))

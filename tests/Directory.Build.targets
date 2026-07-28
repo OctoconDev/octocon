@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    Bench opt-in is emitted here (targets, not props) because a leaf csproj may want to
+    opt back out — Interfold.Infrastructure.IntegrationTests, in particular, exercises
+    the full 7-regional-Scylla multi-node cluster and runs migration-ledger idempotence
+    checks that assume exclusive ownership of the CQL backend. Neither is expressible
+    against the shared bench (single Scylla node, cross-project ledger writes). Those
+    projects set <InterfoldTestBenchOptOut>true</InterfoldTestBenchOptOut> before this
+    file is imported. See TestBenchCoordinator.IsOptedIn / OptInAssemblyMetadataKey and
+    docs/test-bench-audit.md.
+  -->
+  <ItemGroup Condition="'$(IsInterfoldIntegrationTest)' == 'true' AND '$(InterfoldTestBenchOptOut)' != 'true'">
+    <AssemblyMetadata Include="InterfoldTestBenchOptIn" Value="1" />
+  </ItemGroup>
+</Project>

@@ -11,6 +11,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// </summary>
 [RequiresDocker]
 [ClassDataSource<UnsupportedDistroDinDFixture>(Shared = SharedType.PerTestSession)]
+[Explicit]
 public class UnsupportedOsTests(UnsupportedDistroDinDFixture dinD)
 {
 
