@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
@@ -20,33 +19,6 @@ namespace Interfold.Bootstrapper.Phases;
 internal static class FirebasePhase
 {
     private static readonly string Phase = BootstrapPhase.Firebase.ToWireName();
-
-    // Mirrors SecretsBootstrapService.FirebaseClientJsonOptions so records round-trip 1:1.
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        WriteIndented = false,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
-
-    // Snake_case inputs: google-services.json and the FCM service-account credential.
-    // RespectRequiredConstructorParameters + `required` members turn missing fields
-    // into a descriptive JsonException.
-    private static readonly JsonSerializerOptions SnakeCaseReaderOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = true,
-        RespectRequiredConstructorParameters = true,
-    };
-
-    // firebase-web-config.json is camelCase from the console; nullable positional params
-    // still count as required, so a truncated paste fails loudly at bootstrap.
-    private static readonly JsonSerializerOptions CamelCaseReaderOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-        RespectRequiredConstructorParameters = true,
-    };
 
     public static Task<FirebaseSeedInputs> RunAsync(
         BootstrapOptions options,
@@ -91,8 +63,8 @@ internal static class FirebasePhase
 
         try
         {
-            var input = JsonSerializer.Deserialize<GoogleServicesFile>(
-                File.ReadAllText(resolved), SnakeCaseReaderOptions)
+            var input = JsonSerializer.Deserialize(
+                File.ReadAllText(resolved), FirebaseSnakeCaseReadContext.Default.GoogleServicesFile)
                 ?? throw new InvalidDataException($"{resolved}: file is empty or JSON null");
 
             if (input.Client.Length == 0)
@@ -107,7 +79,8 @@ internal static class FirebasePhase
                 ProjectId: input.ProjectInfo.ProjectId,
                 GcmSenderId: input.ProjectInfo.ProjectNumber,
                 StorageBucket: input.ProjectInfo.StorageBucket);
-            return JsonSerializer.Serialize(normalised, SerializerOptions);
+            return JsonSerializer.Serialize(
+                normalised, FirebaseSnakeCaseWriteContext.Default.FirebaseAndroidClientConfig);
         }
         catch (Exception ex) when (ex is not InvalidDataException)
         {
@@ -142,7 +115,8 @@ internal static class FirebasePhase
                 StorageBucket: GetOptional("STORAGE_BUCKET"),
                 BundleId: GetRequired("BUNDLE_ID"),
                 ClientId: GetOptional("CLIENT_ID"));
-            return JsonSerializer.Serialize(normalised, SerializerOptions);
+            return JsonSerializer.Serialize(
+                normalised, FirebaseSnakeCaseWriteContext.Default.FirebaseIosClientConfig);
         }
         catch (Exception ex) when (ex is not InvalidDataException)
         {
@@ -160,10 +134,11 @@ internal static class FirebasePhase
 
         try
         {
-            var web = JsonSerializer.Deserialize<FirebaseWebClientConfig>(
-                File.ReadAllText(resolved), CamelCaseReaderOptions)
+            var web = JsonSerializer.Deserialize(
+                File.ReadAllText(resolved), FirebaseCamelCaseReadContext.Default.FirebaseWebClientConfig)
                 ?? throw new InvalidDataException($"{resolved}: file is empty or JSON null");
-            return JsonSerializer.Serialize(web, SerializerOptions);
+            return JsonSerializer.Serialize(
+                web, FirebaseSnakeCaseWriteContext.Default.FirebaseWebClientConfig);
         }
         catch (Exception ex) when (ex is not InvalidDataException)
         {
@@ -182,7 +157,8 @@ internal static class FirebasePhase
         var raw = File.ReadAllText(resolved);
         try
         {
-            var stub = JsonSerializer.Deserialize<ServiceAccountStub>(raw, SnakeCaseReaderOptions)
+            var stub = JsonSerializer.Deserialize(
+                raw, FirebaseSnakeCaseReadContext.Default.ServiceAccountStub)
                 ?? throw new InvalidDataException($"{resolved}: file is empty or JSON null");
             if (stub.Type != "service_account")
                 throw new InvalidDataException($"{resolved}: FCM service-account JSON must have \"type\": \"service_account\"");
@@ -237,43 +213,45 @@ internal static class FirebasePhase
     }
 
     // STJ deserialisation targets for Google's file shapes. `required` +
-    // RespectRequiredConstructorParameters replaces hand-written null-guards. The Web input
-    // deserialises directly into FirebaseWebClientConfig because its camelCase matches 1:1.
+    // RespectRequiredConstructorParameters (on FirebaseSnakeCaseReadContext) replaces
+    // hand-written null-guards. Internal (not private) so FirebaseJsonContext can
+    // [JsonSerializable] them. The Web input deserialises directly into
+    // FirebaseWebClientConfig because its camelCase matches 1:1.
 
     /// <summary>Only the fields the phase forwards into <see cref="FirebaseAndroidClientConfig"/>
     /// are modelled; analytics/oauth/etc. are ignored.</summary>
-    private sealed class GoogleServicesFile
+    internal sealed class GoogleServicesFile
     {
         public required GoogleServicesProjectInfo ProjectInfo { get; init; }
         public required GoogleServicesClient[] Client { get; init; }
     }
 
-    private sealed class GoogleServicesProjectInfo
+    internal sealed class GoogleServicesProjectInfo
     {
         public required string ProjectNumber { get; init; }
         public required string ProjectId { get; init; }
         public string? StorageBucket { get; init; }
     }
 
-    private sealed class GoogleServicesClient
+    internal sealed class GoogleServicesClient
     {
         public required GoogleServicesClientInfo ClientInfo { get; init; }
         public required GoogleServicesApiKey[] ApiKey { get; init; }
     }
 
-    private sealed class GoogleServicesClientInfo
+    internal sealed class GoogleServicesClientInfo
     {
         public required string MobilesdkAppId { get; init; }
     }
 
-    private sealed class GoogleServicesApiKey
+    internal sealed class GoogleServicesApiKey
     {
         public required string CurrentKey { get; init; }
     }
 
     /// <summary>Minimal projection: two required fields whose absence triggers a
     /// <see cref="JsonException"/>. The full credential is trusted to FirebaseAdmin at API startup.</summary>
-    private sealed class ServiceAccountStub
+    internal sealed class ServiceAccountStub
     {
         public required string Type { get; init; }
         public required string ProjectId { get; init; }

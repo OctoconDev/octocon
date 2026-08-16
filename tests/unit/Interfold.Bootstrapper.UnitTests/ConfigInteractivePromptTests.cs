@@ -920,6 +920,38 @@ public sealed class ConfigInteractivePromptTests
     }
 
     [Test]
+    public async Task ExistingSeed_ConfirmImmediately_PreservesCustomValues()
+    {
+        var existing = TestSupport.MakeConfig(tweak: c =>
+        {
+            c.Deployment.Hosts = ["custom.example.com", "10.0.0.5"];
+            c.Deployment.RootCaName = "Custom Root CA";
+            c.Deployment.CertYears = 10;
+            c.Ports.ApiHttps = 5443;
+            c.Firebase.AndroidConfigPath = "/opt/firebase/google-services.json";
+            c.Firebase.WebConfigPath = "/opt/firebase/firebase-web-config.json";
+        });
+
+        var console = NewConsole();
+        ConfirmForm(console);
+
+        var config = ConfigPhase.PromptForConfig(
+            console,
+            maskSecrets: false,
+            localAddressProbe: () => null,
+            hostnameProbe: () => null,
+            existing: existing);
+
+        await Assert.That(config.Deployment.Hosts).IsEquivalentTo(["custom.example.com", "10.0.0.5"])
+            .Because("--reconfigure must open the form pre-filled; confirm-without-edits must keep Hosts.");
+        await Assert.That(config.Deployment.RootCaName).IsEqualTo("Custom Root CA");
+        await Assert.That(config.Deployment.CertYears).IsEqualTo(10);
+        await Assert.That(config.Ports.ApiHttps).IsEqualTo(5443);
+        await Assert.That(config.Firebase.AndroidConfigPath).IsEqualTo("/opt/firebase/google-services.json");
+        await Assert.That(config.Firebase.WebConfigPath).IsEqualTo("/opt/firebase/firebase-web-config.json");
+    }
+
+    [Test]
     public async Task MaskSecretsHidesOAuthEchoInPromptOutput()
     {
         // Prod path (maskSecrets:true) → Secret('*') masks the echo. PushTextWithEnter's

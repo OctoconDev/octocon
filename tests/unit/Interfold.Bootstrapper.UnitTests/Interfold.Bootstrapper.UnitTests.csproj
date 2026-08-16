@@ -8,6 +8,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Interfold.Bootstrapper.UnitTests</RootNamespace>
+    <!-- Entry-assembly feature switch: must match Interfold.Bootstrapper so FirebasePhase
+         (and any other STJ call) fails here the same way the PublishTrimmed ELF fails. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 
   <ItemGroup>

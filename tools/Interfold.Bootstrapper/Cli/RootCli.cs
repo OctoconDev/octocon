@@ -37,6 +37,11 @@ public static class RootCli
         {
             Description = "Fail rather than prompt when config values are missing."
         };
+        // Bootstrap-only: not on AddSharedOptions so publish/up/rotate-* reject unknown flags.
+        var reconfigureOpt = new Option<bool>("--reconfigure")
+        {
+            Description = "Re-open the interactive config editor seeded from the existing interfold.bootstrap.json, then continue bootstrap."
+        };
         // Hidden testability flags - not surfaced in help but accepted by the parser.
         var faultInjectOpt = new Option<string?>("--fault-inject") { Hidden = true };
         var printPhaseStatusOpt = new Option<bool>("--print-phase-status") { Hidden = true };
@@ -132,9 +137,11 @@ public static class RootCli
         var bootstrapCmd = new Command("bootstrap",
             "Run all phases: prereqs -> config -> secrets -> certs -> publish -> launch.");
         AddSharedOptions(bootstrapCmd, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
+        bootstrapCmd.Options.Add(reconfigureOpt);
         bootstrapCmd.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
-            rotateSecrets: false, rotateCerts: false, ct));
+            rotateSecrets: false, rotateCerts: false, ct,
+            reconfigureOpt: reconfigureOpt));
         root.Subcommands.Add(bootstrapCmd);
 
         // ---------- publish (compose-only, no docker compose up) ----------
@@ -256,9 +263,11 @@ public static class RootCli
 
         // No subcommand -> default to `bootstrap`.
         AddSharedOptions(root, configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt);
+        root.Options.Add(reconfigureOpt);
         root.SetAction((parse, ct) => InvokeAsync(BootstrapCommand.Bootstrap, parse,
             configOpt, outputDirOpt, skipPrereqsOpt, nonInteractiveOpt, faultInjectOpt, printPhaseStatusOpt,
-            rotateSecrets: false, rotateCerts: false, ct));
+            rotateSecrets: false, rotateCerts: false, ct,
+            reconfigureOpt: reconfigureOpt));
 
         return root;
     }
@@ -306,7 +315,8 @@ public static class RootCli
         Option<string?>? restorePostgresOpt = null,
         Option<string?>? restoreScyllaOpt = null,
         Option<bool>? restoreLatestOpt = null,
-        Option<bool>? restoreForceOpt = null)
+        Option<bool>? restoreForceOpt = null,
+        Option<bool>? reconfigureOpt = null)
     {
         var options = new BootstrapOptions(
             Command: command,
@@ -332,7 +342,8 @@ public static class RootCli
             RestorePostgresArchive: restorePostgresOpt is null ? null : parse.GetValue(restorePostgresOpt),
             RestoreScyllaArchive: restoreScyllaOpt is null ? null : parse.GetValue(restoreScyllaOpt),
             RestoreLatest: restoreLatestOpt is not null && parse.GetValue(restoreLatestOpt),
-            RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt));
+            RestoreForce: restoreForceOpt is not null && parse.GetValue(restoreForceOpt),
+            Reconfigure: reconfigureOpt is not null && parse.GetValue(reconfigureOpt));
 
         var logger = new PhaseLogger(options);
 

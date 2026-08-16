@@ -19,6 +19,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Bootstrapper never calls the AppHost's own Main, so the NETSDK1150 self-contained-mismatch guard doesn't apply. -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+    <!-- PublishTrimmed already disables reflection STJ; set explicitly so Debug/`dotnet run`
+         and unit tests fail the same way as the shipped ELF when a JsonSerializer call
+         lacks a source-gen context. See BootstrapJsonContext / FirebaseJsonContext. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 
   <ItemGroup>

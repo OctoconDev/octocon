@@ -227,4 +227,53 @@ public sealed class CliParsingTests
 
         await Assert.That(run.ExitCode).IsNotEqualTo(0);
     }
+
+    [Test]
+    public async Task BootstrapHelpListsReconfigure()
+    {
+        var run = await InvokeViaProcessAsync("bootstrap", "--help");
+        await Assert.That(run.ExitCode).IsEqualTo(0);
+        var combined = run.Stdout + run.Stderr;
+        await Assert.That(combined).Contains("--reconfigure")
+            .Because("bootstrap (and root default) own --reconfigure for editing an existing config interactively.");
+    }
+
+    [Test]
+    public async Task PublishHelpDoesNotListReconfigure()
+    {
+        var run = await InvokeViaProcessAsync("publish", "--help");
+        await Assert.That(run.ExitCode).IsEqualTo(0);
+        var combined = run.Stdout + run.Stderr;
+        await Assert.That(combined).DoesNotContain("--reconfigure")
+            .Because("--reconfigure is bootstrap-only; other subcommands must not accept it.");
+    }
+
+    [Test]
+    [NotInParallel("CliParsing.ConsoleStreams")]
+    public async Task ReconfigureWithNonInteractiveExitsNonZero()
+    {
+        using var scratch = TestSupport.NewScratchDir("interfold-cli-reconfigure-ni");
+        var tmpDir = scratch.Path;
+        var configPath = Path.Combine(tmpDir, "interfold.bootstrap.json");
+        var cfg = TestSupport.MakeConfig(tweak: c =>
+        {
+            c.Deployment.Hosts = ["api.example.com"];
+            c.Deployment.OutputDir = tmpDir;
+        });
+        await File.WriteAllTextAsync(
+            configPath,
+            System.Text.Json.JsonSerializer.Serialize(cfg, Interfold.Bootstrapper.Configuration.BootstrapJsonContext.Default.BootstrapConfig));
+
+        // Redirected stdin (InvokeInProcessAsync) + --non-interactive both block --reconfigure.
+        var run = await InvokeInProcessAsync(
+            "bootstrap",
+            "--config", configPath,
+            "--output-dir", tmpDir,
+            "--skip-prereqs",
+            "--reconfigure",
+            "--non-interactive");
+
+        await Assert.That(run.ExitCode).IsNotEqualTo(0);
+        await Assert.That(run.Stdout + run.Stderr).Contains("--reconfigure");
+    }
 }

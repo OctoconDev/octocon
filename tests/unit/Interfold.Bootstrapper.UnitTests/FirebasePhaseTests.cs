@@ -9,22 +9,12 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// <summary>
 /// Pins the shape contract of <see cref="FirebasePhase"/>: which fields it extracts from
 /// each Firebase input, the snake_case naming policy on the emitted seed JSON, and the
-/// "empty path means skip" semantics for unconfigured platforms.
+/// "empty path means skip" semantics for unconfigured platforms. Runs under
+/// <c>JsonSerializerIsReflectionEnabledByDefault=false</c> so missing source-gen coverage
+/// fails here the same way the PublishTrimmed ELF fails in production.
 /// </summary>
 public sealed class FirebasePhaseTests
 {
-    /// <summary>
-    /// Mirrors <c>SecretsBootstrapService.FirebaseClientJsonOptions</c>: the exact
-    /// options the API uses to deserialise the seeded row back into the typed record.
-    /// Round-tripping through this instance in the tests proves the bootstrapper's
-    /// emitted JSON is directly consumable by the API without any adapter.
-    /// </summary>
-    private static readonly JsonSerializerOptions ApiReaderOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = true,
-    };
-
     private static PhaseLogger Logger() => new(TestOptions("/tmp"));
 
     private static BootstrapOptions TestOptions(string outputDir) => new(
@@ -157,7 +147,9 @@ public sealed class FirebasePhaseTests
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
-            var parsed = JsonSerializer.Deserialize<FirebaseAndroidClientConfig>(result.AndroidClientJson!, ApiReaderOptions)!;
+            var parsed = JsonSerializer.Deserialize(
+                result.AndroidClientJson!,
+                FirebaseSnakeCaseWriteContext.Default.FirebaseAndroidClientConfig)!;
             await Assert.That(parsed).IsNotNull()
                 .Because("The bootstrapper's emitted JSON must deserialise cleanly into the API's typed record under the same snake_case options SecretsBootstrapService uses.");
             await Assert.That(parsed.ApiKey).IsEqualTo("AIzaSyTest-Android-Key");
@@ -184,7 +176,9 @@ public sealed class FirebasePhaseTests
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
-            var parsed = JsonSerializer.Deserialize<FirebaseIosClientConfig>(result.IosClientJson!, ApiReaderOptions)!;
+            var parsed = JsonSerializer.Deserialize(
+                result.IosClientJson!,
+                FirebaseSnakeCaseWriteContext.Default.FirebaseIosClientConfig)!;
             await Assert.That(parsed).IsNotNull();
             await Assert.That(parsed.ApiKey).IsEqualTo("AIzaSyTest-Ios-Key");
             await Assert.That(parsed.GoogleAppId).IsEqualTo("1:111222333444:ios:1234567890abcdef");
@@ -212,7 +206,9 @@ public sealed class FirebasePhaseTests
             };
             var result = await FirebasePhase.RunAsync(TestOptions(dir), config, Logger(), CancellationToken.None);
 
-            var parsed = JsonSerializer.Deserialize<FirebaseWebClientConfig>(result.WebClientJson!, ApiReaderOptions)!;
+            var parsed = JsonSerializer.Deserialize(
+                result.WebClientJson!,
+                FirebaseSnakeCaseWriteContext.Default.FirebaseWebClientConfig)!;
             await Assert.That(parsed).IsNotNull()
                 .Because("The camelCase console output must be normalised into snake_case so the API's SnakeCaseLower deserialiser accepts the seeded row.");
             await Assert.That(parsed.ApiKey).IsEqualTo("AIzaSyTest-Web-Key");
