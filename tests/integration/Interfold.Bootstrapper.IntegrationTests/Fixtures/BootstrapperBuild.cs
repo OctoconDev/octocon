@@ -23,10 +23,19 @@ internal static class BootstrapperBuild
 
     private const string ApiImageRef = "interfold-api:test";
 
+    // Root of the per-session publish + api-tar staging area under $TMPDIR. Every DinD
+    // test-host process drops ~150 MB here (bootstrapper publish + saved API image tar)
+    // and never cleans it up, so aborted / repeated sessions pile up on the runner disk.
+    // PruneStaleSessions is called from both Lazy factories so the cleanup runs exactly
+    // once per test-host regardless of which artifact is requested first.
+    private static readonly string StagingRoot = Path.Combine(
+        Path.GetTempPath(), "interfold-bootstrap-test-publish");
+    private static int _prunedFlag;
+
     private static async Task<string> PublishBootstrapperAsync()
     {
-        var outDir = Path.Combine(Path.GetTempPath(),
-            "interfold-bootstrap-test-publish",
+        PruneStaleSessions();
+        var outDir = Path.Combine(StagingRoot,
             $"run-{Environment.ProcessId}-{DateTime.UtcNow:yyyyMMddHHmmss}");
         Directory.CreateDirectory(outDir);
 
@@ -64,13 +73,93 @@ internal static class BootstrapperBuild
                 "--arch", "x64").ConfigureAwait(false);
         }
 
-        var tarPath = Path.Combine(Path.GetTempPath(),
-            "interfold-bootstrap-test-publish",
-            $"api-{Environment.ProcessId}.tar");
+        PruneStaleSessions();
+        var tarPath = Path.Combine(StagingRoot, $"api-{Environment.ProcessId}.tar");
         Directory.CreateDirectory(Path.GetDirectoryName(tarPath)!);
 
         await RunAsync("docker", new[] { "save", ApiImageRef, "-o", tarPath }, workingDir: RepoRoot.Path).ConfigureAwait(false);
         return tarPath;
+    }
+
+    // Removes `run-{pid}-{ts}/` dirs and `api-{pid}.tar` files whose PID is no longer
+    // alive. Runs once per test-host process (`Interlocked.Exchange` gate) so the two
+    // Lazy factories don't double-scan. Also schedules ProcessExit cleanup of the
+    // CURRENT session's staging so a clean exit no longer leaks either — aborted
+    // sessions still leak but the next successful run reclaims them.
+    private static void PruneStaleSessions()
+    {
+        if (Interlocked.Exchange(ref _prunedFlag, 1) != 0) return;
+        try
+        {
+            if (Directory.Exists(StagingRoot))
+            {
+                foreach (var dir in Directory.EnumerateDirectories(StagingRoot, "run-*"))
+                {
+                    if (IsForeignAlivePid(Path.GetFileName(dir), "run-")) continue;
+                    TryDelete(() => Directory.Delete(dir, recursive: true));
+                }
+                foreach (var tar in Directory.EnumerateFiles(StagingRoot, "api-*.tar"))
+                {
+                    if (IsForeignAlivePid(Path.GetFileName(tar), "api-", ".tar")) continue;
+                    TryDelete(() => File.Delete(tar));
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort — a scan failure must not sink the whole test run.
+        }
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            var thisPid = Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            try
+            {
+                foreach (var dir in Directory.EnumerateDirectories(StagingRoot, $"run-{thisPid}-*"))
+                    TryDelete(() => Directory.Delete(dir, recursive: true));
+                var tar = Path.Combine(StagingRoot, $"api-{thisPid}.tar");
+                if (File.Exists(tar)) TryDelete(() => File.Delete(tar));
+            }
+            catch
+            {
+                // Best-effort — shutdown cleanup is not allowed to throw.
+            }
+        };
+    }
+
+    private static bool IsForeignAlivePid(string name, string prefix, string suffix = "")
+    {
+        if (!name.StartsWith(prefix, StringComparison.Ordinal)) return true;
+        var rest = name[prefix.Length..];
+        if (suffix.Length > 0 && rest.EndsWith(suffix, StringComparison.Ordinal))
+            rest = rest[..^suffix.Length];
+        var dash = rest.IndexOf('-');
+        var pidText = dash >= 0 ? rest[..dash] : rest;
+        if (!int.TryParse(pidText, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var pid))
+        {
+            return true;
+        }
+        if (pid == Environment.ProcessId) return true;
+        try
+        {
+            using var _ = Process.GetProcessById(pid);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static void TryDelete(Action action)
+    {
+        try { action(); }
+        catch { /* leftover on next run is fine; better than throwing on cleanup */ }
     }
 
     private static async Task<bool> DockerImageExistsAsync(string imageRef)

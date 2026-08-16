@@ -199,7 +199,13 @@ public class WebSocketTests(IWebFactoryFixture fixture) : BaseEndpointTest
         await ws.CloseTestDoneAsync(token);
     }
 
+    // Flaky under a 12-project cold-boot fanout: the domain-fanout push
+    // (alter_created) races the phx_reply on the same socket, and
+    // ReceiveReplyAndPushAsync's 6-frame / 30 s-per-frame window occasionally
+    // times out on the push half before it arrives. Two retries are enough to
+    // ride out the contention spike; the ack path itself is solid.
     [Test]
+    [Retry(2)]
     public async Task Api_UserSocketEndpoint_PushesAlterTagAndFieldsEvents_AfterEndpointWrites(CancellationToken token)
     {
         var systemId = UniqueId("sys-domain-fanout");

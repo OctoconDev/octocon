@@ -44,7 +44,13 @@ public class FrontingControllerTests(IWebFactoryFixture fixture) : BaseEndpointT
         var now = fixture.Factory.TimeProvider.GetUtcNow();
         var startAnchor = now.AddMinutes(-1).ToUnixTimeSeconds();
 
-        var principal = "phase3-fronting-history";
+        // Per-invocation nonce so the shared PostgresIdempotencyStore under the bench
+        // can't hand a peer variant's cached FrontId back (see docs/test-bench-audit.md
+        // and the identical pattern in ReplayParityTests / SeedVisibilityQuartetAsync).
+        // Without it the InMemory / Scylla / Cassandra factory variants race on
+        // "phase3-fronting-history" and later reads see a FrontId from another
+        // variant's backend that the current variant's CQL never wrote.
+        var principal = $"phase3-fronting-history-{Guid.NewGuid().ToString("N")[..8]}";
         var alter = await CreateAlterAsync(client, principal, "test alter");
 
         using var started = await SendFrontStartAsync(client, alterId: alter, comment: "phase3-history", principal);

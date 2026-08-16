@@ -8,7 +8,17 @@
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RunSettingsFilePath>$(MSBuildProjectDirectory)\tests.runsettings</RunSettingsFilePath>
+    <!--
+      Opt out of the centralised auto-managed test bench (see TestBenchCoordinator /
+      tests/Directory.Build.targets). Two tests here are structurally incompatible with
+      the bench: MultiNodeScyllaTests boots the 7-regional-Scylla cluster and asserts
+      all 7 data centers are visible (bench has 1); MigrationLedgerTests asserts
+      re-running Scylla migrations is a no-op which requires exclusive ownership of
+      the CQL ledger (bench is shared across every leaf project so peer
+      SharedDbFixture.TryInitialiseBenchCqlAsync calls insert extra rows between the
+      before/after snapshots). Fall back to this project's own AspireFixture path.
+    -->
+    <InterfoldTestBenchOptOut>true</InterfoldTestBenchOptOut>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,9 +40,4 @@
     <ProjectReference Include="..\..\..\shared\Interfold.DatabaseBootstrap\Interfold.DatabaseBootstrap.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\Interfold.IntegrationTests.Shared\tests.runsettings" Link="tests.runsettings">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
 </Project>

@@ -5,7 +5,6 @@
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RunSettingsFilePath>$(MSBuildProjectDirectory)\tests.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,9 +19,4 @@
     <ProjectReference Include="..\..\..\apis\Interfold.Systems.Api\Interfold.Systems.Api.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\Interfold.IntegrationTests.Shared\tests.runsettings" Link="tests.runsettings">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
 </Project>

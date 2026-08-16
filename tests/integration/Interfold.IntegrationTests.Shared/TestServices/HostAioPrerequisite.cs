@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.InteropServices;
 
 namespace Interfold.IntegrationTests.Shared.TestServices;
 
@@ -11,12 +13,18 @@ namespace Interfold.IntegrationTests.Shared.TestServices;
 /// </summary>
 /// <remarks>
 /// <para>
-/// On a Linux host the test process can write to <c>/proc/sys/fs/aio-max-nr</c> directly when
-/// run as root. On Docker Desktop (Mac / Windows) the test process runs on the host OS but
-/// the kernel sysctl lives inside the Docker VM, so direct writes don't work. To cover both
-/// cases uniformly we always go through a one-shot privileged Alpine container — that way
-/// the same code path works for developer-laptop runs, GitHub Actions Linux runners, and
-/// Docker-in-Docker bootstrapper integration tests.
+/// On a Linux host <c>/proc/sys/fs/aio-max-nr</c> is world-readable, so the fast path is a
+/// bare file read: if the kernel is already at-or-above our minimum (GitHub Actions Linux
+/// runners ship at 1,048,576 which dwarfs any node count we run), the helper container is
+/// skipped entirely. This keeps CI green when Docker Hub throttles the anonymous
+/// <c>alpine:3.20</c> pull (see the July 2026 incident that took out the whole matrix on a
+/// registry-1.docker.io context-deadline).
+/// </para>
+/// <para>
+/// If the fast path reports insufficient (developer laptop with a low sysctl) or the file
+/// can't be read (Docker Desktop on Mac/Windows where the sysctl lives inside the VM), we
+/// fall through to a one-shot privileged Alpine container that raises the limit. This is
+/// also the code path exercised by DinD bootstrapper integration tests.
 /// </para>
 /// <para>
 /// Idempotent and process-static: once we've raised the limit during a session we don't
@@ -60,6 +68,9 @@ public static class HostAioPrerequisite
         => (RequiredFixtures.NeedScylla ? 1 : 0) +
            (RequiredFixtures.NeedMultiNodeScylla ? MultiNodeNodeCount : 0);
 
+    /// <summary>Path to the Linux kernel sysctl we're reading. Extracted as a constant so the fast-path check is easy to grep for.</summary>
+    private const string AioSysctlPath = "/proc/sys/fs/aio-max-nr";
+
     /// <summary>
     /// Raises the host's <c>fs.aio-max-nr</c> to satisfy the requested Scylla node count if
     /// the current value is below the minimum. A no-op when <paramref name="scyllaNodeCount"/>
@@ -90,6 +101,22 @@ public static class HostAioPrerequisite
 
             var minRequired = scyllaNodeCount * PerNodeMin + Headroom;
             var target = scyllaNodeCount * PerNodeRecommended + Headroom;
+
+            // Linux-only fast path. GHA hosted runners default to 1,048,576 which satisfies
+            // any node count we run, so we can short-circuit before touching Docker Hub. This
+            // is what stops a Docker Hub throttle (context-deadline on registry-1.docker.io)
+            // from taking out every integration-test job. Docker Desktop on Mac/Windows falls
+            // through because /proc/sys/fs/aio-max-nr doesn't exist on those hosts.
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && TryReadCurrentLimit(out var current))
+            {
+                if (current >= minRequired)
+                {
+                    Console.Error.WriteLine(
+                        $"[host-aio] current={current} >= min={minRequired} for {scyllaNodeCount} Scylla node(s); ok (no docker)");
+                    _appliedFor = scyllaNodeCount;
+                    return;
+                }
+            }
 
             // Inline sh script so we don't have to bind-mount ensure-host-aio.sh from the test
             // project. The logic is identical: read current, compare to min, write target if
@@ -144,6 +171,29 @@ public static class HostAioPrerequisite
         finally
         {
             Gate.Release();
+        }
+    }
+
+    private static bool TryReadCurrentLimit(out int current)
+    {
+        current = 0;
+        try
+        {
+            if (!File.Exists(AioSysctlPath))
+            {
+                return false;
+            }
+
+            var raw = File.ReadAllText(AioSysctlPath).Trim();
+            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out current);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 }

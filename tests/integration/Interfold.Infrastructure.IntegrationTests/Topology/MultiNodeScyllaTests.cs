@@ -8,7 +8,14 @@ namespace Interfold.Infrastructure.IntegrationTests.Topology;
 /// Tests that a multi-node ScyllaDB cluster (7 regional DCs) correctly spins up
 /// and can serve cross-DC queries. Uses a dedicated <see cref="MultiNodeScyllaFixture"/>
 /// managed by TUnit.Aspire that shares Postgres with <see cref="SharedDbFixture"/>.
+/// <para>
+/// Marked <see cref="ExplicitAttribute"/> — spinning up a 7-DC Scylla ring on a workstation
+/// eats several GB of RAM + several minutes of wall-clock. Local <c>dotnet test</c> at the
+/// solution root skips this class; CI opts in explicitly via
+/// <c>--treenode-filter '/*/*/*MultiNodeScyllaTests/*'</c> in the Infrastructure leg.
+/// </para>
 /// </summary>
+[Explicit]
 [ClassDataSource<MultiNodeScyllaFixture>(Shared = SharedType.PerTestSession)]
 public sealed class MultiNodeScyllaTests(MultiNodeScyllaFixture fixture)
 {

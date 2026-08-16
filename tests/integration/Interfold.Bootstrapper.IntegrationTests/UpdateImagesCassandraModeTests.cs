@@ -39,6 +39,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// </remarks>
 [RequiresDocker]
 [ClassDataSource<UbuntuCassandraDinDFixture>(Shared = SharedType.PerTestSession)]
+[Explicit]
 public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
 {
 

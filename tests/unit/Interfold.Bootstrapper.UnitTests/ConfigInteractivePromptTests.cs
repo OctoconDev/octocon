@@ -15,8 +15,12 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// 22..23 Cluster/telemetry · 24..25 Storage · 26..30 Performance · 31..36 OAuth ·
 /// 37..41 Backup · 42..46 Updates · 47 Firebase. Navigate(48) = Confirm and save.</para>
 /// <para><c>[NotInParallel("bootstrapper-console")]</c>: Spectre TestConsole + MTP's
-/// NamedPipeServer race under Linux thread pressure (dotnet/runtime#58045). ~10s serialised.</para></summary>
+/// NamedPipeServer race under Linux thread pressure (dotnet/runtime#58045). ~10s serialised.
+/// <c>[Retry(2)]</c> absorbs the residual native abort (exit 134/SIGABRT) that still slips
+/// through on 2-core GHA runners when the pipe race wins — the underlying runtime bug is
+/// non-deterministic, and the test logic itself is race-free, so a retry is safe.</para></summary>
 [NotInParallel("bootstrapper-console")]
+[Retry(2)]
 public sealed class ConfigInteractivePromptTests
 {
     private const int FieldCount = 48;
