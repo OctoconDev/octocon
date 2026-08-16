@@ -17,6 +17,7 @@ internal static class PhaseFailureReasons
     public const string MissingConfig = "missing-config";
     public const string MissingConfigNonInteractive = "missing-config-non-interactive";
     public const string MissingConfigNoTty = "missing-config-no-tty";
+    public const string ReconfigureRequiresInteractive = "reconfigure-requires-interactive";
 
     // Publish / launch
     public const string ComposeNotEmitted = "compose-not-emitted";

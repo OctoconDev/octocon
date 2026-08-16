@@ -28,6 +28,9 @@ namespace Interfold.Bootstrapper.Cli;
 /// <param name="RestoreScyllaArchive">For <see cref="BootstrapCommand.Restore"/>: path to a specific scylla .tar.gz archive to restore. Mutually exclusive with <see cref="RestoreLatest"/> for the scylla component.</param>
 /// <param name="RestoreLatest">For <see cref="BootstrapCommand.Restore"/>: pick the newest archive by mtime under <c>{backupRoot}/{component}/</c> for every component that wasn't explicitly named on the CLI. Only meaningful when at least one archive exists.</param>
 /// <param name="RestoreForce">For <see cref="BootstrapCommand.Restore"/>: skip the interactive "this will wipe your data volumes" confirmation. Required in non-interactive mode; equivalent to typing "y" at the confirmation prompt in interactive mode.</param>
+/// <param name="Reconfigure">If true (bootstrap only), re-open the interactive config editor seeded
+/// from the existing <c>interfold.bootstrap.json</c>, persist on confirm, then continue the pipeline.
+/// Incompatible with <see cref="NonInteractive"/> / redirected stdin.</param>
 public sealed record BootstrapOptions(
     BootstrapCommand Command,
     string? ConfigPath,
@@ -52,7 +55,8 @@ public sealed record BootstrapOptions(
     string? RestorePostgresArchive = null,
     string? RestoreScyllaArchive = null,
     bool RestoreLatest = false,
-    bool RestoreForce = false);
+    bool RestoreForce = false,
+    bool Reconfigure = false);
 
 public enum BootstrapCommand
 {

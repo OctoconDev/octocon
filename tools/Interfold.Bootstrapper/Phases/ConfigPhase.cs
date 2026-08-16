@@ -28,6 +28,26 @@ internal static class ConfigPhase
             var json = await File.ReadAllTextAsync(configPath, ct).ConfigureAwait(false);
             config = JsonSerializer.Deserialize(json, BootstrapJsonContext.Default.BootstrapConfig)
                      ?? throw new InvalidOperationException($"Failed to parse {configPath} (returned null).");
+
+            if (options.Reconfigure)
+            {
+                if (options.NonInteractive || Console.IsInputRedirected)
+                {
+                    logger.PhaseFail(Phase, PhaseFailureReasons.ReconfigureRequiresInteractive);
+                    throw new InvalidOperationException(
+                        "--reconfigure requires an interactive TTY. " +
+                        "Omit --non-interactive and run from a terminal (stdin must not be redirected).");
+                }
+
+                logger.Info("    --reconfigure: opening interactive editor seeded from existing config");
+                var mdnsHostname = await ApplyPreFillMdnsCheckAsync(options, logger, ct).ConfigureAwait(false);
+                config = PromptForConfig(
+                    AnsiConsole.Console,
+                    maskSecrets: true,
+                    hostnameProbe: () => mdnsHostname,
+                    existing: config);
+                await PersistAsync(config, configPath, ct).ConfigureAwait(false);
+            }
         }
         else if (options.NonInteractive)
         {
@@ -89,14 +109,17 @@ internal static class ConfigPhase
     /// Test seams: <paramref name="localAddressProbe"/> and <paramref name="hostnameProbe"/>
     /// default to real detection but are stubbed out in unit tests for determinism.
     /// <paramref name="hostnameProbe"/>'s value MUST land first in the seed list so
-    /// <see cref="ResolveDerivedDefaults"/> latches the mDNS name for the leaf cert.</summary>
+    /// <see cref="ResolveDerivedDefaults"/> latches the mDNS name for the leaf cert.
+    /// When <paramref name="existing"/> is supplied (e.g. <c>--reconfigure</c>), the form
+    /// opens pre-filled; hostname/IP auto-seed only applies when Hosts is still empty.</summary>
     internal static BootstrapConfig PromptForConfig(
         IAnsiConsole console,
         bool maskSecrets = false,
         Func<IPAddress?>? localAddressProbe = null,
-        Func<string?>? hostnameProbe = null)
+        Func<string?>? hostnameProbe = null,
+        BootstrapConfig? existing = null)
     {
-        var c = new BootstrapConfig();
+        var c = existing ?? new BootstrapConfig();
 
         // Hostname before IP so HostParser.PickPrimary latches the mDNS name.
         if (c.Deployment.Hosts.Count == 0)

@@ -104,7 +104,8 @@ internal static class TestSupport
         bool printPhaseStatus = false,
         string? backupDirOverride = null,
         string[]? updateServices = null,
-        string? configPath = null)
+        string? configPath = null,
+        bool reconfigure = false)
     {
         return new BootstrapOptions(
             Command: command,
@@ -117,7 +118,8 @@ internal static class TestSupport
             FaultInject: faultInject,
             PrintPhaseStatus: printPhaseStatus,
             BackupDirOverride: backupDirOverride,
-            UpdateServices: updateServices);
+            UpdateServices: updateServices,
+            Reconfigure: reconfigure);
     }
 
     /// <summary>
