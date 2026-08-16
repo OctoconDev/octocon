@@ -6,6 +6,23 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Interfold.Bootstrapper.IntegrationTests</RootNamespace>
+    <!--
+      Every test class in this assembly carries [Explicit] (see AssemblyInfo.cs). Local
+      `dotnet test` at the solution root skips them entirely; CI's Bootstrapper matrix leg
+      opts in by passing a treenode filter of "/*/*/*/*", which matches every test — all
+      are explicit, so TUnit runs the full suite. Rationale for the exclusion: each DinD
+      test needs 5-8 GB of transient inner-Docker storage and a solution-wide root run
+      previously tipped the disk past 100% and OOM-killed the daemon.
+
+      Under solution-wide `dotnet test`, the default invocation resolves to zero
+      discovered tests. MTP treats that as failure (exit 8); the ignore-exit-code=8
+      argument below converts it into a clean success so the root run still passes.
+      See https://github.com/microsoft/testfx/issues/5146 (MTP's minimum-expected-tests
+      deliberately refuses zero). CI's direct-DLL launches bypass this argument
+      entirely (the property only feeds `dotnet test`), and the treenode filter above
+      ensures CI runs the full suite anyway.
+    -->
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --ignore-exit-code 8</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>

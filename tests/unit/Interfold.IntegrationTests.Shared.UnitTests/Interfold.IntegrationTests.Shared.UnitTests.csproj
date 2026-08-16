@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests for the test-bench coordination primitives that ship inside
+       Interfold.IntegrationTests.Shared: TestBenchLease (cross-process lock,
+       state marshalling, PID prune) and the reaper's idle-timeout logic.
+       These are pure filesystem+in-process tests — no docker, no Aspire.
+
+       We link-compile the two TestBench source files instead of ProjectReference-ing
+       Interfold.IntegrationTests.Shared. That project ships real integration tests
+       (ReplayParityTests, etc.) which TUnit would discover across a project
+       reference and spin Aspire up for — turning "unit tests" into a slow-boot
+       integration matrix. Linking the sources gives us the primitives without the
+       foreign-test discovery. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Interfold.IntegrationTests.Shared.UnitTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Link-compile TestBenchLease + TestBenchIdleReaper. Both are self-contained;
+         TestBenchCoordinator and BenchConnectionInfo pull in Aspire/test-only types
+         (TestDbCredentials, DbInitHelper), so they stay excluded — those layers are
+         exercised end-to-end by the integration tests. -->
+    <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\TestBench\TestBenchLease.cs"
+             Link="TestBench\Sut\TestBenchLease.cs" />
+    <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\TestBench\TestBenchIdleReaper.cs"
+             Link="TestBench\Sut\TestBenchIdleReaper.cs" />
+  </ItemGroup>
+</Project>

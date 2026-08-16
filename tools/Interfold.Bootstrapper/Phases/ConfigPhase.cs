@@ -1067,12 +1067,19 @@ internal static class ConfigPhase
     /// <param name="ct">Cancellation for probe + install.</param>
     /// <param name="hostnameFactory">Test seam; defaults to <see cref="HostnameDetector.TryDetectMdnsHostname"/>.</param>
     /// <param name="probe">Test seam; defaults to <see cref="MdnsAvailability.IsHostnameResolvableAsync"/>.</param>
+    /// <param name="isInteractive">Test seam; defaults to <c>!Console.IsInputRedirected</c>.
+    /// Provided because <see cref="Console.SetIn"/> in unit tests doesn't change
+    /// <see cref="Console.IsInputRedirected"/> (the property is bound to the OS-level fd
+    /// state, not the managed Console.In reader). Without this seam the unit test's
+    /// StringReader stdin swap is invisible to the check and the install prompt fires
+    /// whenever `dotnet test` runs from an interactive terminal.</param>
     internal static async Task<string?> ApplyPreFillMdnsCheckAsync(
         BootstrapOptions options,
         PhaseLogger logger,
         CancellationToken ct,
         Func<string?>? hostnameFactory = null,
-        Func<string, CancellationToken, Task<bool?>>? probe = null)
+        Func<string, CancellationToken, Task<bool?>>? probe = null,
+        Func<bool>? isInteractive = null)
     {
         // Non-interactive skips the banner; the post-fill gate handles .local entries later.
         if (options.NonInteractive)
@@ -1106,7 +1113,8 @@ internal static class ConfigPhase
         logger.Warn($"    to enable it: {MdnsAvailability.ManualInstallHint(distro.Family)}");
 
         // No TTY (test path lands here too) → skip install offer, operator gets the manual hint.
-        if (Console.IsInputRedirected)
+        var isInteractiveFn = isInteractive ?? (static () => !Console.IsInputRedirected);
+        if (!isInteractiveFn())
         {
             logger.Warn($"    no TTY for install prompt; {hostname} will be omitted from the pre-fill");
             return null;

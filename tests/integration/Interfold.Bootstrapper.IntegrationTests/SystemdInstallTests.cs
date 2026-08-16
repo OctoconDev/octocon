@@ -17,6 +17,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// </summary>
 [RequiresDocker]
 [ClassDataSource<UbuntuDinDFixture>(Shared = SharedType.PerTestSession)]
+[Explicit]
 public class SystemdInstallTests(UbuntuDinDFixture dinD)
 {
 

@@ -78,6 +78,7 @@
     <Project Path="tests/unit/Interfold.Bootstrapper.UnitTests/Interfold.Bootstrapper.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Friendships.UnitTests/Interfold.Friendships.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Fronting.UnitTests/Interfold.Fronting.UnitTests.csproj" />
+    <Project Path="tests/unit/Interfold.IntegrationTests.Shared.UnitTests/Interfold.IntegrationTests.Shared.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Journals.UnitTests/Interfold.Journals.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Ops.UnitTests/Interfold.Ops.UnitTests.csproj" />
     <Project Path="tests/unit/Interfold.Polls.UnitTests/Interfold.Polls.UnitTests.csproj" />

@@ -11,6 +11,7 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// </summary>
 [RequiresDocker]
 [ClassDataSource<FedoraDinDFixture>(Shared = SharedType.PerTestSession)]
+[Explicit]
 public class FedoraBootstrapTests(FedoraDinDFixture dinD)
 {
 

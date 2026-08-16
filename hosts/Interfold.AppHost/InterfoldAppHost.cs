@@ -50,6 +50,13 @@ public static class InterfoldAppHost
     /// <summary>CQL cluster-name fallback for dev `aspire run`; the bootstrapper always overrides.</summary>
     private const string DefaultClusterName = "InterfoldCluster";
 
+    // Bench-mode container names. Stable across AppHost restarts so a second launcher
+    // process (a subsequent test-host cold-attach) reuses the running containers instead
+    // of colliding on host ports 14200/19042/19043.
+    private const string TestBenchPostgresContainerName = "interfold-test-bench-pg";
+    private const string TestBenchScyllaContainerName = "interfold-test-bench-scylla";
+    private const string TestBenchCassandraContainerName = "interfold-test-bench-cassandra";
+
     /// <summary>Registers the full Interfold resource graph. Does not call
     /// <c>Build()</c> or <c>Run()</c>.</summary>
     public static void Configure(IDistributedApplicationBuilder builder)
@@ -73,8 +80,19 @@ public static class InterfoldAppHost
         var webHttpPort = Port(AppHostParameterKeys.PortsWebHttp, DefaultWebHttpPort);
         var webHttpsPort = Port(AppHostParameterKeys.PortsWebHttps, DefaultWebHttpsPort);
 
-        var includeApi = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeApi], fallback: true);
-        var persistentContainers = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.PersistentContainers], fallback: true);
+        // Bench mode is the auto-managed cross-project DB fixture (see
+        // TestBenchCoordinator + BenchSharedDb). When on it forces api/web/dashboard off,
+        // switches on persistent-containers, pins stable container names on the three DB
+        // resources, and — via TestBenchReadyEmitter — writes a machine-readable readiness
+        // line to stdout after WaitForResourcesAsync so the launcher can exit cleanly.
+        var testBenchMode = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.TestBenchMode], fallback: false);
+
+        var includeApi = testBenchMode
+            ? false
+            : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeApi], fallback: true);
+        var persistentContainers = testBenchMode
+            ? true
+            : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.PersistentContainers], fallback: true);
 
         // Both CQL backends can be on simultaneously (SharedDbFixture uses this to
         // exercise Scylla + Cassandra under one Aspire host). scylla-topology only
@@ -133,7 +151,11 @@ public static class InterfoldAppHost
 
         // Bootstrapper sets include-dashboard=false so self-hosted production stacks
         // don't pull the nightly aspire-dashboard image; dev `aspire run` keeps it.
-        var includeDashboard = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeDashboard], fallback: true);
+        // Bench mode also forces it off — the launcher spawns a short-lived AppHost that
+        // exits after emitting readiness, so pulling the dashboard image is pure overhead.
+        var includeDashboard = testBenchMode
+            ? false
+            : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeDashboard], fallback: true);
         builder.AddDockerComposeEnvironment(ComposeEnvironmentName)
             .WithDashboard(includeDashboard)
             .ConfigureComposeFile(compose =>
@@ -303,8 +325,42 @@ public static class InterfoldAppHost
                 });
             if (includeApi)
                 msgDb.WithHealthCheck(MsgDbHealthCheckName);
-            if (persistentContainers)
+            if (testBenchMode)
+            {
+                // Bench mode is deliberately volume-less: the container's own filesystem
+                // holds transient DB state, ContainerLifetime.Persistent keeps it alive across
+                // AppHost restarts (hot-attach path), and TestBenchIdleReaper's docker-rm-f
+                // cleans everything up in one call. Sharing the ComposeVolumes.PostgresData
+                // volume ("msg_pgdata") cross-contaminates with any local bootstrapper compose
+                // stack and preserves stale db_init passwords across bench reboots.
+                msgDb.WithLifetime(ContainerLifetime.Persistent);
+                // Proxyless — docker binds host:14200 → container:5432 directly, no Aspire
+                // reverse proxy. The launcher AppHost exits right after TestBenchReadyEmitter
+                // signals ready; a proxied endpoint would die with it and leave the container
+                // reachable only on a random docker-assigned ephemeral port. Aspire 13.4+ makes
+                // persistent-resource endpoints proxyless by default, but we set it explicitly
+                // for compatibility with older SDKs on the workstation.
+                msgDb.WithEndpoint(PostgresEndpointName, e => e.IsProxied = false);
+                // Legacy per-project fixtures shard tests across their own Postgres, so the
+                // image default max_connections=100 was safe. Bench mode collapses every leaf
+                // integration project onto ONE Postgres: SecretsPreBuildLoader alone pools 10
+                // conns per test-host process, the app pool adds 5 more, and a solution-wide
+                // `dotnet test` spawns ~15 test-host processes concurrently — ~225 potential
+                // conns before a single test opens its own handle. That trips PostgresErrorCode
+                // 53300 ("too many clients already") during factory build. 500 buys headroom
+                // with tiny shared-memory overhead (~50MB extra) and doesn't require touching
+                // shared_buffers. Passed via `postgres -c`; docker-entrypoint.sh forwards CMD
+                // args to the postgres binary verbatim.
+                msgDb.WithArgs("-c", "max_connections=500");
+            }
+            else if (persistentContainers)
+            {
                 msgDb.AsPersistent(ComposeVolumes.PostgresData, ContainerMountPaths.PostgresData);
+            }
+            // Pin the docker container name in bench mode so subsequent AppHost launcher
+            // processes reuse the same container instead of colliding on host port 14200.
+            if (testBenchMode)
+                msgDb.WithContainerName(TestBenchPostgresContainerName);
         }
 
         // API waits on each included CQL backend before starting.
@@ -359,10 +415,26 @@ public static class InterfoldAppHost
                             interval: "15s", timeout: "10s", retries: 20, startPeriod: "30s");
                     });
 
-                if (persistentContainers)
+                if (testBenchMode && !isMultiScyllaNode)
+                {
+                    // Volume-less by design; see the Postgres branch above for rationale.
+                    node.WithLifetime(ContainerLifetime.Persistent);
+                }
+                else if (persistentContainers)
+                {
                     node.AsPersistent(
                         isMultiScyllaNode ? ComposeVolumes.ScyllaRegionData(regionWire) : ComposeVolumes.ScyllaData,
                         ContainerMountPaths.ScyllaData);
+                }
+                // Bench mode is single-node only (guarded above by testBenchMode forcing
+                // includeApi/Web/Dashboard off; scylla-topology stays single). Pin the
+                // container name so cross-process reuse works on the fixed 19042 port.
+                if (testBenchMode && !isMultiScyllaNode)
+                {
+                    node.WithContainerName(TestBenchScyllaContainerName);
+                    // Proxyless — see the Postgres branch above.
+                    node.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
+                }
 
                 // HealthCheckAnnotation flips WaitFor(previousNode) from "Running" to
                 // "Healthy" — serialises multi-DC joins so Raft doesn't ban concurrent joiners.
@@ -420,8 +492,21 @@ public static class InterfoldAppHost
                 // Attach scylla-health only when Cassandra owns Ports:scylla.
                 cassandra.WithHealthCheck(ScyllaHealthCheckName);
             }
-            if (persistentContainers)
+            if (testBenchMode)
+            {
+                // Volume-less by design; see the Postgres branch above for rationale.
+                cassandra.WithLifetime(ContainerLifetime.Persistent);
+            }
+            else if (persistentContainers)
+            {
                 cassandra.AsPersistent(ComposeVolumes.CassandraData, ContainerMountPaths.CassandraData);
+            }
+            if (testBenchMode)
+            {
+                cassandra.WithContainerName(TestBenchCassandraContainerName);
+                // Proxyless — see the Postgres branch above.
+                cassandra.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
+            }
 
             cqlEndpointOwners.Add(cassandra);
         }
@@ -578,7 +663,9 @@ public static class InterfoldAppHost
             }
         }
 
-        var includeWeb = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeWeb], fallback: true);
+        var includeWeb = testBenchMode
+            ? false
+            : BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.IncludeWeb], fallback: true);
         // Opt-in HTTPS termination via nginx's envsubst-on-templates entrypoint — bootstrapper
         // bind-mounts the leaf cert/key + a generated template. Dev leaves this off.
         var webTls = BoolWire.ParseToggle(builder.Configuration[AppHostParameterKeys.WebTls], fallback: false);
@@ -646,6 +733,24 @@ public static class InterfoldAppHost
                     });
             }
             _ = web;
+        }
+
+        // Bench mode: register a hosted service that waits for every DB resource to reach
+        // Running, prints a machine-readable readiness line, then requests app shutdown so
+        // the launcher's Process.WaitForExitAsync returns deterministically. Containers are
+        // pinned to Persistent lifetime + stable names above so they survive this exit.
+        if (testBenchMode)
+        {
+            builder.Services.AddSingleton(new TestBenchReadyEmitterOptions(
+                PostgresPort: postgresPort,
+                ScyllaPort: includeScylla ? scyllaPort : null,
+                CassandraPort: includeCassandra ? (includeScylla ? cassandraPort : scyllaPort) : null,
+                ScyllaResourceName: includeScylla
+                    ? ComposeServices.ToScyllaNodeName(ScyllaKeyspace.Nam, multiNode: false)
+                    : null,
+                CassandraResourceName: includeCassandra ? ComposeServices.Cassandra : null,
+                PostgresResourceName: ComposeServices.Postgres));
+            builder.Services.AddHostedService<TestBenchReadyEmitter>();
         }
     }
 

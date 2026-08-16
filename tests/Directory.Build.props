@@ -1,0 +1,32 @@
+<Project>
+  <!--
+    Anchor for test-only MSBuild properties. Every csproj under tests/ inherits from
+    this file automatically via MSBuild's Directory.Build.props walk.
+
+    The centralised auto-managed integration-test DB bench opt-in is baked into every
+    integration test assembly via <AssemblyMetadata Include="InterfoldTestBenchOptIn"/>
+    below. TestBenchCoordinator.IsOptedIn reads that attribute at runtime, with the
+    INTERFOLD_TEST_BENCH env var as an override (CI sets '0' to force the legacy
+    per-project AspireFixture path; a local `dotnet test` inherits the compiled-in
+    default and engages bench mode).
+
+    A prior attempt routed the opt-in through tests.runsettings' <EnvironmentVariables>
+    block. That block is silently ignored by Microsoft.Testing.Platform + TUnit —
+    MTP's `dotnet test` integration doesn't include the VSTestBridge that would honour
+    it. Every leaf integration project therefore fell through to the legacy AspireFixture
+    path and spun up its own Postgres+Scylla+Cassandra, exhausting /tmp and OOM-killing
+    Scylla during the July 2026 solution-wide `dotnet test` run. AssemblyMetadata reaches
+    the test host regardless of runner (dotnet test, direct-DLL launch, IDE), so the
+    channel is now robust.
+  -->
+  <PropertyGroup>
+    <IsInterfoldIntegrationTest>false</IsInterfoldIntegrationTest>
+    <IsInterfoldIntegrationTest Condition="$(MSBuildProjectFullPath.Contains('$([System.IO.Path]::DirectorySeparatorChar)tests$([System.IO.Path]::DirectorySeparatorChar)integration$([System.IO.Path]::DirectorySeparatorChar)'))">true</IsInterfoldIntegrationTest>
+  </PropertyGroup>
+  <!--
+    ItemGroup lives in Directory.Build.targets (evaluated AFTER the csproj) so a project
+    can opt itself out with <InterfoldTestBenchOptOut>true</InterfoldTestBenchOptOut> in
+    its own PropertyGroup. Placing the ItemGroup here would evaluate before the csproj
+    could set the property.
+  -->
+</Project>

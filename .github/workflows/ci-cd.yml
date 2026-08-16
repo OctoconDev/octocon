@@ -17,6 +17,12 @@ on:
 env:
   DOCKERFILE_PATH: Dockerfile
   BOOTSTRAPPER_DOCKERFILE_PATH: Dockerfile.bootstrapper
+  # Opt every CI leg out of the auto-managed integration-test DB bench
+  # (see TestBenchCoordinator). CI direct-launches the MTP test-host DLLs so it
+  # would not read the shared runsettings anyway, but asserting `0` at the
+  # workflow scope makes the intent explicit and covers any future path that
+  # goes through `dotnet test`.
+  INTERFOLD_TEST_BENCH: '0'
   # Release-time bootstrapper matrix. `build` downgrades to linux/amd64 alone
   # on PRs (only RID CI tests need - skips QEMU-emulated arm cross-builds for
   # artefacts nothing on the PR critical path consumes); workflow_dispatch
@@ -198,12 +204,50 @@ jobs:
       # summary` downloads every leg's sidecar and calls `tunit-report merge`
       # on them, splicing one native TUnit summary into that job's summary tab
       # instead of one block per matrix leg. See TUnit PR #6415.
+      #
+      # Two legs carry [Explicit] tests and need bespoke invocations:
+      #   - Bootstrapper.IntegrationTests: every test class is [Explicit] (see the
+      #     assembly's AssemblyInfo.cs); a `/*/*/*/*` treenode filter matches all
+      #     tests, all explicit, so TUnit runs the full suite. Default (unfiltered)
+      #     invocation would skip everything.
+      #   - Infrastructure.IntegrationTests: MultiNodeScyllaTests alone is [Explicit]
+      #     (7-DC ring, GB-scale RAM). Runs in two passes because TUnit's rule is
+      #     "explicit only runs when every filtered test is explicit" — a single
+      #     mixed filter would exclude MultiNode. The first pass produces the
+      #     canonical sidecar; the second is renamed on-the-fly so both survive
+      #     upload. `test-int-summary` merges them like any other leg's sidecars.
       - name: Test (integration - ${{ matrix.project }})
         env:
           TUNIT_AGGREGATE_REPORTS: defer
         run: |
-          dotnet "tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll" \
-            --coverage --coverage-output-format cobertura
+          set -euo pipefail
+          dll="tests/integration/${{ matrix.project }}/bin/Release/net10.0/${{ matrix.project }}.dll"
+          case "${{ matrix.project }}" in
+            Interfold.Bootstrapper.IntegrationTests)
+              dotnet "$dll" \
+                --treenode-filter '/*/*/*/*' \
+                --coverage --coverage-output-format cobertura
+              ;;
+            Interfold.Infrastructure.IntegrationTests)
+              dotnet "$dll" \
+                --coverage --coverage-output-format cobertura
+              # Preserve the non-explicit sidecar before the second invocation
+              # overwrites it. Both files are picked up by the `**/*.tunit-report.json`
+              # upload glob below.
+              results="tests/integration/${{ matrix.project }}/bin/Release/net10.0/TestResults"
+              for sidecar in "$results"/*.tunit-report.json; do
+                [ -e "$sidecar" ] || continue
+                mv "$sidecar" "${sidecar%.tunit-report.json}-nonexplicit.tunit-report.json"
+              done
+              dotnet "$dll" \
+                --treenode-filter '/*/*/*MultiNodeScyllaTests/*' \
+                --coverage --coverage-output-format cobertura
+              ;;
+            *)
+              dotnet "$dll" \
+                --coverage --coverage-output-format cobertura
+              ;;
+          esac
 
       # Sidecars land in `TestResults/{asm}-{os}-{tfm}.tunit-report.json` next to
       # the HTML report the engine also emits by default; `**/*.tunit-report.json`

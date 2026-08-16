@@ -5,6 +5,7 @@ using Aspire.Hosting.Testing;
 using Interfold.DatabaseBootstrap;
 using Interfold.Infrastructure.Postgres;
 using Interfold.Infrastructure.Scylla;
+using Interfold.IntegrationTests.Shared.TestServices.TestBench;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Secrets;
@@ -23,6 +24,12 @@ namespace Interfold.IntegrationTests.Shared.TestServices;
 /// hosted services so they don't replay on every rebuild.</summary>
 public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_AppHost>
 {
+    // Bench-mode short-circuit — when the current test host is opted in via
+    // `INTERFOLD_TEST_BENCH=1`, the fixture attaches to the auto-managed cross-project
+    // bench (`TestBenchCoordinator`) instead of booting an in-process AppHost. Legacy CI
+    // legs and any local run without the env var take the original AspireFixture path.
+    private readonly bool _benchMode = TestBenchCoordinator.IsOptedIn();
+
     /// <summary>Postgres connection string; always populated after startup.</summary>
     public string PostgresConnectionString { get; private set; } = string.Empty;
 
@@ -85,6 +92,12 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
 
     public override async Task InitializeAsync()
     {
+        if (_benchMode)
+        {
+            await InitializeBenchModeAsync(CancellationToken.None).ConfigureAwait(false);
+            return;
+        }
+
         // Raise fs.aio-max-nr session-wide (this fixture + optional MultiNodeScyllaFixture)
         // before any Scylla node starts; MultiNode re-asserts and short-circuits via cache.
         await HostAioPrerequisite
@@ -93,10 +106,141 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
         await base.InitializeAsync().ConfigureAwait(false);
     }
 
+    /// <summary>Bench-mode alternative to <c>base.InitializeAsync</c> +
+    /// <see cref="WaitForResourcesAsync"/>. Delegates container lifecycle to
+    /// <see cref="TestBenchCoordinator"/>, then runs the same seed + migration pipeline
+    /// against the already-running containers. Migrations are idempotent, so a hot attach
+    /// re-runs them harmlessly.</summary>
+    private async Task InitializeBenchModeAsync(CancellationToken cancellationToken)
+    {
+        LifecycleProbe.Log("SharedDbFixture.InitializeBenchMode");
+
+        // Raise the fs.aio-max-nr sysctl before Scylla starts, same as the legacy path.
+        await HostAioPrerequisite
+            .EnsureAsync(HostAioPrerequisite.TotalScyllaNodesForSession())
+            .ConfigureAwait(false);
+
+        var bench = await TestBenchCoordinator.EnsureRunningAsync(cancellationToken).ConfigureAwait(false);
+
+        // Bench always brings up all three engines — cross-project isolation is shared-global
+        // (docs/test-bench-audit.md), so per-project RequiredFixtures flags no longer gate
+        // which containers exist. Expose both CQL ports; per-backend factories pick one.
+        ScyllaPort = bench.ScyllaPort;
+        CassandraPort = bench.CassandraPort;
+        PostgresConnectionString = bench.PostgresConnectionStringForApp;
+
+        // Postgres readiness + seed + migration. Postgres is foundational (internal.secrets),
+        // so any failure here is a session-wide problem; propagate instead of capturing.
+        await DbInitHelper.WaitForPostgresAsync(
+            bench.PostgresConnectionStringForInit,
+            new PostgresReadinessOptions(TimeSpan.FromMinutes(6), 3),
+            cancellationToken).ConfigureAwait(false);
+        // SeedPostgresAsync runs `CREATE ROLE` / `CREATE DATABASE` / seed writes that
+        // are individually idempotent but NOT concurrency-safe: peer projects racing
+        // the same cold-boot bench all pass AppRoleAlreadyConfiguredAsync at once and
+        // then collide on `CREATE DATABASE test_pg_db` (23505 unique_violation on
+        // pg_database_datname_index). ApplyOnceAsync serialises the whole seed behind
+        // the bench's file lock so only the first arrival runs it; hot-attach observers
+        // skip via the "seed:postgres" marker.
+        await TestBenchCoordinator.ApplyOnceAsync(
+            "seed:postgres",
+            () => DbInitHelper.SeedPostgresAsync(
+                bench.PostgresConnectionStringForInit,
+                BuildPostgresSeedOptions(cqlEndpoint: null),
+                cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+        await WaitForPostgresConnectivityAsync(PostgresConnectionString, cancellationToken).ConfigureAwait(false);
+
+        var persistenceConfig = new PersistenceConfiguration
+        {
+            Mode = Interfold.Shared.Contracts.PersistenceMode.ScyllaPostgres,
+            PostgresConnectionString = PostgresConnectionString,
+            IsSingleScyllaInstance = true,
+            ScyllaKeyspace = ScyllaKeyspace.Nam,
+        };
+        var connectionFactory = new PostgresConnectionFactory(Microsoft.Extensions.Options.Options.Create(persistenceConfig));
+        var secretsStore = new PostgresSecretsStore(connectionFactory);
+
+        // ApplyOnceAsync serialises this migration behind the bench's file lock so
+        // concurrent test-host inits never step on each other, and MigrationLedgerTests'
+        // deliberate checksum-drift can't collide with a peer project's fixture init.
+        // See docs/test-bench-audit.md.
+        //
+        // PostgresMigrationService.MigrateAsync silently returns when
+        // `secretsStore.GetAsync(PostgresAdmin{Username,Password})` yields empty (production
+        // dev-mode intent). Under bench mode that silent no-op is catastrophic: the
+        // ApplyOnceAsync marker flips to `true` on a clean return, every subsequent
+        // hot-attach skips migrations, and the first test hitting the shared bench 500s
+        // with `42P01: relation "octocon_idempotency" does not exist`. Verify the ledger
+        // exists post-migrate so a silent skip surfaces as a fail-fast here instead.
+        await TestBenchCoordinator.ApplyOnceAsync(
+            "postgres",
+            async () =>
+            {
+                await PostgresMigrationService.MigrateAsync(
+                    persistenceConfig,
+                    secretsStore,
+                    NullLoggerFactory.Instance.CreateLogger<PostgresMigrationService>(),
+                    cancellationToken).ConfigureAwait(false);
+                await VerifyPostgresLedgerAppliedAsync(bench.PostgresConnectionStringForInit, cancellationToken).ConfigureAwait(false);
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        // Scylla + Cassandra: capture per-engine so a wedged CQL backend only breaks
+        // fixtures that consume it. Mirrors the legacy path's per-backend try/catch.
+        ScyllaInitException = await TryInitialiseBenchCqlAsync(
+            "scylla", "127.0.0.1", bench.ScyllaPort, persistenceConfig, secretsStore, cancellationToken).ConfigureAwait(false);
+        CassandraInitException = await TryInitialiseBenchCqlAsync(
+            "cassandra", "127.0.0.1", bench.CassandraPort, persistenceConfig, secretsStore, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Exception?> TryInitialiseBenchCqlAsync(
+        string backendLabel,
+        string host,
+        int port,
+        PersistenceConfiguration persistenceConfig,
+        ISecretsStore secretsStore,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // The wait-for-CQL, seed, and migrate steps all live INSIDE ApplyOnceAsync so
+            // the (default cassandra/cassandra) credentials WaitForScyllaAsync uses are only
+            // exercised on cold-boot — right before the seeder scrambles that account. A
+            // hot-attach observer sees the marker already set and skips the whole block; the
+            // TCP-hot probe in TestBenchCoordinator.ArePortsHotAsync gated us in, so we
+            // already know the CQL listener is alive.
+            await TestBenchCoordinator.ApplyOnceAsync(
+                $"cql-seed-and-migrate:{backendLabel}",
+                async () =>
+                {
+                    await DbInitHelper.WaitForScyllaAsync(host, port, cancellationToken).ConfigureAwait(false);
+                    await DbInitHelper.SeedScyllaAsync(host, port, BuildScyllaSeedOptions(), cancellationToken).ConfigureAwait(false);
+                    var endpoint = new Uri($"tcp://{host}:{port}");
+                    await RunScyllaMigrationsAsync(endpoint, persistenceConfig, secretsStore, cancellationToken).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LifecycleProbe.Log($"SharedDbFixture.BenchCqlInitFailed:{backendLabel}");
+            return ex;
+        }
+    }
+
     public override async ValueTask DisposeAsync()
     {
         using var _ = LifecycleProbe.BeginTimed("AfterFixtureDispose:SharedDbFixture");
         LifecycleProbe.Log("BeforeFixtureDispose:SharedDbFixture");
+
+        if (_benchMode)
+        {
+            // Bench containers survive this test host — teardown is the reaper's job on
+            // the next attach. All we do is drop our PID from the users list.
+            await TestBenchCoordinator.DetachAsync(CancellationToken.None).ConfigureAwait(false);
+            return;
+        }
 
         try
         {
@@ -344,6 +488,45 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             {
                 await Task.Delay(1000, ct);
             }
+        }
+    }
+
+    // Catches the PostgresMigrationService.MigrateAsync silent-skip trap: it returns
+    // cleanly when admin creds are absent from the secrets store, ApplyOnceAsync then
+    // marks migrations as applied on a return without an exception, and every subsequent
+    // hot-attach observer skips the migration too. The ledger table is created inside
+    // MigrateAsync's EnsureLedgerAsync, so its absence is a strict signal that no
+    // migration passed through, regardless of admin-creds or connection-string mistakes.
+    // Reads via db_init because SELECT on internal.schema_migrations is only granted to
+    // the admin role, and swaps the database to test_pg_db because the bench init string
+    // targets `postgres` for role/database bootstrapping.
+    private static async Task VerifyPostgresLedgerAppliedAsync(string initConnectionString, CancellationToken ct)
+    {
+        var verifyCs = new NpgsqlConnectionStringBuilder(initConnectionString)
+        {
+            Database = DbInitHelper.DefaultPostgresDb,
+        }.ConnectionString;
+        await using var conn = new NpgsqlConnection(verifyCs);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await using var existsCmd = new NpgsqlCommand(
+            "SELECT to_regclass('internal.schema_migrations') IS NOT NULL", conn);
+        var existsResult = await existsCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        var tableExists = existsResult is bool b && b;
+        var rowCount = 0L;
+        if (tableExists)
+        {
+            await using var countCmd = new NpgsqlCommand(
+                "SELECT count(*) FROM internal.schema_migrations", conn);
+            rowCount = (long)(await countCmd.ExecuteScalarAsync(ct).ConfigureAwait(false) ?? 0L);
+        }
+        if (!tableExists || rowCount == 0)
+        {
+            throw new InvalidOperationException(
+                $"SharedDbFixture: Postgres migrations did not populate internal.schema_migrations " +
+                $"(tableExists={tableExists}, rowCount={rowCount}). This usually means " +
+                "PostgresMigrationService.MigrateAsync short-circuited on missing admin " +
+                "credentials (PostgresAdmin{Username,Password} in internal.secrets); the " +
+                "ApplyOnceAsync marker would then strand every hot-attach on a schema-less DB.");
         }
     }
 }

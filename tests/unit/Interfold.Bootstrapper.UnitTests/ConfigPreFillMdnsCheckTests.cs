@@ -20,8 +20,12 @@ namespace Interfold.Bootstrapper.UnitTests;
 /// <para>
 /// The install-yes / install-no interactive branches are covered by the same integration
 /// tests (both require a real <see cref="AnsiConsole.Prompt"/> keystroke). Under the unit
-/// harness, stdin is redirected to a StringReader which makes
-/// <see cref="Console.IsInputRedirected"/> true — the "no TTY" fork the banner takes.
+/// harness we drive the "no TTY" fork via the <c>isInteractive</c> test seam on
+/// <see cref="ConfigPhase.ApplyPreFillMdnsCheckAsync"/> — <see cref="Console.SetIn"/>
+/// swaps the managed <see cref="Console.In"/> reader but does NOT change
+/// <see cref="Console.IsInputRedirected"/>, which is bound to the OS-level fd state. A
+/// `dotnet test` run from an interactive terminal would therefore land in the
+/// AnsiConsole.Prompt branch and hang / error; the seam sidesteps that entirely.
 /// </para>
 /// <para>
 /// <b>Serialisation via <c>[NotInParallel("bootstrapper-console")]</c></b> — every test
@@ -180,12 +184,17 @@ public sealed class ConfigPreFillMdnsCheckTests
     public async Task PreFillReturnsNullWhenProbeFailsAndNoTty()
     {
         // The probe returns false → mDNS is broken. In a real TTY we would then offer to
-        // install avahi; under the unit-test harness stdin is redirected so
-        // Console.IsInputRedirected is true and the install prompt is skipped. The banner
-        // still emits the "mDNS unavailable" warning + install hint (unit tests can't
-        // capture the warn line — see class summary), but the observable side effect is
-        // (a) result is null, (b) exactly one probe call — the install-recheck probe never
-        // fires because the confirmation prompt was skipped.
+        // install avahi; the `isInteractive: () => false` seam forces the "no TTY" fork
+        // so the install prompt is skipped. The banner still emits the "mDNS unavailable"
+        // warning + install hint (unit tests can't capture the warn line — see class
+        // summary), but the observable side effect is (a) result is null, (b) exactly
+        // one probe call — the install-recheck probe never fires because the
+        // confirmation prompt was skipped.
+        //
+        // NB: Console.SetIn in WithRedirectedStdinAsync doesn't affect
+        // Console.IsInputRedirected — see the class summary. The seam is the load-bearing
+        // mechanism here; the stdin redirect is belt-and-braces so a regression that
+        // dropped the seam wouldn't hang the test on an AnsiConsole.Prompt keystroke.
         var options = OptionsFor(nonInteractive: false);
         var logger = new PhaseLogger(options);
         var probeCount = 0;
@@ -198,7 +207,8 @@ public sealed class ConfigPreFillMdnsCheckTests
                 {
                     probeCount++;
                     return Task.FromResult<bool?>(false);
-                }));
+                },
+                isInteractive: () => false));
 
         await Assert.That(result).IsNull();
         await Assert.That(probeCount).IsEqualTo(1);
