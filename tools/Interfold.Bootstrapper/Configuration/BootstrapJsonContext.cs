@@ -4,8 +4,9 @@ namespace Interfold.Bootstrapper.Configuration;
 
 /// <summary>
 /// Source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/> for the bootstrapper's
-/// JSON shapes. Keeps the bootstrapper AOT/trim-friendly even though Aspire itself isn't yet (the long-term
-/// motivation for picking TUnit on the test side too).
+/// JSON shapes. Keeps the bootstrapper trim-friendly: PublishTrimmed (and
+/// <c>JsonSerializerIsReflectionEnabledByDefault=false</c>) disable reflection STJ, so every
+/// serialize/deserialize path needs a context. Firebase shapes live in FirebaseJsonContext.
 /// </summary>
 [JsonSourceGenerationOptions(
     WriteIndented = true,
