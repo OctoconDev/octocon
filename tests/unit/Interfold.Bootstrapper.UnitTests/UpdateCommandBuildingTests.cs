@@ -40,13 +40,13 @@ public sealed class UpdateCommandBuildingTests
     }
 
     [Test]
-    public async Task ContainerConfigImageArgsInspectAllIds()
+    public async Task ContainerImageFieldsArgsInspectAllIds()
     {
-        var args = UpdateImagesPhase.BuildContainerConfigImageArgs(["abc", "def"]);
+        var args = UpdateImagesPhase.BuildContainerImageFieldsArgs(["abc", "def"]);
 
         await Assert.That(args).IsEquivalentTo(new[]
         {
-            "inspect", "--format", "{{.Config.Image}}", "abc", "def",
+            "inspect", "--format", "{{.Image}}\t{{.Config.Image}}", "abc", "def",
         });
     }
 

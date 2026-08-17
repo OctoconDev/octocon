@@ -3,10 +3,9 @@ using Interfold.Bootstrapper.Phases;
 namespace Interfold.Bootstrapper.UnitTests;
 
 /// <summary>
-/// Unit tests for <see cref="UpdateImagesPhase.ParseComposePsJson"/> and
-/// <see cref="UpdateImagesPhase.ResolveDesiredDigest"/>. Docker Compose emits
-/// <c>docker compose ps --format json</c> as either a single JSON array (older versions)
-/// or JSON Lines (modern); the parser must accept both without regressing.
+/// Unit tests for <see cref="UpdateImagesPhase.ParseComposePsJson"/>,
+/// <see cref="UpdateImagesPhase.ParseContainerImageFields"/>, and
+/// <see cref="UpdateImagesPhase.ResolveDesiredDigest"/>.
 /// </summary>
 public sealed class ComposeImagesParseTests
 {
@@ -23,7 +22,7 @@ public sealed class ComposeImagesParseTests
         var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(2);
-        await Assert.That(parsed.Single(r => r.Service == "msg-db").Image).IsEqualTo("sha256:img1");
+        await Assert.That(parsed.Single(r => r.Service == "msg-db").ContainerId).IsEqualTo("aaa111");
         await Assert.That(parsed.Single(r => r.Service == "scylla").ContainerId).IsEqualTo("bbb222");
     }
 
@@ -31,15 +30,15 @@ public sealed class ComposeImagesParseTests
     public async Task ParsesPsJsonLinesShape()
     {
         const string payload = """
-        {"ID":"aaa111","Image":"sha256:img1","Service":"msg-db","Name":"deploy-msg-db-1"}
-        {"ID":"bbb222","Image":"sha256:img2","Service":"scylla","Name":"deploy-scylla-1"}
-        {"ID":"ccc333","Image":"sha256:img3","Service":"interfold-api","Name":"deploy-interfold-api-1"}
+        {"ID":"aaa111","Image":"postgres:16","Service":"msg-db","Name":"deploy-msg-db-1"}
+        {"ID":"bbb222","Image":"scylla:2026.1","Service":"scylla","Name":"deploy-scylla-1"}
+        {"ID":"ccc333","Image":"api:latest","Service":"interfold-api","Name":"deploy-interfold-api-1"}
         """;
 
         var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(3);
-        await Assert.That(parsed.Single(r => r.Service == "interfold-api").Image).IsEqualTo("sha256:img3");
+        await Assert.That(parsed.Single(r => r.Service == "interfold-api").ContainerId).IsEqualTo("ccc333");
     }
 
     [Test]
@@ -87,16 +86,41 @@ public sealed class ComposeImagesParseTests
     }
 
     [Test]
-    public async Task EntryMissingImageKeepsEmptyString()
+    public async Task EntryMissingContainerIdKeepsEmptyString()
     {
         const string payload = """
-        {"ID":"aaa","Service":"weird-svc"}
+        {"Service":"weird-svc"}
         """;
 
         var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(1);
-        await Assert.That(parsed[0].Image).IsEqualTo(string.Empty);
+        await Assert.That(parsed[0].ContainerId).IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    public async Task ParseContainerImageFieldsSplitsTabSeparatedLines()
+    {
+        const string payload = """
+        sha256:run1	postgres:16
+        sha256:run2	interfold-cassandra:local
+        """;
+
+        var parsed = UpdateImagesPhase.ParseContainerImageFields(payload);
+
+        await Assert.That(parsed.Count).IsEqualTo(2);
+        await Assert.That(parsed[0].RunningImageId).IsEqualTo("sha256:run1");
+        await Assert.That(parsed[0].ConfigImage).IsEqualTo("postgres:16");
+        await Assert.That(parsed[1].ConfigImage).IsEqualTo("interfold-cassandra:local");
+    }
+
+    [Test]
+    public async Task ParseContainerImageFieldsMissingTabKeepsWholeLineAsRunningId()
+    {
+        var parsed = UpdateImagesPhase.ParseContainerImageFields("sha256:only");
+        await Assert.That(parsed.Count).IsEqualTo(1);
+        await Assert.That(parsed[0].RunningImageId).IsEqualTo("sha256:only");
+        await Assert.That(parsed[0].ConfigImage).IsEqualTo(string.Empty);
     }
 
     [Test]

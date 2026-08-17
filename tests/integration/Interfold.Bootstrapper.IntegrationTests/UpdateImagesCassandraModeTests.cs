@@ -37,11 +37,10 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// pull-phase output before recreate begins.
 /// </para>
 /// <para>
-/// <see cref="UbuntuCassandraDinDFixture"/> enables the containerd image store so
-/// <c>UpdateImagesSurvivesStaleLocalCassandraImageAfterRebuild</c> can reproduce the
-/// compose#14014 <c>docker compose images</c> failure after a local-tag rebuild without
-/// recreate — the bug that made <c>update-images</c> die at "snapshotting pre-pull image
-/// digests" on real Desktop/Engine hosts.
+/// Nested DinD keeps vfs (not containerd overlay) so Cassandra Dockerfile builds work on
+/// GHA. <c>UpdateImagesSurvivesStaleLocalCassandraImageAfterRebuild</c> still force-rebuilds
+/// the local tag without recreate and asserts update-images completes digest snapshotting
+/// without calling <c>docker compose images</c> — the production failure mode on Desktop.
 /// </para>
 /// </remarks>
 [RequiresDocker]
@@ -149,16 +148,18 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
     [Test]
     public async Task UpdateImagesSurvivesStaleLocalCassandraImageAfterRebuild()
     {
-        // Regression for compose#14014 / containerd image store: rebuilding
-        // interfold-cassandra:local without recreating the container drops the old image
-        // index while the container keeps running. `docker compose images` then exits 1
-        // with "No such image: sha256:…". UpdateImagesPhase must snapshot digests via
-        // compose ps + image inspect instead — otherwise update-images dies at
-        // "snapshotting pre-pull image digests" before pull/rebuild even run.
+        // Regression for compose#14014: rebuilding interfold-cassandra:local without
+        // recreating the container is the Desktop failure mode where `docker compose
+        // images` exits 1 ("No such image"). UpdateImagesPhase must snapshot digests via
+        // container inspect + tag resolve instead — otherwise update-images dies at
+        // "snapshotting pre-pull image digests".
+        //
+        // Nested DinD stays on vfs (overlay-on-overlay cannot build Cassandra under
+        // containerd), so compose images may still succeed here; the hard contract is
+        // that update-images completes without depending on that command.
         //
         // Scope matches UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage:
         // msg-db (registry-backed) + cassandra; exclude interfold-api (local-only tag).
-        // Skip pre-update backup so we stay on the digest-snapshot path under test.
         const string testName = nameof(UpdateImagesSurvivesStaleLocalCassandraImageAfterRebuild);
         var (scratch, composeFile) = await dinD.BootstrapAsync(testName, TestConfigPaths.CassandraConfig);
 
@@ -168,9 +169,7 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         await Assert.That(rebuild.ExitCode).IsEqualTo(0L)
             .Because($"forced local tag rebuild must succeed: {rebuild.Stderr}");
 
-        // Prove the bug surface is live in this DinD (containerd store + Compose that still
-        // fails ImageInspect on the dangling id). Soft when a newer Compose already tolerates
-        // the missing record — update-images must still succeed either way.
+        // Soft probe: when the engine drops the dangling index, document the surface.
         var imagesProbe = await dinD.ExecAsync(["sh", "-c",
             $"docker compose -f {composeFile} images >/tmp/compose-images.out 2>/tmp/compose-images.err; printf '%s' $?"]);
         var imagesErr = (await dinD.ExecAsync(["cat", "/tmp/compose-images.err"])).Stdout;

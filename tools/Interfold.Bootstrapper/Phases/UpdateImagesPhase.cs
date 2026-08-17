@@ -42,7 +42,7 @@ internal static class UpdateImagesPhase
         var autoRestore = options.AutoRestore || config.Update.AutoRestoreOnFailure;
         var recreate = config.Update.RecreateOnUpdate;
 
-        // Pre = running ImageIDs from compose ps; post = Config.Image tag resolution.
+        // Pre = container .Image ids; post = Config.Image tag resolution.
         // Avoids `docker compose images`, which exits 1 under the containerd image store
         // after a local tag rebuild without recreate (compose#14014 / #14028).
         logger.Info("    snapshotting pre-pull image digests");
@@ -197,16 +197,22 @@ internal static class UpdateImagesPhase
         return ["image", "inspect", "--format", "{{.Id}}", imageRef];
     }
 
-    /// <summary>Argv for <c>docker inspect</c> returning each container's Config.Image ref.</summary>
-    internal static IReadOnlyList<string> BuildContainerConfigImageArgs(IReadOnlyList<string> containerIds)
+    /// <summary>Argv for <c>docker inspect</c> returning running ImageID and Config.Image
+    /// (tab-separated) for each container.</summary>
+    internal static IReadOnlyList<string> BuildContainerImageFieldsArgs(IReadOnlyList<string> containerIds)
     {
-        var args = new List<string>(3 + containerIds.Count) { "inspect", "--format", "{{.Config.Image}}" };
+        // .Image is the content id the container was created from — compose ps often prints
+        // the tag name instead, which would never match a post-pull image-inspect digest.
+        var args = new List<string>(3 + containerIds.Count)
+        {
+            "inspect", "--format", "{{.Image}}\t{{.Config.Image}}",
+        };
         args.AddRange(containerIds);
         return args;
     }
 
-    /// <summary>One compose-ps JSON row: service name, container id, running image id.</summary>
-    internal readonly record struct ComposePsRow(string Service, string ContainerId, string Image);
+    /// <summary>One compose-ps JSON row: service name and container id.</summary>
+    internal readonly record struct ComposePsRow(string Service, string ContainerId);
 
     /// <summary>Parses <c>docker compose ps -a --format json</c> into per-service rows.
     /// Accepts both the JSON-array and JSON-Lines shapes (compose plugin version dependent).
@@ -254,11 +260,30 @@ internal static class UpdateImagesPhase
             var containerId = obj.TryGetProperty("ID", out var idProp) && idProp.ValueKind == JsonValueKind.String
                 ? idProp.GetString() ?? string.Empty
                 : string.Empty;
-            var image = obj.TryGetProperty("Image", out var imgProp) && imgProp.ValueKind == JsonValueKind.String
-                ? imgProp.GetString() ?? string.Empty
-                : string.Empty;
-            into[service] = new ComposePsRow(service, containerId, image);
+            into[service] = new ComposePsRow(service, containerId);
         }
+    }
+
+    /// <summary>One <c>docker inspect</c> line: running content id + create-time image ref.</summary>
+    internal readonly record struct ContainerImageFields(string RunningImageId, string ConfigImage);
+
+    /// <summary>Parses tab-separated <c>{{.Image}}\t{{.Config.Image}}</c> inspect lines.</summary>
+    internal static IReadOnlyList<ContainerImageFields> ParseContainerImageFields(string inspectStdout)
+    {
+        if (string.IsNullOrWhiteSpace(inspectStdout)) return [];
+        var lines = inspectStdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var result = new List<ContainerImageFields>(lines.Length);
+        foreach (var line in lines)
+        {
+            var tab = line.IndexOf('\t');
+            if (tab < 0)
+            {
+                result.Add(new ContainerImageFields(line, string.Empty));
+                continue;
+            }
+            result.Add(new ContainerImageFields(line[..tab], line[(tab + 1)..]));
+        }
+        return result;
     }
 
     /// <summary>Prefer the tag's current image id; fall back to the running container image id
@@ -289,7 +314,7 @@ internal static class UpdateImagesPhase
         return changed;
     }
 
-    /// <summary>Pre-pull: running ImageIDs from compose ps. Post-pull: Config.Image tag ids.</summary>
+    /// <summary>Pre-pull: container <c>.Image</c> ids. Post-pull: Config.Image tag ids.</summary>
     private static async Task<IDictionary<string, string>> SnapshotImageDigestsAsync(
         string composeFile, bool desired, PhaseLogger logger, CancellationToken ct)
     {
@@ -309,17 +334,6 @@ internal static class UpdateImagesPhase
                 "No compose containers found. Is the stack up? Try `docker compose ps` under the output directory.");
         }
 
-        if (!desired)
-        {
-            var running = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var row in rows)
-            {
-                running[row.Service] = row.Image;
-            }
-            logger.Info($"    resolved digests for {running.Count} service(s)");
-            return running;
-        }
-
         var containerIds = rows
             .Select(r => r.ContainerId)
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -327,26 +341,32 @@ internal static class UpdateImagesPhase
         if (containerIds.Length != rows.Count)
         {
             throw new InvalidOperationException(
-                "compose ps returned a service without a container ID; cannot resolve desired image digests.");
+                "compose ps returned a service without a container ID; cannot resolve image digests.");
         }
 
-        var configImages = await InspectContainerConfigImagesAsync(containerIds, ct).ConfigureAwait(false);
-        if (configImages.Count != rows.Count)
+        var fields = await InspectContainerImageFieldsAsync(containerIds, ct).ConfigureAwait(false);
+        if (fields.Count != rows.Count)
         {
             throw new InvalidOperationException(
-                $"docker inspect returned {configImages.Count} Config.Image line(s) for {rows.Count} container(s).");
+                $"docker inspect returned {fields.Count} line(s) for {rows.Count} container(s).");
         }
 
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            var configImage = configImages[i];
+            var field = fields[i];
+            if (!desired)
+            {
+                result[row.Service] = field.RunningImageId;
+                continue;
+            }
+
             string? tagId = null;
-            if (!string.IsNullOrWhiteSpace(configImage))
+            if (!string.IsNullOrWhiteSpace(field.ConfigImage))
             {
                 var inspect = await ProcessRunner
-                    .RunAsync("docker", BuildImageInspectIdArgs(configImage), ct: ct)
+                    .RunAsync("docker", BuildImageInspectIdArgs(field.ConfigImage), ct: ct)
                     .ConfigureAwait(false);
                 if (inspect.ExitCode == 0)
                 {
@@ -354,18 +374,18 @@ internal static class UpdateImagesPhase
                 }
             }
 
-            result[row.Service] = ResolveDesiredDigest(row.Image, tagId);
+            result[row.Service] = ResolveDesiredDigest(field.RunningImageId, tagId);
         }
 
         logger.Info($"    resolved digests for {result.Count} service(s)");
         return result;
     }
 
-    private static async Task<IReadOnlyList<string>> InspectContainerConfigImagesAsync(
+    private static async Task<IReadOnlyList<ContainerImageFields>> InspectContainerImageFieldsAsync(
         IReadOnlyList<string> containerIds, CancellationToken ct)
     {
         var run = await ProcessRunner
-            .RunAsync("docker", BuildContainerConfigImageArgs(containerIds), ct: ct)
+            .RunAsync("docker", BuildContainerImageFieldsArgs(containerIds), ct: ct)
             .ConfigureAwait(false);
         if (run.ExitCode != 0)
         {
@@ -373,7 +393,7 @@ internal static class UpdateImagesPhase
                 $"docker inspect exited {run.ExitCode}: {run.StdErr.Trim()}");
         }
 
-        return run.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return ParseContainerImageFields(run.StdOut);
     }
 
     /// <summary>Bounded probe across Postgres (pg_isready), Scylla/Cassandra (nodetool status),
