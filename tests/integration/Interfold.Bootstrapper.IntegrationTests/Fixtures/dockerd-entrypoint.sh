@@ -19,10 +19,21 @@ fi
 
 mkdir -p /var/lib/docker
 
+# Default: vfs — portable across hosts whose overlay2 setup fights nested mounts.
+# Opt-in containerd image store (DIND_CONTAINERD_SNAPSHOTTER=1) reproduces the
+# "compose images → No such image after local tag rebuild" failure surface that
+# UpdateImagesPhase must tolerate (compose#14014). Cassandra-mode DinD enables this.
+DOCKERD_EXTRA_ARGS=(--storage-driver=vfs)
+if [ "${DIND_CONTAINERD_SNAPSHOTTER:-0}" = "1" ]; then
+    mkdir -p /etc/docker
+    printf '%s\n' '{"features":{"containerd-snapshotter":true}}' > /etc/docker/daemon.json
+    DOCKERD_EXTRA_ARGS=()
+fi
+
 dockerd \
     --host=unix:///var/run/docker.sock \
     --host=tcp://0.0.0.0:2375 \
-    --storage-driver=vfs \
+    "${DOCKERD_EXTRA_ARGS[@]}" \
     --iptables=true &
 DOCKERD_PID=$!
 

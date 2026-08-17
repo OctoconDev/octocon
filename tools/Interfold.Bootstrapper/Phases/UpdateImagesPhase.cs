@@ -42,10 +42,12 @@ internal static class UpdateImagesPhase
         var autoRestore = options.AutoRestore || config.Update.AutoRestoreOnFailure;
         var recreate = config.Update.RecreateOnUpdate;
 
-        // Snapshot digests first so the post-pull diff has a stable baseline; fail fast if
-        // the stack isn't up rather than silently always-recreate.
+        // Pre = running ImageIDs from compose ps; post = Config.Image tag resolution.
+        // Avoids `docker compose images`, which exits 1 under the containerd image store
+        // after a local tag rebuild without recreate (compose#14014 / #14028).
         logger.Info("    snapshotting pre-pull image digests");
-        var preDigests = await SnapshotImageDigestsAsync(composeFile, logger, ct).ConfigureAwait(false);
+        var preDigests = await SnapshotImageDigestsAsync(
+            composeFile, desired: false, logger, ct).ConfigureAwait(false);
 
         // `all` is the only sensible choice — a partial snapshot couldn't feed an auto-restore.
         (string PostgresArchive, string ScyllaArchive)? backupArtifacts = null;
@@ -99,7 +101,8 @@ internal static class UpdateImagesPhase
 
         // Skip recreate + health check + downtime when nothing actually changed.
         logger.Info("    snapshotting post-pull image digests");
-        var postDigests = await SnapshotImageDigestsAsync(composeFile, logger, ct).ConfigureAwait(false);
+        var postDigests = await SnapshotImageDigestsAsync(
+            composeFile, desired: true, logger, ct).ConfigureAwait(false);
         var changedServices = DiffDigests(preDigests, postDigests);
         if (changedServices.Count == 0)
         {
@@ -182,21 +185,37 @@ internal static class UpdateImagesPhase
         return effectiveServices.Contains(ComposeServices.Cassandra, StringComparer.Ordinal);
     }
 
-    /// <summary>Argv for <c>docker compose images --format json</c>.</summary>
-    internal static IReadOnlyList<string> BuildComposeImagesArgs(string composeFile)
+    /// <summary>Argv for <c>docker compose ps -a --format json</c> (running-digest source).</summary>
+    internal static IReadOnlyList<string> BuildComposePsJsonArgs(string composeFile)
     {
-        return ["compose", "-f", composeFile, "images", "--format", "json"];
+        return ["compose", "-f", composeFile, "ps", "-a", "--format", "json"];
     }
 
-    /// <summary>Parses <c>docker compose images --format json</c> into service → image ID.
+    /// <summary>Argv for <c>docker image inspect</c> returning the image id only.</summary>
+    internal static IReadOnlyList<string> BuildImageInspectIdArgs(string imageRef)
+    {
+        return ["image", "inspect", "--format", "{{.Id}}", imageRef];
+    }
+
+    /// <summary>Argv for <c>docker inspect</c> returning each container's Config.Image ref.</summary>
+    internal static IReadOnlyList<string> BuildContainerConfigImageArgs(IReadOnlyList<string> containerIds)
+    {
+        var args = new List<string>(3 + containerIds.Count) { "inspect", "--format", "{{.Config.Image}}" };
+        args.AddRange(containerIds);
+        return args;
+    }
+
+    /// <summary>One compose-ps JSON row: service name, container id, running image id.</summary>
+    internal readonly record struct ComposePsRow(string Service, string ContainerId, string Image);
+
+    /// <summary>Parses <c>docker compose ps -a --format json</c> into per-service rows.
     /// Accepts both the JSON-array and JSON-Lines shapes (compose plugin version dependent).
     /// Duplicate service rows collapse to last-seen; replicas always recreate in lockstep.</summary>
-    internal static IDictionary<string, string> ParseComposeImagesJson(string json)
+    internal static IReadOnlyList<ComposePsRow> ParseComposePsJson(string json)
     {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (string.IsNullOrWhiteSpace(json)) return result;
+        var byService = new Dictionary<string, ComposePsRow>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(json)) return [];
 
-        // Older compose plugin versions emit a single JSON array.
         var trimmed = json.TrimStart();
         if (trimmed.StartsWith('['))
         {
@@ -205,40 +224,49 @@ internal static class UpdateImagesPhase
             {
                 foreach (var entry in doc.RootElement.EnumerateArray())
                 {
-                    TryAdd(entry, result);
+                    TryAdd(entry, byService);
                 }
-                return result;
+                return byService.Values.ToArray();
             }
         }
 
-        // JSON Lines (compose plugin v2.20+): one object per line.
         foreach (var line in json.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (!line.StartsWith('{')) continue;
             try
             {
                 using var doc = JsonDocument.Parse(line);
-                TryAdd(doc.RootElement, result);
+                TryAdd(doc.RootElement, byService);
             }
             catch (JsonException)
             {
                 // Older compose versions occasionally leak stderr into stdout; don't fail the diff.
             }
         }
-        return result;
+        return byService.Values.ToArray();
 
-        static void TryAdd(JsonElement obj, Dictionary<string, string> into)
+        static void TryAdd(JsonElement obj, Dictionary<string, ComposePsRow> into)
         {
             if (obj.ValueKind != JsonValueKind.Object) return;
             if (!obj.TryGetProperty("Service", out var svc) || svc.ValueKind != JsonValueKind.String) return;
             var service = svc.GetString();
             if (string.IsNullOrEmpty(service)) return;
-            // Use the stable ID — the tag can stay the same across a floating-tag pull.
-            var id = obj.TryGetProperty("ID", out var idProp) && idProp.ValueKind == JsonValueKind.String
+            var containerId = obj.TryGetProperty("ID", out var idProp) && idProp.ValueKind == JsonValueKind.String
                 ? idProp.GetString() ?? string.Empty
                 : string.Empty;
-            into[service] = id;
+            var image = obj.TryGetProperty("Image", out var imgProp) && imgProp.ValueKind == JsonValueKind.String
+                ? imgProp.GetString() ?? string.Empty
+                : string.Empty;
+            into[service] = new ComposePsRow(service, containerId, image);
         }
+    }
+
+    /// <summary>Prefer the tag's current image id; fall back to the running container image id
+    /// when the tag is missing (local-only image pruned, etc.).</summary>
+    internal static string ResolveDesiredDigest(string runningImageId, string? inspectedTagId)
+    {
+        if (!string.IsNullOrEmpty(inspectedTagId)) return inspectedTagId;
+        return runningImageId;
     }
 
     /// <summary>Services whose image ID changed, appeared, or disappeared. Alphabetical output.</summary>
@@ -261,20 +289,91 @@ internal static class UpdateImagesPhase
         return changed;
     }
 
+    /// <summary>Pre-pull: running ImageIDs from compose ps. Post-pull: Config.Image tag ids.</summary>
     private static async Task<IDictionary<string, string>> SnapshotImageDigestsAsync(
-        string composeFile, PhaseLogger logger, CancellationToken ct)
+        string composeFile, bool desired, PhaseLogger logger, CancellationToken ct)
     {
-        var args = BuildComposeImagesArgs(composeFile);
-        var run = await ProcessRunner.RunAsync("docker", args, ct: ct).ConfigureAwait(false);
+        var ps = await ProcessRunner.RunAsync("docker", BuildComposePsJsonArgs(composeFile), ct: ct)
+            .ConfigureAwait(false);
+        if (ps.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"docker compose ps exited {ps.ExitCode}: {ps.StdErr.Trim()}. " +
+                "Is the stack up? Try `docker compose ps` under the output directory.");
+        }
+
+        var rows = ParseComposePsJson(ps.StdOut);
+        if (rows.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "No compose containers found. Is the stack up? Try `docker compose ps` under the output directory.");
+        }
+
+        if (!desired)
+        {
+            var running = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var row in rows)
+            {
+                running[row.Service] = row.Image;
+            }
+            logger.Info($"    resolved digests for {running.Count} service(s)");
+            return running;
+        }
+
+        var containerIds = rows
+            .Select(r => r.ContainerId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToArray();
+        if (containerIds.Length != rows.Count)
+        {
+            throw new InvalidOperationException(
+                "compose ps returned a service without a container ID; cannot resolve desired image digests.");
+        }
+
+        var configImages = await InspectContainerConfigImagesAsync(containerIds, ct).ConfigureAwait(false);
+        if (configImages.Count != rows.Count)
+        {
+            throw new InvalidOperationException(
+                $"docker inspect returned {configImages.Count} Config.Image line(s) for {rows.Count} container(s).");
+        }
+
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var configImage = configImages[i];
+            string? tagId = null;
+            if (!string.IsNullOrWhiteSpace(configImage))
+            {
+                var inspect = await ProcessRunner
+                    .RunAsync("docker", BuildImageInspectIdArgs(configImage), ct: ct)
+                    .ConfigureAwait(false);
+                if (inspect.ExitCode == 0)
+                {
+                    tagId = inspect.StdOut.Trim();
+                }
+            }
+
+            result[row.Service] = ResolveDesiredDigest(row.Image, tagId);
+        }
+
+        logger.Info($"    resolved digests for {result.Count} service(s)");
+        return result;
+    }
+
+    private static async Task<IReadOnlyList<string>> InspectContainerConfigImagesAsync(
+        IReadOnlyList<string> containerIds, CancellationToken ct)
+    {
+        var run = await ProcessRunner
+            .RunAsync("docker", BuildContainerConfigImageArgs(containerIds), ct: ct)
+            .ConfigureAwait(false);
         if (run.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"docker compose images exited {run.ExitCode}: {run.StdErr.Trim()}. " +
-                "Is the stack up? Try `docker compose ps` under the output directory.");
+                $"docker inspect exited {run.ExitCode}: {run.StdErr.Trim()}");
         }
-        var parsed = ParseComposeImagesJson(run.StdOut);
-        logger.Info($"    resolved digests for {parsed.Count} service(s)");
-        return parsed;
+
+        return run.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     /// <summary>Bounded probe across Postgres (pg_isready), Scylla/Cassandra (nodetool status),

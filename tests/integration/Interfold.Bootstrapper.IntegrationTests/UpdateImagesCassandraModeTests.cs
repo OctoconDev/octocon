@@ -36,6 +36,13 @@ namespace Interfold.Bootstrapper.IntegrationTests;
 /// to non-cassandra services (so no cassandra recreate happens) OR by asserting on the
 /// pull-phase output before recreate begins.
 /// </para>
+/// <para>
+/// <see cref="UbuntuCassandraDinDFixture"/> enables the containerd image store so
+/// <c>UpdateImagesSurvivesStaleLocalCassandraImageAfterRebuild</c> can reproduce the
+/// compose#14014 <c>docker compose images</c> failure after a local-tag rebuild without
+/// recreate — the bug that made <c>update-images</c> die at "snapshotting pre-pull image
+/// digests" on real Desktop/Engine hosts.
+/// </para>
 /// </remarks>
 [RequiresDocker]
 [ClassDataSource<UbuntuCassandraDinDFixture>(Shared = SharedType.PerTestSession)]
@@ -137,6 +144,55 @@ public class UpdateImagesCassandraModeTests(UbuntuCassandraDinDFixture dinD)
         var combined = update.Stdout + update.Stderr;
         await Assert.That(combined).DoesNotContain("cassandra mode: rebuilding")
             .Because("--service msg-db must not trigger a cassandra rebuild");
+    }
+
+    [Test]
+    public async Task UpdateImagesSurvivesStaleLocalCassandraImageAfterRebuild()
+    {
+        // Regression for compose#14014 / containerd image store: rebuilding
+        // interfold-cassandra:local without recreating the container drops the old image
+        // index while the container keeps running. `docker compose images` then exits 1
+        // with "No such image: sha256:…". UpdateImagesPhase must snapshot digests via
+        // compose ps + image inspect instead — otherwise update-images dies at
+        // "snapshotting pre-pull image digests" before pull/rebuild even run.
+        //
+        // Scope matches UpdateInCassandraModeSkipsCassandraOnPullAndRebuildsLocalImage:
+        // msg-db (registry-backed) + cassandra; exclude interfold-api (local-only tag).
+        // Skip pre-update backup so we stay on the digest-snapshot path under test.
+        const string testName = nameof(UpdateImagesSurvivesStaleLocalCassandraImageAfterRebuild);
+        var (scratch, composeFile) = await dinD.BootstrapAsync(testName, TestConfigPaths.CassandraConfig);
+
+        var stamp = Guid.NewGuid().ToString("N");
+        var rebuild = await dinD.ExecAsync(["sh", "-c",
+            $"printf 'FROM interfold-cassandra:local\\nLABEL interfold.digest_probe={stamp}\\n' | docker build -t interfold-cassandra:local -"]);
+        await Assert.That(rebuild.ExitCode).IsEqualTo(0L)
+            .Because($"forced local tag rebuild must succeed: {rebuild.Stderr}");
+
+        // Prove the bug surface is live in this DinD (containerd store + Compose that still
+        // fails ImageInspect on the dangling id). Soft when a newer Compose already tolerates
+        // the missing record — update-images must still succeed either way.
+        var imagesProbe = await dinD.ExecAsync(["sh", "-c",
+            $"docker compose -f {composeFile} images >/tmp/compose-images.out 2>/tmp/compose-images.err; printf '%s' $?"]);
+        var imagesErr = (await dinD.ExecAsync(["cat", "/tmp/compose-images.err"])).Stdout;
+        if (imagesErr.Contains("No such image", StringComparison.Ordinal))
+        {
+            await Assert.That(imagesProbe.Stdout.Trim()).IsEqualTo("1")
+                .Because("compose images must exit 1 when the dangling local image is gone");
+        }
+
+        var update = await dinD.RunOnScratchAsync(scratch, testName, "update-images",
+            "--service", "msg-db", "--service", "cassandra",
+            "--skip-pre-update-backup");
+        await Assert.That(update.ExitCode).IsEqualTo(0)
+            .Because($"update-images must survive stale local cassandra image: {update.Stderr}");
+
+        var combined = update.Stdout + update.Stderr;
+        await Assert.That(combined).DoesNotContain("docker compose images exited")
+            .Because("digest snapshot must not depend on docker compose images");
+        await Assert.That(combined).DoesNotContain("No such image")
+            .Because("digest snapshot must not surface the dangling-image compose failure");
+        await Assert.That(combined).Contains("resolved digests")
+            .Because("pre-pull digest snapshot must complete against the running stack");
     }
 }
 

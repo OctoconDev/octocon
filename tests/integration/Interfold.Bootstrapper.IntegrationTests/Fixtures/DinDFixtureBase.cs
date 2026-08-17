@@ -42,6 +42,11 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
     /// for <c>cassandra:5</c>.</summary>
     protected virtual IReadOnlyList<string> AdditionalPreloadImages => [];
 
+    /// <summary>When true, inner dockerd enables the containerd image store (see
+    /// <c>DIND_CONTAINERD_SNAPSHOTTER</c> in <c>dockerd-entrypoint.sh</c>). Needed to
+    /// reproduce compose#14014 for update-images digest snapshotting.</summary>
+    protected virtual bool UseContainerdSnapshotter => false;
+
     public virtual async Task InitializeAsync()
     {
         _publishedBootstrapperDir = await BootstrapperBuild.PublishedDirectory.Value.ConfigureAwait(false);
@@ -61,6 +66,11 @@ public abstract class DinDFixtureBase : IAsyncInitializer, IAsyncDisposable
             .WithBindMount(_publishedBootstrapperDir, BootstrapperMountPath, AccessMode.ReadWrite)
             // Mount repo support files needed at compose-up time.
             .WithBindMount(SupportFilesHostPath(), SupportFilesMountPath, AccessMode.ReadOnly);
+
+        if (UseContainerdSnapshotter)
+        {
+            builder = builder.WithEnvironment("DIND_CONTAINERD_SNAPSHOTTER", "1");
+        }
 
         if (apiImageTarPath is not null)
         {

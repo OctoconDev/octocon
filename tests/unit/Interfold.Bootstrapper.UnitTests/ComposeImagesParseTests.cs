@@ -3,113 +3,133 @@ using Interfold.Bootstrapper.Phases;
 namespace Interfold.Bootstrapper.UnitTests;
 
 /// <summary>
-/// Unit tests for <see cref="UpdateImagesPhase.ParseComposeImagesJson"/>. Docker Compose v2
-/// emits <c>docker compose images --format json</c> as either a single JSON array (older
-/// versions) or JSON Lines (2.20+); the parser must accept both without regressing.
+/// Unit tests for <see cref="UpdateImagesPhase.ParseComposePsJson"/> and
+/// <see cref="UpdateImagesPhase.ResolveDesiredDigest"/>. Docker Compose emits
+/// <c>docker compose ps --format json</c> as either a single JSON array (older versions)
+/// or JSON Lines (modern); the parser must accept both without regressing.
 /// </summary>
 public sealed class ComposeImagesParseTests
 {
     [Test]
-    public async Task ParsesJsonArrayShape()
+    public async Task ParsesPsJsonArrayShape()
     {
-        // Older compose plugin (< 2.20) wraps the entries in a top-level array.
         const string payload = """
         [
-            {"ID":"sha256:aaa111","Repository":"postgres","Tag":"16","Service":"msg-db","ContainerName":"deploy-msg-db-1"},
-            {"ID":"sha256:bbb222","Repository":"scylladb/scylla","Tag":"2026.1","Service":"scylla","ContainerName":"deploy-scylla-1"}
+            {"ID":"aaa111","Image":"sha256:img1","Service":"msg-db","Name":"deploy-msg-db-1"},
+            {"ID":"bbb222","Image":"sha256:img2","Service":"scylla","Name":"deploy-scylla-1"}
         ]
         """;
 
-        var parsed = UpdateImagesPhase.ParseComposeImagesJson(payload);
+        var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(2);
-        await Assert.That(parsed["msg-db"]).IsEqualTo("sha256:aaa111");
-        await Assert.That(parsed["scylla"]).IsEqualTo("sha256:bbb222");
+        await Assert.That(parsed.Single(r => r.Service == "msg-db").Image).IsEqualTo("sha256:img1");
+        await Assert.That(parsed.Single(r => r.Service == "scylla").ContainerId).IsEqualTo("bbb222");
     }
 
     [Test]
-    public async Task ParsesJsonLinesShape()
+    public async Task ParsesPsJsonLinesShape()
     {
-        // Modern compose plugin (2.20+) streams one JSON object per line.
         const string payload = """
-        {"ID":"sha256:aaa111","Repository":"postgres","Tag":"16","Service":"msg-db","ContainerName":"deploy-msg-db-1"}
-        {"ID":"sha256:bbb222","Repository":"scylladb/scylla","Tag":"2026.1","Service":"scylla","ContainerName":"deploy-scylla-1"}
-        {"ID":"sha256:ccc333","Repository":"ghcr.io/azyyyyyy/interfold-api","Tag":"latest","Service":"interfold-api","ContainerName":"deploy-interfold-api-1"}
+        {"ID":"aaa111","Image":"sha256:img1","Service":"msg-db","Name":"deploy-msg-db-1"}
+        {"ID":"bbb222","Image":"sha256:img2","Service":"scylla","Name":"deploy-scylla-1"}
+        {"ID":"ccc333","Image":"sha256:img3","Service":"interfold-api","Name":"deploy-interfold-api-1"}
         """;
 
-        var parsed = UpdateImagesPhase.ParseComposeImagesJson(payload);
+        var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(3);
-        await Assert.That(parsed["msg-db"]).IsEqualTo("sha256:aaa111");
-        await Assert.That(parsed["scylla"]).IsEqualTo("sha256:bbb222");
-        await Assert.That(parsed["interfold-api"]).IsEqualTo("sha256:ccc333");
+        await Assert.That(parsed.Single(r => r.Service == "interfold-api").Image).IsEqualTo("sha256:img3");
     }
 
     [Test]
-    public async Task EmptyInputReturnsEmptyMap()
+    public async Task EmptyPsInputReturnsEmptyList()
     {
-        // An empty stack (no compose file, or compose file with no services) is a valid
-        // shape. The parser must return an empty dict rather than throw.
-        var parsed = UpdateImagesPhase.ParseComposeImagesJson("");
+        var parsed = UpdateImagesPhase.ParseComposePsJson("");
         await Assert.That(parsed.Count).IsEqualTo(0);
     }
 
     [Test]
-    public async Task WhitespaceInputReturnsEmptyMap()
+    public async Task WhitespacePsInputReturnsEmptyList()
     {
-        var parsed = UpdateImagesPhase.ParseComposeImagesJson("   \n  \n  ");
+        var parsed = UpdateImagesPhase.ParseComposePsJson("   \n  \n  ");
         await Assert.That(parsed.Count).IsEqualTo(0);
     }
 
     [Test]
-    public async Task MalformedJsonLineIsSkipped()
+    public async Task MalformedPsJsonLineIsSkipped()
     {
-        // Some older compose plugin versions occasionally interleave stderr with stdout;
-        // the parser tolerates a malformed line by skipping it rather than failing the
-        // whole diff. Well-formed lines around the bad one must still be captured.
         const string payload = """
-        {"ID":"sha256:aaa","Service":"msg-db"}
+        {"ID":"aaa","Image":"sha256:a","Service":"msg-db"}
         not json at all
-        {"ID":"sha256:bbb","Service":"scylla"}
+        {"ID":"bbb","Image":"sha256:b","Service":"scylla"}
         """;
 
-        var parsed = UpdateImagesPhase.ParseComposeImagesJson(payload);
+        var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(2);
-        await Assert.That(parsed["msg-db"]).IsEqualTo("sha256:aaa");
-        await Assert.That(parsed["scylla"]).IsEqualTo("sha256:bbb");
+        await Assert.That(parsed.Any(r => r.Service == "msg-db")).IsTrue();
+        await Assert.That(parsed.Any(r => r.Service == "scylla")).IsTrue();
     }
 
     [Test]
     public async Task EntryMissingServiceIsIgnored()
     {
-        // Defensive: a container without a Service field probably means the compose
-        // file is malformed. We don't have a use for such entries in the digest diff,
-        // so silently drop them.
         const string payload = """
-        {"ID":"sha256:aaa","Repository":"orphan","Tag":"latest"}
-        {"ID":"sha256:bbb","Service":"real-svc"}
+        {"ID":"aaa","Image":"sha256:orphan"}
+        {"ID":"bbb","Image":"sha256:real","Service":"real-svc"}
         """;
 
-        var parsed = UpdateImagesPhase.ParseComposeImagesJson(payload);
+        var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(1);
-        await Assert.That(parsed.ContainsKey("real-svc")).IsTrue();
+        await Assert.That(parsed[0].Service).IsEqualTo("real-svc");
     }
 
     [Test]
-    public async Task EntryMissingIdKeepsEmptyString()
+    public async Task EntryMissingImageKeepsEmptyString()
     {
-        // A compose plugin that emits {Service:"foo"} without an ID (edge case on some
-        // arm64 rebuilds) still lands in the map — but with an empty ID, which the diff
-        // treats as "changed vs any real ID". Better than dropping the service silently.
         const string payload = """
-        {"Service":"weird-svc"}
+        {"ID":"aaa","Service":"weird-svc"}
         """;
 
-        var parsed = UpdateImagesPhase.ParseComposeImagesJson(payload);
+        var parsed = UpdateImagesPhase.ParseComposePsJson(payload);
 
         await Assert.That(parsed.Count).IsEqualTo(1);
-        await Assert.That(parsed["weird-svc"]).IsEqualTo(string.Empty);
+        await Assert.That(parsed[0].Image).IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    public async Task ResolveDesiredDigestPrefersInspectedTagId()
+    {
+        // Post-pull: Config.Image tag resolved to a new id even while the container still
+        // reports the old running ImageID — that mismatch is what triggers recreate.
+        var resolved = UpdateImagesPhase.ResolveDesiredDigest(
+            runningImageId: "sha256:old",
+            inspectedTagId: "sha256:new");
+
+        await Assert.That(resolved).IsEqualTo("sha256:new");
+    }
+
+    [Test]
+    public async Task ResolveDesiredDigestFallsBackToRunningWhenTagMissing()
+    {
+        // Tag inspect failed (image record gone / local-only pruned) — keep the running
+        // id so the diff stays well-defined instead of inventing an empty digest.
+        var resolved = UpdateImagesPhase.ResolveDesiredDigest(
+            runningImageId: "sha256:still-running",
+            inspectedTagId: null);
+
+        await Assert.That(resolved).IsEqualTo("sha256:still-running");
+    }
+
+    [Test]
+    public async Task ResolveDesiredDigestFallsBackWhenInspectedIdEmpty()
+    {
+        var resolved = UpdateImagesPhase.ResolveDesiredDigest(
+            runningImageId: "sha256:running",
+            inspectedTagId: "");
+
+        await Assert.That(resolved).IsEqualTo("sha256:running");
     }
 }

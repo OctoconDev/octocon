@@ -15,16 +15,38 @@ public sealed class UpdateCommandBuildingTests
 
 
     [Test]
-    public async Task ComposeImagesRequestsJsonFormat()
+    public async Task ComposePsRequestsJsonFormat()
     {
         // The digest diff depends on `--format json` — the default text output isn't
         // parseable enough to reliably extract per-service image IDs.
-        var args = UpdateImagesPhase.BuildComposeImagesArgs(
+        var args = UpdateImagesPhase.BuildComposePsJsonArgs(
             composeFile: "/srv/deploy/docker-compose.yaml");
 
         await Assert.That(args).IsEquivalentTo(new[]
         {
-            "compose", "-f", "/srv/deploy/docker-compose.yaml", "images", "--format", "json",
+            "compose", "-f", "/srv/deploy/docker-compose.yaml", "ps", "-a", "--format", "json",
+        });
+    }
+
+    [Test]
+    public async Task ImageInspectIdArgsPinFormat()
+    {
+        var args = UpdateImagesPhase.BuildImageInspectIdArgs("interfold-cassandra:local");
+
+        await Assert.That(args).IsEquivalentTo(new[]
+        {
+            "image", "inspect", "--format", "{{.Id}}", "interfold-cassandra:local",
+        });
+    }
+
+    [Test]
+    public async Task ContainerConfigImageArgsInspectAllIds()
+    {
+        var args = UpdateImagesPhase.BuildContainerConfigImageArgs(["abc", "def"]);
+
+        await Assert.That(args).IsEquivalentTo(new[]
+        {
+            "inspect", "--format", "{{.Config.Image}}", "abc", "def",
         });
     }
 

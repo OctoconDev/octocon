@@ -13,12 +13,18 @@ namespace Interfold.Bootstrapper.IntegrationTests.Fixtures;
 /// <see cref="UbuntuDinDFixture"/>) so the vast majority of tests that only exercise the
 /// Scylla path don't pay the extra image pull. The scylla-mode <see cref="UbuntuDinDFixture"/>
 /// stays byte-for-byte the same as before; cassandra-mode tests opt in by declaring this
-/// fixture in their <c>ClassDataSource</c> attribute.
+/// fixture in their <c>ClassDataSource</c> attribute. Also enables the containerd image
+/// store (see <see cref="DinDFixtureBase.UseContainerdSnapshotter"/>) so update-images
+/// can regress compose#14014 against a real dangling-local-tag failure surface.
 /// </remarks>
 public sealed class UbuntuCassandraDinDFixture : DinDFixtureBase
 {
     protected override string DockerfileName => "Dockerfile.ubuntu-dind";
 
     protected override IReadOnlyList<string> AdditionalPreloadImages => ["cassandra:5"];
+
+    // Matches Docker Desktop / Engine 29+ defaults so update-images can regress the
+    // compose-images + dangling local-tag failure (compose#14014) under a real store.
+    protected override bool UseContainerdSnapshotter => true;
 }
 
