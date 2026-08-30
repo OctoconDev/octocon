@@ -22,36 +22,42 @@ internal static class CassandraImagePhase
     internal static bool IsCassandraDeployment(BootstrapConfig config) =>
         config.DatabaseMode == DatabaseMode.Cassandra;
 
-    internal static string DockerfileContextPath =>
-        Path.Combine(AppContext.BaseDirectory, "db", "cassandra");
+    /// <summary>Argv for <c>docker build -t … -f - &lt;contextDir&gt;</c> with Dockerfile on stdin.</summary>
+    internal static IReadOnlyList<string> BuildDockerBuildArgs(string contextDir) =>
+        ["build", "-t", LocalImageTag, "-f", "-", contextDir];
 
     /// <summary>
-    /// Builds <see cref="LocalImageTag"/> from the Dockerfile embedded next to the bootstrapper
-    /// binary. Idempotent — Docker's layer cache makes repeat calls cheap when nothing changed.
+    /// Builds <see cref="LocalImageTag"/> from the embedded Dockerfile. Idempotent — Docker's
+    /// layer cache makes repeat calls cheap when nothing changed.
     /// </summary>
     internal static async Task EnsureBuiltAsync(PhaseLogger logger, CancellationToken ct)
     {
-        var context = DockerfileContextPath;
-        var dockerfile = Path.Combine(context, "Dockerfile");
-        if (!File.Exists(dockerfile))
-        {
-            throw new InvalidOperationException(
-                $"Cassandra mode requires {dockerfile}, but it is missing. Reinstall the bootstrapper " +
-                "release tarball or rerun from a checkout that includes db/cassandra/Dockerfile.");
-        }
+        var dockerfile = EmbeddedSupportFiles.ReadAllText(EmbeddedSupportFiles.CassandraDockerfileRelative);
+        var contextDir = Path.Combine(Path.GetTempPath(), $"interfold-cassandra-ctx-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(contextDir);
 
-        logger.Info($"    docker build -t {LocalImageTag} {context}");
-        var run = await ProcessRunner.RunAsync("docker",
-            ["build", "-t", LocalImageTag, context], ct: ct).ConfigureAwait(false);
-        if (run.ExitCode != 0)
+        try
         {
-            logger.Error(run.StdErr.Trim());
-            throw new InvalidOperationException(
-                $"docker build for Cassandra failed (exit {run.ExitCode}).");
+            logger.Info($"    docker build -t {LocalImageTag} -f - {contextDir}");
+            var run = await ProcessRunner.RunAsync(
+                "docker",
+                BuildDockerBuildArgs(contextDir),
+                stdin: dockerfile,
+                ct: ct).ConfigureAwait(false);
+            if (run.ExitCode != 0)
+            {
+                logger.Error(run.StdErr.Trim());
+                throw new InvalidOperationException(
+                    $"docker build for Cassandra failed (exit {run.ExitCode}).");
+            }
+
+            if (!string.IsNullOrWhiteSpace(run.StdOut))
+                logger.Info(run.StdOut.Trim());
         }
-        if (!string.IsNullOrWhiteSpace(run.StdOut))
+        finally
         {
-            logger.Info(run.StdOut.Trim());
+            try { Directory.Delete(contextDir, recursive: true); }
+            catch { /* best-effort cleanup */ }
         }
     }
 }

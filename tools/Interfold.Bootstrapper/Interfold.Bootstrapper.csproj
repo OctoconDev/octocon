@@ -51,8 +51,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- LogicalName `support/<path>` is the contract EmbeddedSupportFiles.EnsureExtracted reads;
-         keep new entries under that prefix so first-run extraction picks them up automatically. -->
+    <!-- LogicalName `support/<path>` is the contract EmbeddedSupportFiles reads at runtime;
+         keep new entries under that prefix. Materialize to disk only when Docker needs a host path. -->
     <EmbeddedResource Include="..\..\db\scylla\cassandra-rackdc.*.properties"
                       LogicalName="support/db/scylla/%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\scripts\docker\ensure-host-aio.sh"
@@ -62,15 +62,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Aspire's compose publisher emits `image: "${CASSANDRA_IMAGE}"` (not an inline build:), so the
-         bootstrapper ships the Dockerfile itself and docker-builds it in CassandraImagePhase. -->
+    <!-- CassandraImagePhase docker-builds from this embed via stdin (-f -). -->
     <EmbeddedResource Include="..\..\db\cassandra\Dockerfile"
                       LogicalName="support/db/cassandra/Dockerfile" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- `systemd/` prefix (not `support/`) intentionally skips EmbeddedSupportFiles.EnsureExtracted:
-         these templates contain {{TOKEN}} placeholders that SystemdInstallPhase substitutes before write. -->
+    <!-- `systemd/` prefix: stream-only templates substituted by SystemdInstallPhase. -->
     <EmbeddedResource Include="Phases\SystemdTemplates\interfold.service"
                       LogicalName="systemd/interfold.service" />
     <EmbeddedResource Include="Phases\SystemdTemplates\interfold-backup.service"

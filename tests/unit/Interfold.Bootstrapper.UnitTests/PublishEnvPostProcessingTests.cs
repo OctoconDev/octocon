@@ -318,10 +318,10 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(Path.IsPathFullyQualified(apiAvatars)).IsTrue();
         await Assert.That(apiAvatars).IsEqualTo(Path.GetFullPath(Path.Combine(outputDir, "data", "avatars")));
 
-        // Scylla rackdc lives under baseDir (tarball drop location), not outputDir.
+        // Scylla rackdc lives under {outputDir}/support (staged at publish from embeds).
         var scyllaRackdc = replacements.BindMounts["scylla:/etc/scylla/cassandra-rackdc.properties"];
         await Assert.That(Path.IsPathFullyQualified(scyllaRackdc)).IsTrue();
-        await Assert.That(scyllaRackdc).StartsWith(baseDir);
+        await Assert.That(scyllaRackdc).StartsWith(Path.GetFullPath(Path.Combine(outputDir, "support")));
         await Assert.That(scyllaRackdc).EndsWith("cassandra-rackdc.nam.properties");
     }
 
@@ -478,12 +478,12 @@ public sealed class PublishEnvPostProcessingTests
         await Assert.That(replacements.BindMounts["interfold-api:/certs"]).IsEqualTo(webCerts)
             .Because("API and web tiers must read from the same on-disk certs directory");
 
-        // nginx template lives next to the binary (baseDir), mirroring rackdc props.
+        // nginx template lives under {outputDir}/support (staged at publish from embeds).
         const string nginxKey = "octocon-web:/etc/nginx/templates/default.conf.template";
         await Assert.That(replacements.BindMounts.ContainsKey(nginxKey)).IsTrue();
         var nginxTemplate = replacements.BindMounts[nginxKey];
         await Assert.That(Path.IsPathFullyQualified(nginxTemplate)).IsTrue();
-        await Assert.That(nginxTemplate).StartsWith(baseDir);
+        await Assert.That(nginxTemplate).StartsWith(Path.GetFullPath(Path.Combine(outputDir, "support")));
         await Assert.That(nginxTemplate).EndsWith("default.conf.template");
     }
 

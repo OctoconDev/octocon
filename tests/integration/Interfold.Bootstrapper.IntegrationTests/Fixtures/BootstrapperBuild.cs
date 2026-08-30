@@ -10,8 +10,8 @@ internal static class BootstrapperBuild
 {
     /// <summary>
     /// Publishes the bootstrapper as a self-contained linux-x64 single-file binary and returns the
-    /// containing directory. The directory also contains the support files we copy alongside in the
-    /// real release tarball.
+    /// containing directory. Support files ship embedded in the assembly; publish stages bind-mount
+    /// sources under the deploy output directory.
     /// </summary>
     public static readonly Lazy<Task<string>> PublishedDirectory = new(PublishBootstrapperAsync);
 
@@ -44,8 +44,6 @@ internal static class BootstrapperBuild
             "tools/Interfold.Bootstrapper/Interfold.Bootstrapper.csproj",
             "/p:PublishProfile=linux-x64",
             "-o", outDir).ConfigureAwait(false);
-
-        StageSupportFiles(outDir);
 
         return outDir;
     }
@@ -191,50 +189,6 @@ internal static class BootstrapperBuild
         {
             return false;
         }
-    }
-
-    private static void StageSupportFiles(string outDir)
-    {
-        // Mirror the release-tarball layout under the publish output. DatabaseInitPhase replaced
-        // the old pg-bootstrap-auth / scylla-bootstrap-auth shell scripts, so the only support
-        // files we still need next to the binary are:
-        //   - scripts/docker/ensure-host-aio.sh : tunes fs.aio-max-nr for Scylla on DinD hosts
-        //   - db/scylla/cassandra-rackdc.*.properties : bind-mounted into the scylla container
-        Copy(RepoRoot.Combine("scripts", "docker", "ensure-host-aio.sh"),
-             Path.Combine(outDir, "scripts", "docker", "ensure-host-aio.sh"));
-
-        var rackDcDir = RepoRoot.Combine("db", "scylla");
-        if (Directory.Exists(rackDcDir))
-        {
-            foreach (var src in Directory.EnumerateFiles(rackDcDir, "cassandra-rackdc.*.properties"))
-            {
-                var dest = Path.Combine(outDir, "db", "scylla", Path.GetFileName(src));
-                Copy(src, dest);
-            }
-        }
-
-        // Web TLS termination template. The bootstrapper bind-mounts this into octocon-web
-        // when deployment.webHttps=true, so it must live next to the published binary even on
-        // hosts where the operator doesn't use the web tier (publish itself is the same code path
-        // either way — it's only the bind-mount entry in the .env that gets populated).
-        var nginxTemplate = RepoRoot.Combine("web", "nginx", "default.conf.template");
-        if (File.Exists(nginxTemplate))
-        {
-            Copy(nginxTemplate, Path.Combine(outDir, "web", "nginx", "default.conf.template"));
-        }
-
-        // Cassandra-only mode builds this Dockerfile at compose-up time (see CassandraImagePhase).
-        var cassandraDockerfile = RepoRoot.Combine("db", "cassandra", "Dockerfile");
-        if (File.Exists(cassandraDockerfile))
-        {
-            Copy(cassandraDockerfile, Path.Combine(outDir, "db", "cassandra", "Dockerfile"));
-        }
-    }
-
-    private static void Copy(string src, string dest)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-        File.Copy(src, dest, overwrite: true);
     }
 
     private static Task RunDotnetAsync(params string[] args) =>

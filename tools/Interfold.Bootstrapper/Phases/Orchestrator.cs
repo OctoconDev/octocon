@@ -1,6 +1,5 @@
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
-using Interfold.Bootstrapper.Util;
 
 namespace Interfold.Bootstrapper.Phases;
 
@@ -12,11 +11,6 @@ internal static class Orchestrator
 {
     public static async Task<int> RunAsync(BootstrapOptions options, PhaseLogger logger, CancellationToken ct)
     {
-        // Materialise embedded support files (rackdc props, nginx envsubst template, ensure-host-aio.sh)
-        // next to the binary before any phase so PublishPhase, AppHost bind mounts, and operator
-        // recovery scripts see the same layout. Operator-dropped copies are preserved.
-        EmbeddedSupportFiles.EnsureExtracted(AppContext.BaseDirectory, logger);
-
         // show-trust: pure read, skips prereqs/config/secrets/certs/publish so it's safe on a
         // sealed deploy tree without interfold.bootstrap.json.
         if (options.Command == BootstrapCommand.ShowTrust)

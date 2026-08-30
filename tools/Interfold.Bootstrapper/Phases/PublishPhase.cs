@@ -194,29 +194,64 @@ internal static class PublishPhase
                 ResolveAvatarHostRoot(config, outputDir),
         };
 
-        // Web-TLS opt-in mounts: cert dir (reused from the API) + envsubst template. The template
-        // ships under {baseDir}/web/nginx/ (extracted by EmbeddedSupportFiles / staged by
-        // BootstrapperBuild for integration tests).
+        // Web-TLS opt-in mounts: cert dir (reused from the API) + envsubst template staged
+        // under {outputDir}/support by StagePublishSupportFiles.
         if (config.Deployment.WebHttps)
         {
             bindMountLookup[$"{ComposeServices.OctoconWeb}:/certs"] = Path.Combine(outputDir, "certs");
             bindMountLookup[$"{ComposeServices.OctoconWeb}:/etc/nginx/templates/default.conf.template"] =
-                Path.Combine(baseDir, "web", "nginx", "default.conf.template");
+                EmbeddedSupportFiles.SupportFilePath(outputDir, EmbeddedSupportFiles.NginxTemplateRelative);
         }
 
         // Region-keyed rackdc mount; single mode → one "scylla" node in "nam", multi mode → one
         // node per region. Derived from ScyllaKeyspace so the list can't drift.
-        string[] scyllaRegions = config.DatabaseMode == DatabaseMode.Multi
-            ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
-            : [ScyllaKeyspace.Nam.ToWire()];
-        foreach (var region in scyllaRegions)
+        if (config.DatabaseMode != DatabaseMode.Cassandra)
         {
-            var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: scyllaRegions.Length > 1);
-            bindMountLookup[$"{nodeName}:/etc/scylla/cassandra-rackdc.properties"] =
-                Path.Combine(baseDir, "db", "scylla", $"cassandra-rackdc.{region}.properties");
+            foreach (var region in ResolveScyllaRegions(config))
+            {
+                var nodeName = ComposeServices.ToScyllaNodeName(region, multiNode: config.DatabaseMode == DatabaseMode.Multi);
+                bindMountLookup[$"{nodeName}:/etc/scylla/cassandra-rackdc.properties"] =
+                    EmbeddedSupportFiles.SupportFilePath(outputDir, EmbeddedSupportFiles.RackDcRelative(region));
+            }
         }
 
         return new EnvReplacements(parameters, bindMountLookup);
+    }
+
+    internal static string[] ResolveScyllaRegions(BootstrapConfig config) =>
+        config.DatabaseMode == DatabaseMode.Multi
+            ? Enum.GetValues<ScyllaKeyspace>().Select(k => k.ToWire()).ToArray()
+            : [ScyllaKeyspace.Nam.ToWire()];
+
+    /// <summary>Materializes embedded bind-mount sources under <c>{outputDir}/support</c>.</summary>
+    internal static void StagePublishSupportFiles(BootstrapConfig config, string outputDir, PhaseLogger logger)
+    {
+        var materialized = 0;
+
+        if (config.DatabaseMode != DatabaseMode.Cassandra)
+        {
+            foreach (var region in ResolveScyllaRegions(config))
+            {
+                var relative = EmbeddedSupportFiles.RackDcRelative(region);
+                var target = EmbeddedSupportFiles.SupportFilePath(outputDir, relative);
+                if (EmbeddedSupportFiles.Materialize(relative, target, logger))
+                    materialized++;
+            }
+        }
+
+        if (config.Deployment.WebHttps)
+        {
+            var relative = EmbeddedSupportFiles.NginxTemplateRelative;
+            var target = EmbeddedSupportFiles.SupportFilePath(outputDir, relative);
+            if (EmbeddedSupportFiles.Materialize(relative, target, logger))
+                materialized++;
+        }
+
+        if (materialized > 0)
+        {
+            logger.Info(
+                $"    staged {materialized} support file(s) under {EmbeddedSupportFiles.SupportRoot(outputDir)} (existing files preserved)");
+        }
     }
 
     /// <summary>Host directory bind-mounted at <see cref="ContainerMountPaths.InterfoldAvatars"/>.
@@ -256,6 +291,7 @@ internal static class PublishPhase
             return;
         }
 
+        StagePublishSupportFiles(config, outputDir, logger);
         var replacements = BuildEnvReplacements(config, secrets, baseDir, outputDir);
         var (rewritten, skipped) = ApplyReplacementsToEnvFile(envPath, replacements);
 
@@ -358,9 +394,7 @@ internal static class PublishPhase
 
     private static string SetupAnchor()
     {
-        // The bind-mount source files (rackdc, nginx template) are staged under baseDir by
-        // Orchestrator.RunAsync via EmbeddedSupportFiles.EnsureExtracted, so we only ensure
-        // the anchor directory exists here.
+        // Aspire relative bind-mount placeholders resolve against CWD; anchor mimics dev layout.
         var baseDir = AppContext.BaseDirectory;
         var anchor = Path.Combine(baseDir, Path.Combine(AnchorSegments));
         Directory.CreateDirectory(anchor);
