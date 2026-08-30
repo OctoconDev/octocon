@@ -67,7 +67,6 @@ public static class AppHostParameterKeys
     public const string JwtAudience = "Parameters:jwt-audience";
     public const string CorsAllowedOrigins = "Parameters:cors-allowed-origins";
     public const string NodeGroup = "Parameters:node-group";
-    public const string AvatarStorageRoot = "Parameters:avatar-storage-root";
     public const string AvatarPublicBase = "Parameters:avatar-public-base";
     public const string OtlpEndpoint = "Parameters:otlp-endpoint";
     public const string SocketBatchBytesThreshold = "Parameters:socket-batch-bytes-threshold";

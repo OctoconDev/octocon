@@ -161,12 +161,10 @@ Shape lives on `[BootstrapConfig](../tools/Interfold.Bootstrapper/Configuration/
                                      // runtime, which wins over OCTOCON_NODE_GROUP.
   },
   "storage": {
-    // Both fields are optional — leaving either empty disables the API's avatar surface
-    // entirely (the binder normalises empty -> null, and the avatar service's
-    // not-configured check kicks in). When opting in, set both AND add the matching
-    // compose bind mount in a compose override; the bootstrapper does not create the
-    // directory or wire the mount.
-    "avatarStorageRoot": "",         // absolute container path; OCTOCON_AVATAR_STORAGE_ROOT
+    // avatarStorageRoot is a HOST path bind-mounted at /app/data/avatars inside the API
+    // container. Blank → {outputDir}/data/avatars (created on publish). avatarPublicBase
+    // blank → the API serves /avatars/* itself; set an https URL to stamp CDN URLs.
+    "avatarStorageRoot": "",         // absolute host path; blank = {outputDir}/data/avatars
     "avatarPublicBase":  ""          // public http(s) URL prefix; OCTOCON_AVATAR_PUBLIC_BASE
   },
   "observability": {
@@ -289,11 +287,12 @@ menu row; client IDs are shown verbatim because they're public), then chooses `C
 save` to write the JSON. The four derivable `apiRuntime` rows pre-fill their menu display
 and prompt default with the value `ConfigPhase.ResolveDerivedDefaults` computes from
 `deployment` — operators can press Enter to accept or type to override, and either way the
-bootstrapper persists the resolved value. The four "disabled when blank" rows (avatar
-storage root + public base, OTLP endpoint, socket batch flush threshold) render an
+bootstrapper persists the resolved value. The three "disabled when blank" rows (avatar
+public base, OTLP endpoint, socket batch flush threshold) render an
 `<empty>` / `<default>` marker in the menu when unset, so the unset-vs-set distinction is
 visible at a glance; leaving them blank reproduces the pre-bootstrapper "env var unset"
-behaviour 1:1. There is no separate walkthrough phase: experienced operators jump straight
+behaviour 1:1. Avatar storage root is also blankable but means "use `{outputDir}/data/avatars`"
+rather than disabling uploads. There is no separate walkthrough phase: experienced operators jump straight
 to the rows they care about and Confirm; first-time operators just Enter every row
 top-to-bottom. The bootstrapper writes the resulting JSON to the path above on
 confirmation; `--non-interactive` and `--config <path>` still bypass the form for
@@ -578,8 +577,8 @@ your `.env`, they are dead values — the API no longer reads them.
 
 | Env var                       | Default | Notes      |
 | ----------------------------- | ------- | ---------- |
-| `OCTOCON_AVATAR_STORAGE_ROOT` | *empty* (= avatar storage disabled) | Container-side absolute path the API writes uploaded avatars to. Sourced from `BootstrapConfig.storage.avatarStorageRoot` via Aspire parameter `avatar-storage-root`; empty value is normalised to `null` by `ApplyStorage` so the API's not-configured branch still fires. The bootstrapper validates the value is an absolute path; operators that opt in are responsible for adding the matching compose bind mount. (bootstrapper-managed) |
-| `OCTOCON_AVATAR_PUBLIC_BASE`  | *empty* (= avatar storage disabled) | Public URL prefix the API uses to construct avatar URLs in responses (e.g. `https://cdn.example.com/avatars/`). Sourced from `BootstrapConfig.storage.avatarPublicBase` via Aspire parameter `avatar-public-base`; empty normalised to `null`. Non-empty values must parse as absolute http(s) URLs. (bootstrapper-managed) |
+| `OCTOCON_AVATAR_STORAGE_ROOT` | `/app/data/avatars` (self-host compose) | Container path the API writes uploaded avatars to. Always baked to `/app/data/avatars` by AppHost; the host directory comes from `BootstrapConfig.storage.avatarStorageRoot` (blank → `{outputDir}/data/avatars`) via a compose bind mount. (bootstrapper-managed) |
+| `OCTOCON_AVATAR_PUBLIC_BASE`  | *empty* (= API serves `/avatars/*`) | Public URL prefix the API uses to construct avatar URLs in responses (e.g. `https://cdn.example.com/avatars/`). Sourced from `BootstrapConfig.storage.avatarPublicBase` via Aspire parameter `avatar-public-base`; empty normalised to `null`. Non-empty values must parse as absolute http(s) URLs. (bootstrapper-managed) |
 
 
 #### Observability

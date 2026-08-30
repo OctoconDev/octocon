@@ -12,8 +12,8 @@ namespace Interfold.Bootstrapper.Util;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Two shapes are exposed today, both grep-verified from the two phases that used to
-/// hold verbatim copies of this P/Invoke:
+/// Shapes are grep-verified from the phases that used to hold verbatim copies of this
+/// P/Invoke:
 /// </para>
 /// <list type="bullet">
 ///   <item><see cref="SetOwnerOnly"/> — 0600, owner read/write only. Used for signing
@@ -24,6 +24,9 @@ namespace Interfold.Bootstrapper.Util;
 ///     the owner. Used for artifacts bind-mounted into the API container which runs as
 ///     UID 64198 (non-root) and cannot otherwise read the bootstrapper's default 0600
 ///     files. The API container never mutates these files so read-only is sufficient.</item>
+///   <item><see cref="SetWorldWritable"/> — 0777 on a directory. Used for the avatar
+///     host bind-mount so the non-root API process can write uploads without a host-side
+///     chown to the container UID.</item>
 /// </list>
 /// <para>
 /// Failures are non-fatal — logged as warnings rather than thrown — because a wrong-
@@ -37,6 +40,7 @@ internal static partial class UnixFilePermissions
 {
     private const int S_600 = 0x180; // 0o600 - owner read/write only
     private const int S_644 = 0x1A4; // 0o644 - owner read/write, group/other read
+    private const int S_777 = 0x1FF; // 0o777 - world read/write/execute (bind-mount dirs)
 
     /// <summary>
     /// Applies <c>0600</c> (owner read/write only). Windows: no-op. Failures logged
@@ -59,6 +63,13 @@ internal static partial class UnixFilePermissions
     /// message (e.g. <c>"cert file"</c>, <c>"file"</c>). Defaults to <c>"file"</c>.</param>
     public static void SetWorldReadable(string path, PhaseLogger logger, string artifactLabel = "file")
         => Apply(path, S_644, "0644", logger, artifactLabel);
+
+    /// <summary>
+    /// Applies <c>0777</c> (world-writable). Windows: no-op. Used for the avatar host
+    /// directory so the non-root API container can create upload files.
+    /// </summary>
+    public static void SetWorldWritable(string path, PhaseLogger logger, string artifactLabel = "directory")
+        => Apply(path, S_777, "0777", logger, artifactLabel);
 
     private static void Apply(string path, int mode, string modeDisplay, PhaseLogger logger, string artifactLabel)
     {

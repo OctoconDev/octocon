@@ -53,8 +53,8 @@ public sealed class BootstrapConfig
     [JsonPropertyName("cluster")]
     public ClusterSection Cluster { get; set; } = new();
 
-    /// <summary>Avatar storage paths. Both empty → feature disabled (API binder normalises
-    /// empty → null so the not-configured branch still fires).</summary>
+    /// <summary>Avatar storage. Blank <see cref="AvatarStorageRoot"/> →
+    /// <c>{outputDir}/data/avatars</c> bind-mounted at <c>/app/data/avatars</c>.</summary>
     [JsonPropertyName("storage")]
     public StorageSection Storage { get; set; } = new();
 
@@ -233,16 +233,17 @@ public sealed class ClusterSection
     public NodeGroup NodeGroup { get; set; } = NodeGroup.Auxiliary;
 }
 
-/// <summary>Local avatar storage. Both fields empty = feature disabled.</summary>
+/// <summary>Local avatar storage. Host path is bind-mounted into the API container.</summary>
 public sealed class StorageSection
 {
-    /// <summary>Container-side absolute path (<c>OCTOCON_AVATAR_STORAGE_ROOT</c>).
-    /// Empty → API's not-configured branch. Operators are responsible for the bind mount.</summary>
+    /// <summary>Host-side absolute directory bind-mounted at <c>/app/data/avatars</c>.
+    /// Empty → <c>{outputDir}/data/avatars</c>. The container always sees
+    /// <c>OCTOCON_AVATAR_STORAGE_ROOT=/app/data/avatars</c>.</summary>
     [JsonPropertyName("avatarStorageRoot")]
     public string AvatarStorageRoot { get; set; } = string.Empty;
 
     /// <summary>Public URL prefix (<c>OCTOCON_AVATAR_PUBLIC_BASE</c>). Non-empty must
-    /// parse as an absolute http(s) URL.</summary>
+    /// parse as an absolute http(s) URL. Blank → API serves <c>/avatars/*</c> directly.</summary>
     [JsonPropertyName("avatarPublicBase")]
     public string AvatarPublicBase { get; set; } = string.Empty;
 }

@@ -206,19 +206,7 @@ public static class InterfoldAppHost
         // knobs (avatars, OTLP, socket threshold) — ApplyStorage / ApplyObservability
         // normalise empty → null.
         var nodeGroup = builder.AddParameter(ParamName(AppHostParameterKeys.NodeGroup), "auxiliary", publishValueAsDefault: true);
-        var avatarStorageRoot = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarStorageRoot), "", publishValueAsDefault: true);
         var avatarPublicBase = builder.AddParameter(ParamName(AppHostParameterKeys.AvatarPublicBase), "", publishValueAsDefault: true);
-
-        // Resolved at AppHost-build time so the OCTOCON_AVATAR_STORAGE_ROOT env var and the
-        // WithVolume mount below share one path. Blank → the image's pre-created /app/data/avatars
-        // (app:app ownership baked in via Interfold.Api.Host/data/avatars/.gitkeep so Docker's
-        // named-volume init inherits it and the app user, UID 1654, can write without chown).
-        // Operators overriding the path opt out of the managed volume.
-        var rawAvatarStorageRoot = builder.Configuration[AppHostParameterKeys.AvatarStorageRoot];
-        var effectiveAvatarStorageRoot = string.IsNullOrWhiteSpace(rawAvatarStorageRoot)
-            ? ContainerMountPaths.InterfoldAvatars
-            : rawAvatarStorageRoot;
-        var useDefaultAvatarStorageRoot = string.IsNullOrWhiteSpace(rawAvatarStorageRoot);
         var otlpEndpoint = builder.AddParameter(ParamName(AppHostParameterKeys.OtlpEndpoint), "", publishValueAsDefault: true);
         var socketBatchBytesThreshold = builder.AddParameter(ParamName(AppHostParameterKeys.SocketBatchBytesThreshold), "", publishValueAsDefault: true);
         var dbRetryAttempts = builder.AddParameter(ParamName(AppHostParameterKeys.DbRetryAttempts), "3", publishValueAsDefault: true);
@@ -564,6 +552,8 @@ public static class InterfoldAppHost
             void ConfigureApiSelfHostEnv(IResourceBuilder<ContainerResource> api)
             {
                 api.WithBindMount(CertsPaths.HostDir, CertsPaths.ContainerDir, isReadOnly: true)
+                   // Host path filled by PublishPhase from BootstrapConfig.storage.avatarStorageRoot.
+                   .WithBindMount(AvatarsPaths.HostDir, AvatarsPaths.ContainerDir, isReadOnly: false)
                    // Override the SDK's HTTP 8080 default so ASPNETCORE_*_PORTS matches
                    // targetPort — HTTPS terminates inside the container using the leaf PFX.
                    .WithEnvironment(ContainerEnvNames.AspNetCoreHttpPorts, apiContainerHttpPort.ToString())
@@ -595,9 +585,7 @@ public static class InterfoldAppHost
                    // Empty for the nullable knobs (avatars, OTLP, socket threshold);
                    // ApplyStorage / ApplyObservability normalise empty → null.
                    .WithEnvironment(OctoconEnvKeys.NodeGroup, nodeGroup)
-                   // OCTOCON_AVATAR_STORAGE_ROOT carries the RESOLVED literal path so the env
-                   // var and the WithVolume mount below share it.
-                   .WithEnvironment(OctoconEnvKeys.AvatarStorageRoot, effectiveAvatarStorageRoot)
+                   .WithEnvironment(OctoconEnvKeys.AvatarStorageRoot, ContainerMountPaths.InterfoldAvatars)
                    .WithEnvironment(OctoconEnvKeys.AvatarPublicBase, avatarPublicBase)
                    .WithEnvironment(OctoconEnvKeys.OtlpEndpoint, otlpEndpoint)
                    .WithEnvironment(OctoconEnvKeys.SocketBatchBytesThreshold, socketBatchBytesThreshold)
@@ -605,16 +593,6 @@ public static class InterfoldAppHost
                    .WithEnvironment(OctoconEnvKeys.DbRetryInitialDelayMs, dbRetryInitialDelayMs)
                    .WithEnvironment(OctoconEnvKeys.DbRetryMaxDelayMs, dbRetryMaxDelayMs)
                    .WithEnvironment(OctoconEnvKeys.HydrationMaxConcurrency, hydrationMaxConcurrency);
-
-                // Managed avatar volume only when persistent AND path is the image's default —
-                // Docker's volume-init inherits app:app ownership from the pre-created dir
-                // (Interfold.Api.Host/data/avatars/.gitkeep) so the app user (UID 1654) can
-                // write without chown. Operator-supplied paths opt out (no matching in-image
-                // dir means EACCES); they own their own bind mount + permissions.
-                if (persistentContainers && useDefaultAvatarStorageRoot)
-                {
-                    api.WithVolume(ComposeVolumes.InterfoldAvatars, ContainerMountPaths.InterfoldAvatars);
-                }
             }
 
             var apiImageRef = builder.Configuration[AppHostParameterKeys.ApiImage];

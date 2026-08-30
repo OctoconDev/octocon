@@ -275,14 +275,12 @@ internal static class ConfigPhase
                                                         "OTLP endpoint (blank to disable)",
                                                         c.Observability.OtlpEndpoint))),
 
-            // Storage rows are optional. Blank AvatarStorageRoot → AppHost mounts
-            // `interfold_avatars` at /app/data/avatars (non-blank puts the burden on
-            // the operator for UID 1654 permissions). Blank AvatarPublicBase → API
-            // serves /avatars/* directly.
+            // Storage: blank AvatarStorageRoot → {outputDir}/data/avatars bind-mounted at
+            // /app/data/avatars. Blank AvatarPublicBase → API serves /avatars/* directly.
             Group("Storage",
-                ("Avatar storage root (container path)", () => ShowOrEmpty(c.Storage.AvatarStorageRoot),
+                ("Avatar storage root (host path)", () => ShowOrEmpty(c.Storage.AvatarStorageRoot),
                                                     () => c.Storage.AvatarStorageRoot = PromptStr(
-                                                        "Avatar storage root (blank = /app/data/avatars, persisted by AppHost-managed volume; non-blank = you manage the mount and ownership)",
+                                                        "Avatar storage root (blank = {outputDir}/data/avatars, bind-mounted into the API; non-blank = absolute host path)",
                                                         c.Storage.AvatarStorageRoot)),
                 ("Avatar public base URL",          () => ShowOrEmpty(c.Storage.AvatarPublicBase),
                                                     () => c.Storage.AvatarPublicBase = PromptStr(
@@ -904,12 +902,13 @@ internal static class ConfigPhase
             ValidateAbsoluteHttpUri(origin, "config.apiRuntime.corsAllowedOrigins entry");
         }
 
-        // AvatarStorageRoot lives inside the API container — no host-side existence check.
+        // AvatarStorageRoot is a host path (bind-mount source); blank → {outputDir}/data/avatars.
         ValidateOptionalAbsoluteHttpUri(config.Storage.AvatarPublicBase, "config.storage.avatarPublicBase");
         ValidateOptionalAbsolutePath(
             config.Storage.AvatarStorageRoot,
             "config.storage.avatarStorageRoot",
-            "must be an absolute path inside the API container (e.g. '/var/lib/interfold/avatars').");
+            "must be an absolute host path (e.g. '/var/lib/interfold/avatars'). " +
+            "Leave blank to default to '{outputDir}/data/avatars'.");
 
         // http:// is legal for OTLP (SDK accepts gRPC-over-HTTP/2).
         ValidateOptionalAbsoluteHttpUri(config.Observability.OtlpEndpoint, "config.observability.otlpEndpoint");

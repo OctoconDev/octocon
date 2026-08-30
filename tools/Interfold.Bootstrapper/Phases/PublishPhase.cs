@@ -2,6 +2,7 @@ using Aspire.Hosting;
 using Interfold.AppHost;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Configuration;
+using Interfold.Bootstrapper.Util;
 using Interfold.Shared.Contracts.Enums;
 using Microsoft.Extensions.Configuration;
 using Interfold.Shared.Contracts.Configuration;
@@ -64,6 +65,7 @@ internal static class PublishPhase
         // expecting the operator to fill them. The bootstrapper IS the operator.
         var envPath = Path.Combine(Path.GetDirectoryName(composePath)!, ".env");
         FillEnvFile(envPath, AppContext.BaseDirectory, options.OutputDir, config, secrets, logger);
+        EnsureAvatarHostDirectory(config, options.OutputDir, logger);
 
         // Cassandra mode: stamp `pull_policy: never` on the cassandra service. This is NOT the
         // update mechanism (CassandraImagePhase.EnsureBuiltAsync runs `docker build` before any
@@ -147,8 +149,10 @@ internal static class PublishPhase
 
         // Non-secret operator tuning knobs. Nullable/disabled-when-empty fields serialise as
         // "" — the API's binders normalise empty → null, matching the "env var unset" branch.
+        // AvatarStorageRoot is intentionally absent: the container always sees
+        // /app/data/avatars (baked via WithEnvironment); the host path is a bind-mount
+        // source filled by BuildEnvReplacements, not an Aspire parameter.
         yield return (AppHostParameterKeys.NodeGroup, "NODE_GROUP", config.Cluster.NodeGroup.ToWire());
-        yield return (AppHostParameterKeys.AvatarStorageRoot, "AVATAR_STORAGE_ROOT", config.Storage.AvatarStorageRoot ?? string.Empty);
         yield return (AppHostParameterKeys.AvatarPublicBase, "AVATAR_PUBLIC_BASE", config.Storage.AvatarPublicBase ?? string.Empty);
         yield return (AppHostParameterKeys.OtlpEndpoint, "OTLP_ENDPOINT", config.Observability.OtlpEndpoint ?? string.Empty);
         yield return (AppHostParameterKeys.SocketBatchBytesThreshold, "SOCKET_BATCH_BYTES_THRESHOLD", config.Socket.BatchBytesThreshold?.ToString() ?? string.Empty);
@@ -184,6 +188,10 @@ internal static class PublishPhase
             // TLS material lives under {outputDir}/certs/; Kestrel reads leaf.pfx via
             // ConfigureApiSelfHostEnv. JWT signing PEMs are in internal.secrets, no mount needed.
             [$"{ComposeServices.InterfoldApi}:/certs"] = Path.Combine(outputDir, "certs"),
+            // Host path from BootstrapConfig.storage.avatarStorageRoot (blank → {outputDir}/data/avatars).
+            // Container target is always /app/data/avatars (see AvatarsPaths / ContainerMountPaths).
+            [$"{ComposeServices.InterfoldApi}:{ContainerMountPaths.InterfoldAvatars}"] =
+                ResolveAvatarHostRoot(config, outputDir),
         };
 
         // Web-TLS opt-in mounts: cert dir (reused from the API) + envsubst template. The template
@@ -209,6 +217,26 @@ internal static class PublishPhase
         }
 
         return new EnvReplacements(parameters, bindMountLookup);
+    }
+
+    /// <summary>Host directory bind-mounted at <see cref="ContainerMountPaths.InterfoldAvatars"/>.
+    /// Blank config → <c>{outputDir}/data/avatars</c> (same layout as certs under outputDir).</summary>
+    internal static string ResolveAvatarHostRoot(BootstrapConfig config, string outputDir)
+    {
+        if (!string.IsNullOrWhiteSpace(config.Storage.AvatarStorageRoot))
+            return Path.GetFullPath(config.Storage.AvatarStorageRoot);
+
+        return Path.GetFullPath(Path.Combine(outputDir, "data", "avatars"));
+    }
+
+    /// <summary>Creates the host avatar directory and relaxes permissions so the non-root
+    /// API container can write uploads.</summary>
+    internal static void EnsureAvatarHostDirectory(BootstrapConfig config, string outputDir, PhaseLogger logger)
+    {
+        var hostRoot = ResolveAvatarHostRoot(config, outputDir);
+        Directory.CreateDirectory(hostRoot);
+        UnixFilePermissions.SetWorldWritable(hostRoot, logger, "avatar storage");
+        logger.Info($"    avatar host storage: {hostRoot}");
     }
 
     /// <summary>Rewrites Aspire's blank <c>.env</c> RHSes with concrete secret/parameter/bind-mount

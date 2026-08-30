@@ -41,7 +41,9 @@ public sealed class PublishEnvPostProcessingTests
         config.OAuth.GoogleClientId = "google-client-id";
         config.OAuth.DiscordClientId = "discord-client-id";
         config.OAuth.AppleClientId = "apple-client-id";
-        // Pin the four nullable tuning fields for the same reason.
+        // Pin the three nullable tuning fields that still flow as Aspire parameters.
+        // AvatarStorageRoot is a host bind-mount path (not an env parameter); see
+        // BindMountPathsResolveToAbsoluteUnderOutputDir / ResolveAvatarHostRoot.
         config.Storage.AvatarStorageRoot = "/var/lib/interfold/avatars";
         config.Storage.AvatarPublicBase = "https://cdn.example.com/avatars/";
         config.Observability.OtlpEndpoint = "http://localhost:4317";
@@ -69,7 +71,6 @@ public sealed class PublishEnvPostProcessingTests
             "JWT_AUDIENCE",
             "CORS_ALLOWED_ORIGINS",
             "NODE_GROUP",
-            "AVATAR_STORAGE_ROOT",
             "AVATAR_PUBLIC_BASE",
             "OTLP_ENDPOINT",
             "SOCKET_BATCH_BYTES_THRESHOLD",
@@ -240,7 +241,10 @@ public sealed class PublishEnvPostProcessingTests
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
         await Assert.That(replacements.Parameters["NODE_GROUP"]).IsEqualTo("primary");
-        await Assert.That(replacements.Parameters["AVATAR_STORAGE_ROOT"]).IsEqualTo("/srv/avatars");
+        await Assert.That(replacements.Parameters.ContainsKey("AVATAR_STORAGE_ROOT")).IsFalse()
+            .Because("Avatar host path is a bind-mount source, not an Aspire parameter");
+        await Assert.That(replacements.BindMounts["interfold-api:/app/data/avatars"]).IsEqualTo(
+            Path.GetFullPath("/srv/avatars"));
         await Assert.That(replacements.Parameters["AVATAR_PUBLIC_BASE"])
             .IsEqualTo("https://cdn.example.com/a/");
         await Assert.That(replacements.Parameters["OTLP_ENDPOINT"])
@@ -253,21 +257,20 @@ public sealed class PublishEnvPostProcessingTests
     }
 
     [Test]
-    public async Task BuildEnvReplacementsKeepsAvatarStorageRootBlankSoAppHostCanSubstituteDefault()
+    public async Task BuildEnvReplacementsDefaultsAvatarBindMountUnderOutputDir()
     {
-        // Blank AVATAR_STORAGE_ROOT must round-trip blank. The AppHost owns the default
-        // (DefaultContainerAvatarStorageRoot) and reads blank as "use my constant + managed
-        // volume"; pre-filling here would kill that signal and duplicate the default.
+        // Blank avatarStorageRoot → {outputDir}/data/avatars bind-mounted at /app/data/avatars.
         var (config, secrets) = MakeInputs();
         await Assert.That(config.Storage.AvatarStorageRoot).IsEqualTo(string.Empty)
             .Because("Pre-condition: this test only makes sense when the config-side default is blank.");
 
-        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
+        var outputDir = Path.Combine(Path.GetTempPath(), "interfold-avatar-default");
+        var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", outputDir);
 
-        await Assert.That(replacements.Parameters.ContainsKey("AVATAR_STORAGE_ROOT")).IsTrue()
-            .Because("The key must still be present (Aspire .env post-processing rewrites blank values; missing keys trigger an operator warning).");
-        await Assert.That(replacements.Parameters["AVATAR_STORAGE_ROOT"]).IsEqualTo(string.Empty)
-            .Because("Blank config MUST round-trip as a blank .env value; the AppHost is responsible for substituting /app/data/avatars at compose-graph build time.");
+        await Assert.That(replacements.Parameters.ContainsKey("AVATAR_STORAGE_ROOT")).IsFalse()
+            .Because("Container path is baked into compose via WithEnvironment; host path is the bind mount.");
+        var expected = Path.GetFullPath(Path.Combine(outputDir, "data", "avatars"));
+        await Assert.That(replacements.BindMounts["interfold-api:/app/data/avatars"]).IsEqualTo(expected);
     }
 
     [Test]
@@ -279,11 +282,10 @@ public sealed class PublishEnvPostProcessingTests
 
         var replacements = PublishPhase.BuildEnvReplacements(config, secrets, "/base", "/out");
 
-        await Assert.That(replacements.Parameters.ContainsKey("AVATAR_STORAGE_ROOT")).IsTrue();
+        await Assert.That(replacements.Parameters.ContainsKey("AVATAR_STORAGE_ROOT")).IsFalse();
         await Assert.That(replacements.Parameters.ContainsKey("AVATAR_PUBLIC_BASE")).IsTrue();
         await Assert.That(replacements.Parameters.ContainsKey("OTLP_ENDPOINT")).IsTrue();
         await Assert.That(replacements.Parameters.ContainsKey("SOCKET_BATCH_BYTES_THRESHOLD")).IsTrue();
-        await Assert.That(replacements.Parameters["AVATAR_STORAGE_ROOT"]).IsEqualTo(string.Empty);
         await Assert.That(replacements.Parameters["AVATAR_PUBLIC_BASE"]).IsEqualTo(string.Empty);
         await Assert.That(replacements.Parameters["OTLP_ENDPOINT"]).IsEqualTo(string.Empty);
         await Assert.That(replacements.Parameters["SOCKET_BATCH_BYTES_THRESHOLD"]).IsEqualTo(string.Empty);
@@ -311,6 +313,10 @@ public sealed class PublishEnvPostProcessingTests
         var apiCerts = replacements.BindMounts["interfold-api:/certs"];
         await Assert.That(Path.IsPathFullyQualified(apiCerts)).IsTrue();
         await Assert.That(apiCerts).StartsWith(outputDir);
+
+        var apiAvatars = replacements.BindMounts["interfold-api:/app/data/avatars"];
+        await Assert.That(Path.IsPathFullyQualified(apiAvatars)).IsTrue();
+        await Assert.That(apiAvatars).IsEqualTo(Path.GetFullPath(Path.Combine(outputDir, "data", "avatars")));
 
         // Scylla rackdc lives under baseDir (tarball drop location), not outputDir.
         var scyllaRackdc = replacements.BindMounts["scylla:/etc/scylla/cassandra-rackdc.properties"];
@@ -659,8 +665,8 @@ public sealed class PublishEnvPostProcessingTests
                 .Because($"env-key '{envKey}' must be the upper-snake-cased form of the kebab-cased Aspire parameter '{bareName}' (config-key '{configKey}')");
         }
 
-        // Spec-frozen at 24 — bump this AND the enumerator together.
-        await Assert.That(seenConfigKeys.Count).IsEqualTo(24)
-            .Because("shared-parameter count is spec-frozen at 24; update BOTH the enumerator AND this assertion together");
+        // Spec-frozen at 23 — bump this AND the enumerator together.
+        await Assert.That(seenConfigKeys.Count).IsEqualTo(23)
+            .Because("shared-parameter count is spec-frozen at 23; update BOTH the enumerator AND this assertion together");
     }
 }
