@@ -152,11 +152,12 @@ public sealed class ImportJobBackgroundServiceTests
             };
         }
 
-        // Poll (rather than fixed delay) so slow-CI still gets the terminal snapshot;
-        // 5 s hard cap so a hung worker fails visibly.
+        // Poll (rather than fixed delay) so slow-CI / saturated thread pools still get the
+        // terminal snapshot; throw on the hard cap so a hung worker fails visibly instead of
+        // letting the next claim silently observe a stuck slot (IsNew=false).
         private static async Task WaitForTerminalAsync(IImportOperationRepository operations, ImportOperationId operationId)
         {
-            var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+            var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
             while (DateTimeOffset.UtcNow < deadline)
             {
                 var snapshot = await operations.GetByIdAsync(TestSystemId, operationId);
@@ -166,6 +167,9 @@ public sealed class ImportJobBackgroundServiceTests
                 }
                 await Task.Delay(25);
             }
+
+            throw new TimeoutException(
+                $"Import operation {operationId} did not reach a terminal status within 15s.");
         }
 
         public async ValueTask DisposeAsync()

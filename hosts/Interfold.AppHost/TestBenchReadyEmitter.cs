@@ -49,20 +49,13 @@ internal sealed class TestBenchReadyEmitter : BackgroundService
     {
         try
         {
-            await _notifications.WaitForResourceAsync(
-                _options.PostgresResourceName, KnownResourceStates.Running, stoppingToken).ConfigureAwait(false);
+            await WaitRunningOrThrowAsync(_options.PostgresResourceName, stoppingToken).ConfigureAwait(false);
 
             if (_options.ScyllaResourceName is not null)
-            {
-                await _notifications.WaitForResourceAsync(
-                    _options.ScyllaResourceName, KnownResourceStates.Running, stoppingToken).ConfigureAwait(false);
-            }
+                await WaitRunningOrThrowAsync(_options.ScyllaResourceName, stoppingToken).ConfigureAwait(false);
 
             if (_options.CassandraResourceName is not null)
-            {
-                await _notifications.WaitForResourceAsync(
-                    _options.CassandraResourceName, KnownResourceStates.Running, stoppingToken).ConfigureAwait(false);
-            }
+                await WaitRunningOrThrowAsync(_options.CassandraResourceName, stoppingToken).ConfigureAwait(false);
 
             var parts = new List<string> { $"pg={_options.PostgresPort}" };
             if (_options.ScyllaPort is int sp) parts.Add($"scylla={sp}");
@@ -78,8 +71,33 @@ internal sealed class TestBenchReadyEmitter : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "TestBenchReadyEmitter failed to observe DB resources; launcher will time out.");
+            _logger.LogError(ex, "TestBenchReadyEmitter failed to observe DB resources; launcher will exit.");
+            // Surface the failure on stderr so TestBenchCoordinator's exit-before-ready
+            // path includes the FailedToStart cause instead of an empty 10-minute timeout.
+            Console.Error.WriteLine($"[test-bench] ready-emitter failed: {ex.Message}");
+            await Console.Error.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            _lifetime.StopApplication();
             throw;
         }
+    }
+
+    /// <summary>Races Running against FailedToStart so a wedged Scylla (typical on
+    /// Docker Desktop with &lt;8 GiB RAM) fails the launcher in seconds instead of hanging
+    /// until <c>LauncherTimeout</c>.</summary>
+    private async Task WaitRunningOrThrowAsync(string resourceName, CancellationToken ct)
+    {
+        var running = _notifications.WaitForResourceAsync(resourceName, KnownResourceStates.Running, ct);
+        var failed = _notifications.WaitForResourceAsync(resourceName, KnownResourceStates.FailedToStart, ct);
+        var completed = await Task.WhenAny(running, failed).ConfigureAwait(false);
+        if (completed == failed)
+        {
+            await failed.ConfigureAwait(false);
+            var detail = await AspireResourceFailureDiagnostics
+                .DescribeAsync(resourceName, AppHostRepoPaths.ResolveRepoRoot(), ct)
+                .ConfigureAwait(false);
+            throw new InvalidOperationException(detail);
+        }
+
+        await running.ConfigureAwait(false);
     }
 }

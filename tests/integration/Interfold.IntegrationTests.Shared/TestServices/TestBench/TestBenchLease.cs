@@ -199,6 +199,14 @@ public sealed class TestBenchLeaseState
     /// Advisory only — the migrators themselves are idempotent, but skipping them on hot attach
     /// shaves seconds off every subsequent test-host boot.</summary>
     public Dictionary<string, bool> MigrationsApplied { get; set; } = new();
+    /// <summary>Process currently executing an <c>ApplyOnceAsync</c> key. Peers wait on the
+    /// completed marker (or re-elect if the worker dies) without holding <c>bench.lock</c>
+    /// for the duration of Scylla/Cassandra seed+migrate.</summary>
+    public Dictionary<string, TestBenchUser> MigrationsInProgress { get; set; } = new();
+    /// <summary>Process currently cold-booting the AppHost. Peers observe a live launcher
+    /// and wait on ports instead of spawning a second AppHost. Cleared when ports are hot
+    /// or the launcher dies / fails.</summary>
+    public TestBenchUser? Launching { get; set; }
 }
 
 /// <summary>Fixed-port bindings for the bench containers. Ports are the host-side numbers

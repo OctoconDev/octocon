@@ -666,7 +666,7 @@ public sealed class ScyllaFriendshipRepository : IFriendshipRepository
     }
 
     private static bool CanViewAlter(FriendshipLevel? friendshipLevel, short? securityLevel)
-        => securityLevel.FromCode<VisibilityLevel>().CanBeViewedBy(friendshipLevel);
+        => securityLevel.FromStorage().CanBeViewedBy(friendshipLevel);
 
     // Returns null when the registry row is absent or carries an unknown region value —
     // callers treat both as "profile unavailable" rather than guessing a keyspace.

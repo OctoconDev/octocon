@@ -159,11 +159,24 @@ public static class HostAioPrerequisite
 
             if (proc.ExitCode != 0)
             {
+                var err = (stdErr ?? string.Empty).Trim();
+                var outText = (stdOut ?? string.Empty).Trim();
+                if (DockerDaemonAvailability.LooksUnavailable(err) || DockerDaemonAvailability.LooksUnavailable(outText))
+                {
+                    throw new InvalidOperationException(
+                        "Docker daemon is not reachable — cannot tune host AIO for Scylla. " +
+                        "Start Docker Desktop (or the docker daemon) and re-run. " +
+                        $"Detail: {FirstNonEmpty(err, outText)}");
+                }
+
                 throw new InvalidOperationException(
                     $"Host AIO prerequisite failed (docker exit={proc.ExitCode}). " +
                     $"Required min={minRequired} for {scyllaNodeCount} Scylla node(s). " +
-                    $"Set it manually with `sudo sysctl -w fs.aio-max-nr={target}` or run `bash scripts/docker/ensure-host-aio.sh --scylla-nodes {scyllaNodeCount}`. " +
-                    $"stderr: {stdErr.Trim()} stdout: {stdOut.Trim()}");
+                    $"On Linux: `sudo sysctl -w fs.aio-max-nr={target}` or " +
+                    $"`bash scripts/docker/ensure-host-aio.sh --scylla-nodes {scyllaNodeCount}`. " +
+                    "On Docker Desktop (Windows/Mac) the privileged helper raises the Linux VM sysctl — " +
+                    "ensure Docker is running and file sharing/privileged containers are allowed. " +
+                    $"stderr: {err} stdout: {outText}");
             }
 
             _appliedFor = scyllaNodeCount;
@@ -173,6 +186,9 @@ public static class HostAioPrerequisite
             Gate.Release();
         }
     }
+
+    private static string FirstNonEmpty(string a, string b)
+        => !string.IsNullOrWhiteSpace(a) ? a : b;
 
     private static bool TryReadCurrentLimit(out int current)
     {

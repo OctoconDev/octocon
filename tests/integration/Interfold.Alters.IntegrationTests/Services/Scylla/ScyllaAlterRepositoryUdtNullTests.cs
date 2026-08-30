@@ -30,33 +30,22 @@ namespace Interfold.Alters.IntegrationTests.Services.Scylla;
 public sealed class ScyllaAlterRepositoryUdtNullTests(ScyllaWebFactoryFixture fixture) : BaseEndpointTest
 {
     /// <summary>
-    /// The Option D 2026-07-17 strict-throw flip removed the lenient fallback from every
-    /// persistence-read call to <c>EnumCode&lt;T&gt;.FromCode</c>. A row with
-    /// <c>security_level = NULL</c> — which the API can't write today but which could exist
-    /// from a partial migration or a manual fixup — must now surface as
-    /// <see cref="ArgumentOutOfRangeException"/> on read, rather than silently coercing to
-    /// <see cref="VisibilityLevel.Public"/> and handing the alter to a non-friend viewer.
+    /// A row with <c>security_level = NULL</c> maps to <see cref="VisibilityLevel.Private"/>:
+    /// non-friend viewers are filtered out; the owner still sees the alter.
     /// </summary>
     [Test]
-    public async Task GetGuardedAsync_NullSecurityLevelOnRow_ThrowsAfterStrictFlip()
+    public async Task GetGuardedAsync_NullSecurityLevelOnRow_TreatsAsPrivate()
     {
         var factory = fixture.Factory;
         using var client = factory.CreateClient();
 
         var rawSystemId = TestIds.NewSystemId("sys-null-sec");
         var systemId = new SystemId(rawSystemId);
-        // CreateAlterAsync primes the users row so the region keyspace is real and the
-        // repo's ResolveRegionalKeyspace succeeds. We overwrite the resulting alter row's
-        // security_level immediately below — the API can't produce a null there today.
         var seededAlterId = await CreateAlterAsync(client, rawSystemId, "seed-alter");
 
         var alterRepo = factory.Services.GetRequiredService<IAlterRepository>();
         var (session, keyspace, normalizedSystemId) = await ScyllaDirectHarness.ResolveAsync(fixture, systemId);
 
-        // Directly null the security_level column. INSERT rather than UPDATE so we don't
-        // depend on the seed alter's write-order for the null overwrite semantics —
-        // Cassandra treats explicit NULL binds as tombstones on either verb, and the
-        // read side's row.GetValue<short?> maps that back to null identically.
         await session.ExecuteAsync(new SimpleStatement(
             $"INSERT INTO {keyspace}.alters (user_id, id, name, security_level) VALUES (?, ?, ?, ?)",
             normalizedSystemId,
@@ -64,18 +53,14 @@ public sealed class ScyllaAlterRepositoryUdtNullTests(ScyllaWebFactoryFixture fi
             "seed-alter-nulled",
             (short?)null));
 
-        // Reading the guarded surface exercises the fallback-less
-        // `row.GetValue<short?>("security_level").FromCode<VisibilityLevel>()` path. The
-        // strict-throw flip makes that throw on a null code — that's the pin.
-        await Assert.That(async () => await alterRepo.GetGuardedAsync(systemId, seededAlterId, viewerSystemId: null))
-            .Throws<ArgumentOutOfRangeException>()
-            .Because("An on-disk security_level of NULL is data corruption: silently downgrading it to Public would leak the alter to non-friend viewers. Strict throw makes the corruption impossible to miss.");
+        await Assert.That(await alterRepo.GetGuardedAsync(systemId, seededAlterId, viewerSystemId: null))
+            .IsNull()
+            .Because("Null security_level must fail closed as Private, so a non-friend viewer does not see the alter.");
 
-        // The unguarded owner-read path takes the same strict throw, so the corruption
-        // surfaces symmetrically on both surfaces. Same rationale, opposite viewer.
-        await Assert.That(async () => await alterRepo.GetAsync(systemId, seededAlterId))
-            .Throws<ArgumentOutOfRangeException>()
-            .Because("The unguarded GetAsync must throw for the same reason — a corrupt row can't just look fine to the owner.");
+        var owner = await alterRepo.GetAsync(systemId, seededAlterId);
+        await Assert.That(owner).IsNotNull();
+        await Assert.That(owner!.SecurityLevel).IsEqualTo(VisibilityLevel.Private)
+            .Because("The owner list/join path must still return the row; Private is the fail-closed stand-in for a missing code.");
     }
 
     /// <summary>

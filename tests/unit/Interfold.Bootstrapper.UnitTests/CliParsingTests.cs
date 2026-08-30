@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Interfold.Bootstrapper.Cli;
 using Interfold.Bootstrapper.Phases;
 
@@ -6,13 +7,58 @@ namespace Interfold.Bootstrapper.UnitTests;
 
 /// <summary>
 /// Drives <see cref="RootCli.RunAsync"/> in-process so we can assert CLI parsing behaviour
-/// without forking. Stdout/stderr are temporarily swapped onto <see cref="StringWriter"/>s for
+/// without forking. Stdout/stderr are temporarily swapped onto capture writers for
 /// the duration of each invocation; the original streams are restored in a <c>finally</c> so
 /// other tests in the same process aren't affected.
 /// </summary>
+/// <remarks>
+/// <c>[NotInParallel("bootstrapper-console")]</c> matches
+/// <see cref="ConfigPreFillMdnsCheckTests"/> / <see cref="ConfigInteractivePromptTests"/>:
+/// <see cref="Console.SetOut"/> is process-global. The capture writers are also locked —
+/// TUnit's engine can still write to <see cref="Console.Out"/> from another thread, and
+/// an unlocked <see cref="StringWriter"/> races <c>ToString</c> into
+/// <see cref="ArgumentOutOfRangeException"/>.
+/// </remarks>
+[NotInParallel("bootstrapper-console")]
 public sealed class CliParsingTests
 {
     private sealed record CapturedRun(int ExitCode, string Stdout, string Stderr);
+
+    /// <summary>Thread-safe <see cref="TextWriter"/> over a <see cref="StringBuilder"/>.
+    /// <see cref="StringWriter"/> is not safe for concurrent <see cref="Console"/> writes.</summary>
+    private sealed class CaptureWriter : TextWriter
+    {
+        private readonly StringBuilder _sb = new();
+        private readonly object _gate = new();
+
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void Write(char value)
+        {
+            lock (_gate) _sb.Append(value);
+        }
+
+        public override void Write(char[] buffer, int index, int count)
+        {
+            lock (_gate) _sb.Append(buffer, index, count);
+        }
+
+        public override void Write(ReadOnlySpan<char> value)
+        {
+            lock (_gate) _sb.Append(value);
+        }
+
+        public override void Write(string? value)
+        {
+            if (value is null) return;
+            lock (_gate) _sb.Append(value);
+        }
+
+        public override string ToString()
+        {
+            lock (_gate) return _sb.ToString();
+        }
+    }
 
     /// <summary>
     /// Invokes the CLI and captures stdout/stderr. The CLI is a real System.CommandLine root, so
@@ -26,8 +72,9 @@ public sealed class CliParsingTests
         var prevOut = Console.Out;
         var prevErr = Console.Error;
         var prevIn = Console.In;
-        var stdout = new StringWriter();
-        var stderr = new StringWriter();
+        var stdout = new CaptureWriter();
+        var stderr = new CaptureWriter();
+        int exit;
         try
         {
             // TUnit0055 warns that overwriting Console writers can mask its log output; in this
@@ -41,8 +88,7 @@ public sealed class CliParsingTests
             // path would block waiting for keystrokes that never come.
             Console.SetIn(new StringReader(string.Empty));
 #pragma warning restore TUnit0055
-            var exit = await RootCli.RunAsync(args);
-            return new CapturedRun(exit, stdout.ToString(), stderr.ToString());
+            exit = await RootCli.RunAsync(args);
         }
         finally
         {
@@ -52,6 +98,10 @@ public sealed class CliParsingTests
             Console.SetIn(prevIn);
 #pragma warning restore TUnit0055
         }
+
+        // Snapshot after restore so TUnit's Console interceptor is no longer writing into
+        // these builders.
+        return new CapturedRun(exit, stdout.ToString(), stderr.ToString());
     }
 
     /// <summary>
@@ -102,7 +152,6 @@ public sealed class CliParsingTests
     }
 
     [Test]
-    [NotInParallel("CliParsing.ConsoleStreams")]
     public async Task ShowTrustReadsExistingCertWithoutRegenerating()
     {
         // End-to-end behavioural check: pre-stage a certs/ directory with a known rootCA.crt
@@ -151,7 +200,6 @@ public sealed class CliParsingTests
     }
 
     [Test]
-    [NotInParallel("CliParsing.ConsoleStreams")]
     public async Task ShowTrustFailsWhenRootCaMissing()
     {
         // Diagnostic UX check: running show-trust against a directory that has no rootCA.crt
@@ -191,7 +239,6 @@ public sealed class CliParsingTests
     }
 
     [Test]
-    [NotInParallel("CliParsing.ConsoleStreams")]
     public async Task ShortOptionsMatchLongOptions()
     {
         // Compare two parser invocations of the `publish` command — one with --config, one
@@ -212,7 +259,6 @@ public sealed class CliParsingTests
     }
 
     [Test]
-    [NotInParallel("CliParsing.ConsoleStreams")]
     public async Task NonInteractiveWithoutConfigExitsNonZero()
     {
         // ConfigPhase aborts when --non-interactive is set and no config file is present at the
@@ -249,7 +295,6 @@ public sealed class CliParsingTests
     }
 
     [Test]
-    [NotInParallel("CliParsing.ConsoleStreams")]
     public async Task ReconfigureWithNonInteractiveExitsNonZero()
     {
         using var scratch = TestSupport.NewScratchDir("interfold-cli-reconfigure-ni");

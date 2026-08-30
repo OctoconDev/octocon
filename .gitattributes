@@ -1,2 +1,7 @@
 # Shell scripts must use LF (they run in Linux containers)
 *.sh text eol=lf
+
+# Embedded in Interfold.Infrastructure.Scylla.dll; SHA-256 of the file
+# bytes is the schema_migrations checksum, so CRLF on Windows checkouts
+# fails startup against a Linux-built (or restored) ledger.
+*.cql text eol=lf

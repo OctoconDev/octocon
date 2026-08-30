@@ -50,13 +50,6 @@ public static class InterfoldAppHost
     /// <summary>CQL cluster-name fallback for dev `aspire run`; the bootstrapper always overrides.</summary>
     private const string DefaultClusterName = "InterfoldCluster";
 
-    // Bench-mode container names. Stable across AppHost restarts so a second launcher
-    // process (a subsequent test-host cold-attach) reuses the running containers instead
-    // of colliding on host ports 14200/19042/19043.
-    private const string TestBenchPostgresContainerName = "interfold-test-bench-pg";
-    private const string TestBenchScyllaContainerName = "interfold-test-bench-scylla";
-    private const string TestBenchCassandraContainerName = "interfold-test-bench-cassandra";
-
     /// <summary>Registers the full Interfold resource graph. Does not call
     /// <c>Build()</c> or <c>Run()</c>.</summary>
     public static void Configure(IDistributedApplicationBuilder builder)
@@ -343,10 +336,9 @@ public static class InterfoldAppHost
                 msgDb.WithEndpoint(PostgresEndpointName, e => e.IsProxied = false);
                 // Legacy per-project fixtures shard tests across their own Postgres, so the
                 // image default max_connections=100 was safe. Bench mode collapses every leaf
-                // integration project onto ONE Postgres: SecretsPreBuildLoader alone pools 10
+                // integration project onto ONE Postgres: SecretsPreBuildLoader pools up to 10
                 // conns per test-host process, the app pool adds 5 more, and a solution-wide
-                // `dotnet test` spawns ~15 test-host processes concurrently — ~225 potential
-                // conns before a single test opens its own handle. That trips PostgresErrorCode
+                // `dotnet test` spawns many hosts concurrently. That trips PostgresErrorCode
                 // 53300 ("too many clients already") during factory build. 500 buys headroom
                 // with tiny shared-memory overhead (~50MB extra) and doesn't require touching
                 // shared_buffers. Passed via `postgres -c`; docker-entrypoint.sh forwards CMD
@@ -360,7 +352,7 @@ public static class InterfoldAppHost
             // Pin the docker container name in bench mode so subsequent AppHost launcher
             // processes reuse the same container instead of colliding on host port 14200.
             if (testBenchMode)
-                msgDb.WithContainerName(TestBenchPostgresContainerName);
+                msgDb.WithContainerName(TestBenchContainerNames.Postgres);
         }
 
         // API waits on each included CQL backend before starting.
@@ -431,7 +423,7 @@ public static class InterfoldAppHost
                 // container name so cross-process reuse works on the fixed 19042 port.
                 if (testBenchMode && !isMultiScyllaNode)
                 {
-                    node.WithContainerName(TestBenchScyllaContainerName);
+                    node.WithContainerName(TestBenchContainerNames.Scylla);
                     // Proxyless — see the Postgres branch above.
                     node.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
                 }
@@ -503,7 +495,7 @@ public static class InterfoldAppHost
             }
             if (testBenchMode)
             {
-                cassandra.WithContainerName(TestBenchCassandraContainerName);
+                cassandra.WithContainerName(TestBenchContainerNames.Cassandra);
                 // Proxyless — see the Postgres branch above.
                 cassandra.WithEndpoint(CqlEndpointName, e => e.IsProxied = false);
             }

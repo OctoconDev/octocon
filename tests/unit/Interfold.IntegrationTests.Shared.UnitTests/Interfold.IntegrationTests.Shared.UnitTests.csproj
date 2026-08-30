@@ -32,5 +32,9 @@
              Link="TestBench\Sut\TestBenchLease.cs" />
     <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\TestBench\TestBenchIdleReaper.cs"
              Link="TestBench\Sut\TestBenchIdleReaper.cs" />
+    <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\ScyllaRackDcMountPaths.cs"
+             Link="TestServices\Sut\ScyllaRackDcMountPaths.cs" />
+    <Compile Include="..\..\integration\Interfold.IntegrationTests.Shared\TestServices\DockerDaemonAvailability.cs"
+             Link="TestServices\Sut\DockerDaemonAvailability.cs" />
   </ItemGroup>
 </Project>

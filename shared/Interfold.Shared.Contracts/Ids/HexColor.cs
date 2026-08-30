@@ -56,10 +56,20 @@ public readonly record struct HexColor : IParsable<HexColor>
         return true;
     }
 
-    /// <summary>Persistence-boundary rehydration; null → null, well-formed → wrap,
-    /// malformed → throw. Legacy rows are normalised by <c>HexColorFixupService</c>
-    /// before this boundary is enforced.</summary>
+    /// <summary>Scylla row rehydration: unset (<c>null</c>) stays null; any non-null
+    /// value must already be well-formed or read fails — corrupt stored colours surface
+    /// at list/join time. <see cref="HexColorFixupService"/> normalises legacy bare hex
+    /// before reads rely on this.</summary>
     public static HexColor? FromNullable(string? value) => value is null ? null : new HexColor(value);
+
+    /// <summary>Tolerant normalise-then-validate for fixup/migration tooling only —
+    /// unrecoverable input becomes null instead of throwing. Production row mappers use
+    /// <see cref="FromNullable"/>.</summary>
+    public static HexColor? FromStorage(string? value)
+    {
+        var normalised = Normalise(value);
+        return normalised is null ? null : new HexColor(normalised);
+    }
 
     /// <summary>Recover a canonical spelling from noisy input (SP importer /
     /// <c>HexColorFixupService</c>). Returns null when unrecoverable; otherwise the

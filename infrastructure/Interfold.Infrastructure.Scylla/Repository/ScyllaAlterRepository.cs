@@ -420,7 +420,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
 
             var rows = (await session.ExecuteAsync(query)).ToArray();
             var visible = rows
-                .Where(row => row.GetValue<short?>("security_level").FromCode<VisibilityLevel>().CanBeViewedBy(friendshipLevel))
+                .Where(row => row.GetValue<short?>("security_level").FromStorage().CanBeViewedBy(friendshipLevel))
                 .Select(row => AlterRowMappers.MapBareAlter(row, definitions))
                 .OrderBy(x => x.Id.Value)
                 .ToArray();
@@ -480,7 +480,7 @@ public sealed class ScyllaAlterRepository : IAlterRepository
                 return (Alter: (BareAlter?)null, Filtered: false, NormalizedSystemId: normalizedSystemId);
             }
 
-            var securityLevel = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
+            var securityLevel = row.GetValue<short?>("security_level").FromStorage();
             if (!securityLevel.CanBeViewedBy(friendshipLevel))
             {
                 return (Alter: (BareAlter?)null, Filtered: true, NormalizedSystemId: normalizedSystemId);

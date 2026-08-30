@@ -77,11 +77,14 @@ public sealed class TestBenchLeaseTests
     public async Task WriteState_ThenReadState_RoundTrips()
     {
         var user = TestBenchLease.CurrentUser("unit-test");
+        var launcher = TestBenchLease.CurrentUser("test-bench-launcher");
         var written = new TestBenchLeaseState
         {
             LastAttachUtc = new DateTime(2026, 07, 27, 14, 15, 16, DateTimeKind.Utc),
             Users = { user },
             MigrationsApplied = { ["postgres"] = true },
+            MigrationsInProgress = { ["cql-seed-and-migrate:scylla"] = user },
+            Launching = launcher,
         };
         TestBenchLease.WriteState(written);
 
@@ -93,6 +96,10 @@ public sealed class TestBenchLeaseTests
             await Assert.That(read.Users[0].Pid).IsEqualTo(user.Pid);
             await Assert.That(read.Users[0].TestHost).IsEqualTo("unit-test");
             await Assert.That(read.MigrationsApplied["postgres"]).IsTrue();
+            await Assert.That(read.MigrationsInProgress["cql-seed-and-migrate:scylla"].Pid).IsEqualTo(user.Pid);
+            await Assert.That(read.Launching).IsNotNull();
+            await Assert.That(read.Launching!.Pid).IsEqualTo(launcher.Pid);
+            await Assert.That(read.Launching.TestHost).IsEqualTo("test-bench-launcher");
         }
     }
 

@@ -3,6 +3,7 @@ using Interfold.Alters.Contracts.Models;
 using Interfold.Alters.Domain;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
 
 namespace Interfold.Infrastructure.Scylla.Repository;
@@ -32,7 +33,7 @@ internal static class AlterRowMappers
             row.GetValue<short?>("avatar_source").FromCodeOrNull<AvatarSource>(),
             HexColor.FromNullable(row.GetValue<string?>("color")),
             row.GetValue<string?>("pronouns"),
-            row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
+            row.GetValue<short?>("security_level").FromStorage(),
             AlterFieldProjection.ResolveOwnerFields(row.GetValue<IEnumerable<AlterFieldUdt>?>("fields")?.ToDictionary(x => new FieldId(x.Id), x => x.Value), definitions),
             row.GetValue<string?>("proxy_name"),
             row.GetValue<string?>("alias"),

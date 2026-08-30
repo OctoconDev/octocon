@@ -114,7 +114,29 @@ public sealed class HexColorTests
     public async Task FromNullable_Malformed_Throws(string input)
     {
         await Assert.That(() => HexColor.FromNullable(input)).ThrowsExactly<FormatException>()
-            .Because("The strict contract makes FromNullable throw on malformed input; the HexColorFixupService is the pre-flight that guarantees this never fires on well-migrated data.");
+            .Because("FromNullable is the Scylla read path: null when unset, throw when corrupt.");
+    }
+
+    [Test]
+    [Arguments(null)]
+    [Arguments("")]
+    [Arguments("red")]
+    [Arguments("#GG0000")]
+    public async Task FromStorage_Unrecoverable_ReturnsNull(string? input)
+    {
+        await Assert.That(HexColor.FromStorage(input)).IsNull();
+    }
+
+    [Test]
+    [Arguments("#FF00AA")]
+    [Arguments("FF00AA", "#FF00AA")]
+    [Arguments("  #abc  ", "#abc")]
+    public async Task FromStorage_Recoverable_ReturnsHexColor(string input, string? expected = null)
+    {
+        expected ??= input;
+        var color = HexColor.FromStorage(input);
+        await Assert.That(color).IsNotNull();
+        await Assert.That(color!.Value.Value).IsEqualTo(expected);
     }
 
     [Test]

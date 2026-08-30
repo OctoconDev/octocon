@@ -418,7 +418,7 @@ public sealed class ScyllaTagRepository : ITagRepository
 
             foreach (var row in rows)
             {
-                var visibility = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
+                var visibility = row.GetValue<short?>("security_level").FromStorage();
                 if (!visibility.CanBeViewedBy(friendshipLevel))
                 {
                     continue;
@@ -493,7 +493,7 @@ public sealed class ScyllaTagRepository : ITagRepository
                 return (Tag: (TagPublicReadModel?)null, Filtered: false, NormalizedSystemId: normalizedSystemId);
             }
 
-            var visibility = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>();
+            var visibility = row.GetValue<short?>("security_level").FromStorage();
             if (!visibility.CanBeViewedBy(friendshipLevel))
             {
                 return (Tag: (TagPublicReadModel?)null, Filtered: true, NormalizedSystemId: normalizedSystemId);
@@ -550,7 +550,7 @@ public sealed class ScyllaTagRepository : ITagRepository
             .Select(row => new
             {
                 AlterId = new AlterId(row.GetValue<short>("id")),
-                Visibility = row.GetValue<short?>("security_level").FromCode<VisibilityLevel>()
+                Visibility = row.GetValue<short?>("security_level").FromStorage()
             })
             .Where(x => alterIds.Contains(x.AlterId) && x.Visibility.CanBeViewedBy(friendshipLevel))
             .Select(x => x.AlterId)

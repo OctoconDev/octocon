@@ -3,6 +3,7 @@ using Cassandra;
 using Interfold.Shared.Contracts.Configuration;
 using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 using Interfold.Shared.Contracts.Models.Read;
 using Interfold.Shared.Domain.Abstractions.Repository;
 using Microsoft.Extensions.Options;
@@ -45,7 +46,7 @@ public sealed class ScyllaSettingsFieldRepository : ISettingsFieldRepository
                     new(field.Id),
                     field.Name,
                     field.Type.FromCode<FieldType>(),
-                    field.SecurityLevel.FromCode<VisibilityLevel>(),
+                    field.SecurityLevel.FromStorage(),
                     field.Locked,
                     index,
                     field.InsertedAt?.UtcDateTime))

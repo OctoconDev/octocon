@@ -311,11 +311,19 @@ public sealed class MigrationLedgerTests(ScyllaWebFactoryFixture fixture) : Base
         {
             var scope = row.GetValue<string>("scope");
             var version = row.GetValue<string>("version");
+            if (!IsScyllaMigrationServiceLedgerRow(scope, version))
+                continue;
+
             var appliedAt = row.GetValue<DateTimeOffset>("applied_at");
             snapshot[(scope, version)] = appliedAt;
         }
         return snapshot;
     }
+
+    // HexColorFixupService writes hex_color_fixup:* rows when peer tests spin up a web host;
+    // this suite asserts ScyllaMigrationService idempotency only.
+    private static bool IsScyllaMigrationServiceLedgerRow(string scope, string _)
+        => !scope.StartsWith("hex_color_fixup:", StringComparison.Ordinal);
 
     private static async Task<string?> ReadChecksumAsync(NpgsqlConnection conn, string version)
     {

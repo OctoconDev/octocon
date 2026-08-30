@@ -1,4 +1,6 @@
 extern alias AppHost;
+using AppHostRepoPaths = AppHost::Interfold.AppHost.AppHostRepoPaths;
+using AspireResourceFailureDiagnostics = AppHost::Interfold.AppHost.AspireResourceFailureDiagnostics;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
@@ -62,9 +64,11 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             $"{AppHostParameterKeys.IncludePostgres}=true",
             $"{AppHostParameterKeys.IncludeScylla}={BoolWire.ToWireValue(RequiredFixtures.NeedScylla)}",
             $"{AppHostParameterKeys.IncludeCassandra}={BoolWire.ToWireValue(RequiredFixtures.NeedCassandra)}",
-            $"{AppHostParameterKeys.PortsPostgres}=14200",
-            $"{AppHostParameterKeys.PortsScylla}=19042",
-            $"{AppHostParameterKeys.PortsCassandra}=19043",
+            // Isolated from the shared test-bench defaults (14200/19042/19043) so the
+            // Infrastructure opt-out host can run beside the bench without Docker binds colliding.
+            $"{AppHostParameterKeys.PortsPostgres}={AspireProcessEndpoints.LegacyPostgresPort}",
+            $"{AppHostParameterKeys.PortsScylla}={AspireProcessEndpoints.LegacyScyllaPort}",
+            $"{AppHostParameterKeys.PortsCassandra}={AspireProcessEndpoints.LegacyCassandraPort}",
             $"{AppHostParameterKeys.PostgresUser}={TestDbCredentials.PostgresAppUser}",
             $"{AppHostParameterKeys.PostgresPassword}={TestDbCredentials.PostgresAppPassword}",
             // Pinned so the AppHost's GenerateParameterDefault output can't drift from DbInitHelper.
@@ -97,6 +101,17 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             await InitializeBenchModeAsync(CancellationToken.None).ConfigureAwait(false);
             return;
         }
+
+        // Aspire dashboard / resource-service endpoints default to launchSettings (22223).
+        // Claim a legacy-only triple before the in-process AppHost starts so we don't fight
+        // the out-of-process test-bench launcher (23223) or MultiNode (25223).
+        AspireProcessEndpoints.ApplyToCurrentProcess(
+            AspireProcessEndpoints.LegacySharedDbResourceService,
+            AspireProcessEndpoints.LegacySharedDbOtlp,
+            AspireProcessEndpoints.LegacySharedDbAppUrls);
+
+        await DockerMemoryPreflight.EnsureAdequateAsync(CancellationToken.None).ConfigureAwait(false);
+        ScyllaRackDcMountPaths.VerifyAllPresent(TestBenchCoordinator.ResolveRepoRoot());
 
         // Raise fs.aio-max-nr session-wide (this fixture + optional MultiNodeScyllaFixture)
         // before any Scylla node starts; MultiNode re-asserts and short-circuits via cache.
@@ -393,11 +408,12 @@ public sealed class SharedDbFixture : AspireFixture<AppHost::Projects.Interfold_
             var completed = await Task.WhenAny(readyTask, failedTask).ConfigureAwait(false);
             if (completed == failedTask)
             {
-                // Observe first so any carried exception surfaces, then throw a domain error.
                 await failedTask.ConfigureAwait(false);
-                throw new InvalidOperationException(
-                    $"Aspire resource '{resourceName}' entered FailedToStart before reaching Running. " +
-                    "Check the AppHost container logs for the underlying error.");
+                var repoRoot = TestBenchCoordinator.ResolveRepoRoot();
+                var detail = await AspireResourceFailureDiagnostics
+                    .DescribeAsync(resourceName, repoRoot, outerCancellationToken)
+                    .ConfigureAwait(false);
+                throw new InvalidOperationException(detail);
             }
 
             await readyTask.ConfigureAwait(false);

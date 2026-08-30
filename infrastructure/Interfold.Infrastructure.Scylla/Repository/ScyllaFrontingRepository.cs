@@ -243,7 +243,7 @@ public sealed class ScyllaFrontingRepository : IFrontingRepository
 
             var visibilityByAlterId = securityRows.ToDictionary(
                 row => new AlterId(row.GetValue<short>("id")),
-                row => row.GetValue<short?>("security_level").FromCode<VisibilityLevel>());
+                row => row.GetValue<short?>("security_level").FromStorage());
 
             var filtered = all
                 .Where(front => visibilityByAlterId.TryGetValue(front.Alter.Id, out var level) && level.CanBeViewedBy(friendshipLevel))

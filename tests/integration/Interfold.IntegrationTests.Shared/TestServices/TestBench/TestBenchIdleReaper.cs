@@ -91,9 +91,8 @@ public static class TestBenchIdleReaper
     }
 }
 
-/// <summary>Fixed container names used by both the AppHost (via <c>WithContainerName</c> in
-/// bench mode) and the reaper (<c>docker rm -f</c>). Kept in one place so the two sides
-/// can never drift.</summary>
+/// <summary>Fixed container names for bench mode. Values match
+/// <c>Interfold.AppHost.TestBenchContainerNames</c> — keep in sync.</summary>
 public static class TestBenchContainerNames
 {
     public const string Postgres = "interfold-test-bench-pg";
@@ -102,3 +101,4 @@ public static class TestBenchContainerNames
 
     public static readonly IReadOnlyList<string> All = [Postgres, Scylla, Cassandra];
 }
+

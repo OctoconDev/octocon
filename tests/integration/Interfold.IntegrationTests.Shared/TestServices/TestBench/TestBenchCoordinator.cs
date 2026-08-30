@@ -1,7 +1,10 @@
+extern alias AppHost;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Reflection; // AssemblyMetadataAttribute; System.Reflection.Assembly is qualified inline (collides with TUnit.HookType.Assembly).
+using AppHostRepoPaths = AppHost::Interfold.AppHost.AppHostRepoPaths;
+using AspireResourceFailureDiagnostics = AppHost::Interfold.AppHost.AspireResourceFailureDiagnostics;
 using Interfold.Shared.Contracts.Configuration;
 
 namespace Interfold.IntegrationTests.Shared.TestServices.TestBench;
@@ -48,10 +51,14 @@ public static class TestBenchCoordinator
     /// can trust the numbers without discovery.</summary>
     private static readonly BenchPorts DefaultPorts = new();
 
-    private static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(60);
+    /// <summary>Brief state mutations (attach / detach / claim launcher). Must stay short —
+    /// long work (AppHost launch, migrations) runs outside the lock so parallel test
+    /// assemblies on a high-core machine don't burn the wait budget.</summary>
+    private static readonly TimeSpan LockTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ApplyOnceLockTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan LauncherTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan PortProbeTimeout = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan PortPollInterval = TimeSpan.FromMilliseconds(500);
 
     /// <summary>Returns true when the current test host is opted in. Env-var override wins,
     /// otherwise the compile-time <see cref="OptInAssemblyMetadataKey"/> attribute on the
@@ -106,51 +113,187 @@ public static class TestBenchCoordinator
 
     /// <summary>Ensures the bench containers are running and returns connection info. May
     /// spawn a detached AppHost process on cold-boot. Cross-process safe.</summary>
+    /// <remarks>
+    /// The advisory lock is held only for short state mutations. AppHost launch runs
+    /// outside the lock: a <see cref="TestBenchLeaseState.Launching"/> marker elects a
+    /// single launcher while peers poll ports (and re-elect if the launcher dies or clears
+    /// the marker). Holding the lock across launch was the failure mode on high-core
+    /// <c>dotnet test</c> runs (60s waiters vs multi-minute boot).
+    /// </remarks>
     public static async Task<BenchConnectionInfo> EnsureRunningAsync(CancellationToken ct)
     {
-        using var _ = await TestBenchLease.AcquireAsync(LockTimeout, ct).ConfigureAwait(false);
+        var ports = DefaultPorts;
+        var deadline = DateTime.UtcNow + LauncherTimeout;
+        var launchedThisCall = false;
 
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException(
+                    $"Timed out after {LauncherTimeout.TotalMinutes:0} minutes waiting for the test-bench " +
+                    $"(pg={ports.Postgres}, scylla={ports.Scylla}, cassandra={ports.Cassandra}).");
+            }
+
+            bool shouldLaunch;
+            using (await TestBenchLease.AcquireAsync(LockTimeout, ct).ConfigureAwait(false))
+            {
+                var state = TestBenchLease.ReadState();
+                state.Users = TestBenchLease.PruneStale(state.Users);
+                if (state.Launching is { } launching && !TestBenchLease.IsAlive(launching))
+                    state.Launching = null;
+
+                if (await TestBenchIdleReaper.RunIfIdleAsync(state, ct).ConfigureAwait(false))
+                    state = new TestBenchLeaseState();
+
+                ports = state.Ports ?? DefaultPorts;
+
+                if (await ArePortsHotAsync(ports, ct).ConfigureAwait(false))
+                {
+                    state.Ports = ports;
+                    state.Launching = null;
+                    state.LastAttachUtc = DateTime.UtcNow;
+                    state.Users.Add(TestBenchLease.CurrentUser());
+                    TestBenchLease.WriteState(state);
+                    return BuildConnectionInfo(ports);
+                }
+
+                shouldLaunch = state.Launching is null;
+                if (shouldLaunch)
+                {
+                    state.Launching = TestBenchLease.CurrentUser("test-bench-launcher");
+                    state.Ports = ports;
+                    TestBenchLease.WriteState(state);
+                }
+                else
+                {
+                    TestBenchLease.WriteState(state);
+                }
+            }
+
+            if (shouldLaunch)
+            {
+                Console.WriteLine("[test-bench] cold ports; launching AppHost to boot containers");
+                try
+                {
+                    await DockerMemoryPreflight.EnsureAdequateAsync(ct).ConfigureAwait(false);
+                    ScyllaRackDcMountPaths.VerifyAllPresent(ResolveRepoRoot());
+                    await LaunchAppHostAsync(ports, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    await ClearLaunchingMarkerAsync(CancellationToken.None).ConfigureAwait(false);
+                    throw;
+                }
+
+                launchedThisCall = true;
+                break;
+            }
+
+            Console.WriteLine("[test-bench] cold ports; waiting for peer AppHost launcher");
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                continue;
+
+            var peerOutcome = await WaitForPortsOrLauncherAbandonedAsync(ports, remaining, ct).ConfigureAwait(false);
+            if (peerOutcome == PeerWaitOutcome.PortsHot)
+                break;
+
+            Console.WriteLine("[test-bench] peer launcher abandoned; retrying claim");
+        }
+
+        return await FinishAttachAsync(ports, wipeMigrations: launchedThisCall, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<BenchConnectionInfo> FinishAttachAsync(
+        BenchPorts ports, bool wipeMigrations, CancellationToken ct)
+    {
+        using var _ = await TestBenchLease.AcquireAsync(LockTimeout, ct).ConfigureAwait(false);
         var state = TestBenchLease.ReadState();
         state.Users = TestBenchLease.PruneStale(state.Users);
 
-        // Reaper first: if the bench has aged out with nobody attached, tear it down
-        // and continue as if we were cold-booting.
-        if (await TestBenchIdleReaper.RunIfIdleAsync(state, ct).ConfigureAwait(false))
+        if (!await ArePortsHotAsync(ports, ct).ConfigureAwait(false))
         {
-            state = new TestBenchLeaseState();
+            state.Launching = null;
+            TestBenchLease.WriteState(state);
+            throw new TimeoutException(
+                $"Test-bench ports (pg={ports.Postgres}, scylla={ports.Scylla}, cassandra={ports.Cassandra}) " +
+                "were not accepting connections after AppHost launch / peer wait.");
         }
 
-        var ports = state.Ports ?? DefaultPorts;
-
-        var hot = await ArePortsHotAsync(ports, ct).ConfigureAwait(false);
-        if (!hot)
-        {
-            Console.WriteLine("[test-bench] cold ports; launching AppHost to boot containers");
-            await LaunchAppHostAsync(ports, ct).ConfigureAwait(false);
-            // Fresh containers → any recorded migration state is stale. Clearing here
-            // means the first project to attach will re-run migrations against the new
-            // volumes; all subsequent attaches skip via `TryClaimMigrationAsync` below.
+        // Fresh containers → recorded migration markers are stale.
+        if (wipeMigrations)
             state.MigrationsApplied.Clear();
-        }
 
         state.Ports = ports;
+        state.Launching = null;
         state.LastAttachUtc = DateTime.UtcNow;
         state.Users.Add(TestBenchLease.CurrentUser());
         TestBenchLease.WriteState(state);
-
         return BuildConnectionInfo(ports);
+    }
+
+    private enum PeerWaitOutcome
+    {
+        PortsHot,
+        LauncherAbandoned,
+    }
+
+    /// <summary>Peer wait: ports becoming hot wins; a cleared/dead <c>Launching</c> marker
+    /// means we should loop and try to claim the launcher role ourselves.</summary>
+    private static async Task<PeerWaitOutcome> WaitForPortsOrLauncherAbandonedAsync(
+        BenchPorts ports, TimeSpan timeout, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (await ArePortsHotAsync(ports, ct).ConfigureAwait(false))
+                return PeerWaitOutcome.PortsHot;
+
+            var state = TestBenchLease.ReadState();
+            if (state.Launching is null
+                || !TestBenchLease.IsAlive(state.Launching))
+            {
+                return PeerWaitOutcome.LauncherAbandoned;
+            }
+
+            await Task.Delay(PortPollInterval, ct).ConfigureAwait(false);
+        }
+
+        throw new TimeoutException(
+            $"Timed out waiting {timeout.TotalMinutes:0.##} minutes for test-bench ports " +
+            $"(pg={ports.Postgres}, scylla={ports.Scylla}, cassandra={ports.Cassandra}) " +
+            "after a peer claimed the AppHost launcher role.");
+    }
+
+    private static async Task ClearLaunchingMarkerAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var _ = await TestBenchLease.AcquireAsync(LockTimeout, ct).ConfigureAwait(false);
+            var state = TestBenchLease.ReadState();
+            state.Launching = null;
+            TestBenchLease.WriteState(state);
+        }
+        catch
+        {
+            // Best-effort — a stuck marker is cleared by IsAlive prune on the next attach.
+        }
     }
 
     /// <summary>Cross-process one-shot for idempotent bench-setup work (DB migrations,
     /// keyspace seeds, etc.). The delegate is invoked exactly once per bench-lifetime;
-    /// concurrent callers block on the file lock, then observe the completed marker and
-    /// return without running the delegate.</summary>
+    /// concurrent callers elect a single worker, then poll the completed marker.</summary>
     /// <remarks>
-    /// The whole delegate runs while the file lock is held so concurrent
-    /// <see cref="MigrationLedgerTests"/> in <c>Interfold.Infrastructure.IntegrationTests</c>
-    /// can't race a peer project's <see cref="SharedDbFixture"/> initial migration pass —
-    /// see <c>docs/test-bench-audit.md</c>. Bump <see cref="ApplyOnceLockTimeout"/> if a
-    /// migration ever grows past a few minutes.
+    /// The file lock is held only for claim / complete mutations — never across
+    /// <paramref name="work"/>. Scylla/Cassandra seed+migrate can run for minutes; holding
+    /// <c>bench.lock</c> that long caused peer assemblies to hit
+    /// <see cref="ApplyOnceLockTimeout"/> while waiting to attach. Exclusion for
+    /// non-concurrency-safe seeds (e.g. <c>CREATE DATABASE</c>) comes from
+    /// <see cref="TestBenchLeaseState.MigrationsInProgress"/>, same pattern as
+    /// <see cref="TestBenchLeaseState.Launching"/>.
     /// </remarks>
     public static async Task ApplyOnceAsync(string key, Func<Task> work, CancellationToken ct)
     {
@@ -160,16 +303,95 @@ public static class TestBenchCoordinator
             return;
         }
 
-        using var _ = await TestBenchLease.AcquireAsync(ApplyOnceLockTimeout, ct).ConfigureAwait(false);
+        var deadline = DateTime.UtcNow + ApplyOnceLockTimeout;
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new TimeoutException(
+                    $"Timed out waiting {ApplyOnceLockTimeout.TotalMinutes:0} minutes for " +
+                    $"test-bench ApplyOnce key '{key}' (peer migration still in progress or abandoned).");
+            }
+
+            var lockWait = remaining < LockTimeout ? remaining : LockTimeout;
+            var claim = await TryClaimApplyOnceAsync(key, lockWait, ct).ConfigureAwait(false);
+            if (claim == ApplyOnceClaim.AlreadyDone)
+                return;
+
+            if (claim == ApplyOnceClaim.PeerRunning)
+            {
+                await Task.Delay(PortPollInterval, ct).ConfigureAwait(false);
+                var snap = TestBenchLease.ReadState();
+                if (snap.MigrationsApplied.TryGetValue(key, out var done) && done)
+                    return;
+                continue;
+            }
+
+            try
+            {
+                await work().ConfigureAwait(false);
+                await CompleteApplyOnceAsync(key, ct).ConfigureAwait(false);
+                return;
+            }
+            catch
+            {
+                await ClearApplyOnceClaimAsync(key, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
+    }
+
+    private enum ApplyOnceClaim
+    {
+        AlreadyDone,
+        PeerRunning,
+        Claimed,
+    }
+
+    private static async Task<ApplyOnceClaim> TryClaimApplyOnceAsync(
+        string key, TimeSpan lockTimeout, CancellationToken ct)
+    {
+        using var _ = await TestBenchLease.AcquireAsync(lockTimeout, ct).ConfigureAwait(false);
         var state = TestBenchLease.ReadState();
         if (state.MigrationsApplied.TryGetValue(key, out var applied) && applied)
-            return;
+            return ApplyOnceClaim.AlreadyDone;
 
-        await work().ConfigureAwait(false);
+        if (state.MigrationsInProgress.TryGetValue(key, out var worker)
+            && TestBenchLease.IsAlive(worker))
+        {
+            return ApplyOnceClaim.PeerRunning;
+        }
 
+        state.MigrationsInProgress[key] = TestBenchLease.CurrentUser($"apply-once:{key}");
+        TestBenchLease.WriteState(state);
+        return ApplyOnceClaim.Claimed;
+    }
+
+    private static async Task CompleteApplyOnceAsync(string key, CancellationToken ct)
+    {
+        using var _ = await TestBenchLease.AcquireAsync(LockTimeout, ct).ConfigureAwait(false);
+        var state = TestBenchLease.ReadState();
         state.MigrationsApplied[key] = true;
+        state.MigrationsInProgress.Remove(key);
         state.LastAttachUtc = DateTime.UtcNow;
         TestBenchLease.WriteState(state);
+    }
+
+    private static async Task ClearApplyOnceClaimAsync(string key, CancellationToken ct)
+    {
+        try
+        {
+            using var _ = await TestBenchLease.AcquireAsync(LockTimeout, ct).ConfigureAwait(false);
+            var state = TestBenchLease.ReadState();
+            state.MigrationsInProgress.Remove(key);
+            TestBenchLease.WriteState(state);
+        }
+        catch
+        {
+            // Best-effort — a stuck claim is cleared by IsAlive prune on the next claim.
+        }
     }
 
     /// <summary>Removes the current process from the lease's users list. Never throws;
@@ -258,12 +480,24 @@ public static class TestBenchCoordinator
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        // Skip launchSettings.json — it pins ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL=22223
+        // (and AppHost Kestrel URLs) that collide with Infrastructure's legacy AspireFixture
+        // when both run under a parallel `dotnet test`. `--no-build` avoids a rebuild race
+        // while peer test assemblies hold AppHost output DLLs open.
         psi.ArgumentList.Add("run");
+        psi.ArgumentList.Add("--no-launch-profile");
+        psi.ArgumentList.Add("--no-build");
         psi.ArgumentList.Add("--project");
         psi.ArgumentList.Add(appHostCsproj);
         psi.ArgumentList.Add("--");
         foreach (var arg in BuildAppHostConfigArgs(ports))
             psi.ArgumentList.Add(arg);
+
+        AspireProcessEndpoints.ApplyTo(
+            psi,
+            AspireProcessEndpoints.BenchResourceService,
+            AspireProcessEndpoints.BenchOtlp,
+            AspireProcessEndpoints.BenchAppUrls);
 
         using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -298,9 +532,10 @@ public static class TestBenchCoordinator
             if (completed == exitTask)
             {
                 await exitTask.ConfigureAwait(false);
+                var detail = await EnrichLaunchFailureAsync(stderrBuf.ToString(), ct).ConfigureAwait(false);
                 throw new InvalidOperationException(
                     $"Test-bench AppHost exited (code={proc.ExitCode}) before emitting '{ReadyLinePrefix}'. " +
-                    $"stderr:{Environment.NewLine}{stderrBuf}");
+                    $"stderr:{Environment.NewLine}{detail}");
             }
             await readyTcs.Task.ConfigureAwait(false);
 
@@ -320,10 +555,28 @@ public static class TestBenchCoordinator
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             try { proc.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+            var detail = await EnrichLaunchFailureAsync(stderrBuf.ToString(), ct).ConfigureAwait(false);
             throw new TimeoutException(
                 $"Test-bench AppHost did not emit '{ReadyLinePrefix}' within {LauncherTimeout.TotalMinutes:0} minutes. " +
-                $"stderr:{Environment.NewLine}{stderrBuf}");
+                $"stderr:{Environment.NewLine}{detail}");
         }
+    }
+
+    private static async Task<string> EnrichLaunchFailureAsync(string stderr, CancellationToken ct)
+    {
+        if (stderr.Contains("ready-emitter failed", StringComparison.OrdinalIgnoreCase)
+            && stderr.Contains("scylla", StringComparison.OrdinalIgnoreCase))
+        {
+            var repoRoot = ResolveRepoRoot();
+            var diagnosis = await AspireResourceFailureDiagnostics
+                .DescribeAsync("scylla", repoRoot, ct)
+                .ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(stderr)
+                ? diagnosis
+                : stderr.TrimEnd() + Environment.NewLine + diagnosis;
+        }
+
+        return stderr;
     }
 
     private static IEnumerable<string> BuildAppHostConfigArgs(BenchPorts ports)
@@ -352,21 +605,5 @@ public static class TestBenchCoordinator
         yield return $"--{AppHostParameterKeys.EncryptionPrivateKey}=TEST";
     }
 
-    /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> until it finds
-    /// <c>Interfold.slnx</c>. Every test host runs out of a
-    /// <c>tests/{unit|integration}/&lt;Project&gt;/bin/&lt;Cfg&gt;/net10.0/</c> layout that
-    /// sits somewhere beneath the repo root, so the walk always terminates.</summary>
-    public static string ResolveRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "Interfold.slnx")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new InvalidOperationException(
-            $"Could not locate 'Interfold.slnx' walking up from '{AppContext.BaseDirectory}'. " +
-            "The test-bench launcher needs the repo root to spawn hosts/Interfold.AppHost.");
-    }
+    public static string ResolveRepoRoot() => AppHostRepoPaths.ResolveRepoRoot();
 }

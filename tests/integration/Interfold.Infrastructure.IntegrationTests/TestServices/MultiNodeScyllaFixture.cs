@@ -55,6 +55,13 @@ public sealed class MultiNodeScyllaFixture : AspireFixture<AppHost::Projects.Int
 
     public override async Task InitializeAsync()
     {
+        // Distinct Aspire endpoints from SharedDbFixture (legacy) and the test-bench launcher
+        // — this host runs in-process beside SharedDb and must not rebinding 24223/23223.
+        AspireProcessEndpoints.ApplyToCurrentProcess(
+            AspireProcessEndpoints.MultiNodeResourceService,
+            AspireProcessEndpoints.MultiNodeOtlp,
+            AspireProcessEndpoints.MultiNodeAppUrls);
+
         // Raise fs.aio-max-nr session-wide before any Scylla node starts; without it the
         // 3rd container onwards fails seastar AIO init and the cluster stalls at 2 nodes.
         await HostAioPrerequisite

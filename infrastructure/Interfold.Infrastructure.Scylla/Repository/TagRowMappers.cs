@@ -1,7 +1,7 @@
 using Cassandra;
 using Interfold.Alters.Contracts.Models;
-using Interfold.Shared.Contracts.Enums;
 using Interfold.Shared.Contracts.Ids;
+using Interfold.Shared.Contracts.Models;
 using Interfold.Tags.Contracts.Ids;
 using Interfold.Tags.Contracts.Models.Read;
 
@@ -20,7 +20,7 @@ internal static class TagRowMappers
             alterIds,
             row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
             row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-            row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
+            row.GetValue<short?>("security_level").FromStorage(),
             new(row.GetValue<string>("user_id"))
         );
     }
@@ -36,7 +36,7 @@ internal static class TagRowMappers
             alters,
             row.GetValue<DateTimeOffset>("inserted_at").UtcDateTime,
             row.GetValue<DateTimeOffset>("updated_at").UtcDateTime,
-            row.GetValue<short?>("security_level").FromCode<VisibilityLevel>(),
+            row.GetValue<short?>("security_level").FromStorage(),
             new(row.GetValue<string>("user_id"))
         );
     }

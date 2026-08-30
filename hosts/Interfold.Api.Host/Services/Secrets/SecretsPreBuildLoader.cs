@@ -11,8 +11,8 @@ namespace Interfold.Api.Host.Services.Secrets;
 /// <c>WebApplicationBuilder.Build()</c>. Postgres branch: batched read on a bare Npgsql
 /// connection (ISecretsStore isn't built yet). InMemory branch: reads
 /// <c>OCTOCON_INMEMORY_SECRETS_SEED:*</c> env vars. Rewrites the pg connection string
-/// via <see cref="WithDedicatedPoolIdentity"/> so parallel factory builds don't contend
-/// with the fixture's pinned 5-slot app pool.</summary>
+/// via <see cref="WithDedicatedPoolIdentity"/> so parallel factory builds reuse a
+/// dedicated pool instead of the fixture's pinned 5-slot app pool.</summary>
 internal static class SecretsPreBuildLoader
 {
     // Every row read by AuthenticationSecretsPostConfigure /
@@ -85,6 +85,7 @@ internal static class SecretsPreBuildLoader
     {
         var rows = new Dictionary<string, string?>(StringComparer.Ordinal);
         var loaderConn = WithDedicatedPoolIdentity(pgConn);
+        LoaderGate.Wait();
         try
         {
             using var conn = new NpgsqlConnection(loaderConn);
@@ -112,6 +113,13 @@ internal static class SecretsPreBuildLoader
                 "Failed to fetch startup secrets from internal.secrets. Ensure Postgres is " +
                 "reachable at startup and that DatabaseInitPhase has seeded the required rows.", ex);
         }
+        finally
+        {
+            // Release only after Dispose has returned the physical connection to the pool,
+            // otherwise the next waiter can Open() while this checkout is still live and
+            // trip MaxPoolSize.
+            LoaderGate.Release();
+        }
 
         return rows;
     }
@@ -119,20 +127,26 @@ internal static class SecretsPreBuildLoader
     // Distinct application_name → own Npgsql pool identity and easier pg_stat_activity triage.
     internal const string LoaderApplicationName = "octocon-secrets-preload";
 
-    // Caps footprint at 10; with the fixture's 5-slot app pool we stay well under
-    // default max_connections=100.
+    // Caps in-flight loader checkouts. Matched by LoaderGate so TUnit parallel factory
+    // builds queue instead of exhausting the pool (Npgsql's default 15s wait then throws).
     internal const int LoaderMaxPoolSize = 10;
 
-    /// <summary>Rewrites <paramref name="pgConn"/> to route through a dedicated Npgsql pool
+    // Open/checkout wait under a contended shared Postgres (solution-wide `dotnet test`).
+    internal const int LoaderTimeoutSeconds = 60;
+
+    private static readonly SemaphoreSlim LoaderGate = new(LoaderMaxPoolSize, LoaderMaxPoolSize);
+
+    /// <summary>Rewrites <paramref name="pgConn"/> onto a dedicated pooled identity
     /// (distinct <c>Application Name</c>, bounded <c>Maximum Pool Size</c>). Overwrite is
-    /// intentional — pre-existing values would defeat the isolation.</summary>
+    /// intentional — a fixture <c>Maximum Pool Size=5</c> would otherwise be inherited
+    /// and the loader would contend with the app pool.</summary>
     internal static string WithDedicatedPoolIdentity(string pgConn)
     {
         var builder = new NpgsqlConnectionStringBuilder(pgConn)
         {
             ApplicationName = LoaderApplicationName,
             MaxPoolSize = LoaderMaxPoolSize,
-            // Explicit so a future Npgsql default flip can't silently strand us pool-less.
+            Timeout = LoaderTimeoutSeconds,
             Pooling = true,
         };
         return builder.ConnectionString;
